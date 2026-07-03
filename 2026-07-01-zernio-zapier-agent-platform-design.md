@@ -350,7 +350,6 @@ Examples:
 | Creator | Solo no-code user | $19 | 1 | 3,000 | Content scheduling + AI templates |
 | Growth | SMB team | $49 | 10 | 10,000 | Team workflows + approvals |
 | Agency | Multi-client ops | $149 | 30 | 50,000 | Workspaces + client reports |
-| Enterprise | IT governed | Custom | Custom | Custom | SSO/SCIM/log streaming/BYOM |
 
 Overage draft:
 
