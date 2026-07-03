@@ -1,7 +1,7 @@
 # AI Agent Automation Platform Product Architecture — Draft v0.1
 
 > Date: 2026-07-01  
-> Working name: **Zerflow AI**（临时名：Zernio social automation base + Zapier-style task automation + AI agent governance）  
+> Working name: **Piggybot**（临时名：Zernio social automation base + Zapier-style task automation + AI agent governance）  
 > Method: Superpowers-style spec-first workflow：竞品观察 → 产品假设 → 架构设计 → MVP 路线；进入工程实现前仍需确认 MVP 优先级与技术栈。
 
 ---
@@ -346,10 +346,10 @@ Examples:
 
 | Plan | Target user | Monthly price | Included accounts | Included tasks | Notes |
 |---|---:|---:|---:|---:|---|
-| Free | Trial / creator | $0 | 2 | 100 | Zernio-style free entry |
-| Creator | Solo no-code user | $19 | 5 | 1,500 | Content scheduling + AI templates |
-| Growth | SMB team | $49 | 15 | 10,000 | Team workflows + approvals |
-| Agency | Multi-client ops | $149 | 50 | 50,000 | Workspaces + client reports |
+| Free | Trial / creator | $0 | 1 | 100 | Zernio-style free entry |
+| Creator | Solo no-code user | $19 | 1 | 3,000 | Content scheduling + AI templates |
+| Growth | SMB team | $49 | 10 | 10,000 | Team workflows + approvals |
+| Agency | Multi-client ops | $149 | 30 | 50,000 | Workspaces + client reports |
 | Enterprise | IT governed | Custom | Custom | Custom | SSO/SCIM/log streaming/BYOM |
 
 Overage draft:
