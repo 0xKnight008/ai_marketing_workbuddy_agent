@@ -617,19 +617,19 @@ AI-Runtime 可以在执行时使用这些上下文，但不把长期记忆持久
 ## 12. 待确认问题
 
 1. MVP 阶段，`run-service` 是否直接调用 Mastra 原生 route，还是 `ai-runtime` 从第一天就暴露业务友好的内部 route？
-   先调用原生的.
+   - 先调用原生的.
 2. AI-Runtime 是否只生成 action plan，还是可以生成多步骤 execution plan，由 Run Service 解释执行？
-   要有多步骤execution plan. Run service我的理解是作为full task的总调度角色，拆解long task into mini-task to ai-runtime, 且审核runtime 返回结果approve后才进行下一步操作
+   - 要有多步骤execution plan. Run service我的理解是作为full task的总调度角色，拆解long task into mini-task to ai-runtime, 且审核runtime 返回结果approve后才进行下一步操作
 3. Run Service 是否从第一天就拥有 queue，还是先同步调用 AI-Runtime，等 workflow 变长后再引入 queue？
-   等workflow 变长后再queue.
+   - 等workflow 变长后再queue.
 4. AI-Runtime 生产环境用什么 storage adapter 保存共享 run state？
-   考虑加入类似Ethereum 状态树的存储逻辑来记录task event state,因为平台上基于每个task做loop优化，并且也是基于task收费的
+   - 考虑加入类似Ethereum 状态树的存储逻辑来记录task event state,因为平台上基于每个task做loop优化，并且也是基于task收费的
 5. Mastra Studio 只指向 staging，还是 production 也开放但加强鉴权？
-   staging
+   - staging
 6. Connector Service 在 MVP 阶段由 Run Service 同步调用，还是所有副作用动作都先进入 queue？
-   可允许多队列的task就同步调用
+   - 可允许多队列的task就同步调用
 7. Gateway 是否持久化 denormalized connected-account view，还是每次都从 Connector Service 读取？
-   持久化是为了快速启动？每次读取的延时是否可忽略？持久化的开销是多少？
+   - 持久化是为了快速启动？每次读取的延时是否可忽略？持久化的开销是多少？
 ## 13. 当前共识
 
 当前假设方向：
