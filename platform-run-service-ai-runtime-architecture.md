@@ -114,6 +114,9 @@ Gateway 不拥有：
   - YouTube
   - LinkedIn
   - X
+  - Discord
+  - Telegram
+  - Rednote
 - 维护平台能力矩阵。
 - 执行确定性的社交动作，例如 publish、schedule、retry、status lookup。
 - 校验 workspace 范围内的账号归属和 connector 权限。
