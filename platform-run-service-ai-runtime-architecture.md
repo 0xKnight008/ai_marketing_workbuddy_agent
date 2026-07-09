@@ -163,7 +163,7 @@ Run Service 拥有：
 - `RunStep`
 - `RunEvent`
 - `ApprovalRequest`
-- `TaskEvent`
+- `TaskEvent` (考虑加入类似Ethereum 状态树的存储逻辑来记录task event state,因为平台上基于每个task做loop优化，并且也是基于task收费的）
 - `AIRuntimeRunMapping`
 
 Run Service 不拥有：
