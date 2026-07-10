@@ -115,6 +115,7 @@ Gateway 不拥有：
   - LinkedIn
   - X
   - Discord
+  - Reddit
   - Substack
   - Telegram
   - Rednote
