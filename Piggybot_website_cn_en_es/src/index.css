@@ -1,0 +1,235 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Ghibli palette (HSL) */
+    --background: 45 76% 94%;          /* warm cream paper */
+    --foreground: 27 24% 22%;          /* warm ink brown */
+    --card: 45 80% 96%;
+    --card-foreground: 27 24% 22%;
+    --popover: 45 80% 96%;
+    --popover-foreground: 27 24% 22%;
+    --primary: 16 72% 55%;             /* terracotta sunset */
+    --primary-foreground: 45 80% 96%;
+    --secondary: 93 32% 55%;           /* meadow green */
+    --secondary-foreground: 45 80% 97%;
+    --muted: 43 40% 88%;
+    --muted-foreground: 28 15% 42%;
+    --accent: 197 58% 72%;             /* ghibli sky */
+    --accent-foreground: 27 24% 22%;
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 30 20% 78%;
+    --input: 30 20% 78%;
+    --ring: 16 72% 55%;
+    --radius: 1.25rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: "Nunito", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  ::selection {
+    background: #f4c95d;
+    color: #4a3f35;
+  }
+}
+
+@layer utilities {
+  /* ---------- Typography ---------- */
+  .font-display {
+    font-family: "ZCOOL KuaiLe", "Nunito", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .font-hand {
+    font-family: "Caveat", "ZCOOL KuaiLe", cursive;
+  }
+
+  /* ---------- Hand-drawn shapes ---------- */
+  .wobble {
+    border-radius: 255px 18px 225px 18px / 18px 225px 18px 255px;
+  }
+  .wobble-2 {
+    border-radius: 18px 225px 18px 255px / 255px 18px 225px 18px;
+  }
+  .wobble-3 {
+    border-radius: 225px 25px 255px 25px / 25px 255px 25px 225px;
+  }
+  .blob {
+    border-radius: 58% 42% 55% 45% / 48% 55% 45% 52%;
+  }
+  .blob-2 {
+    border-radius: 45% 55% 48% 52% / 55% 45% 58% 42%;
+  }
+
+  .sketch {
+    border: 2.5px solid #4a3f35;
+  }
+  .sketch-soft {
+    border: 2px solid rgba(74, 63, 53, 0.55);
+  }
+  .sketch-dash {
+    border: 2px dashed rgba(74, 63, 53, 0.45);
+  }
+
+  /* ---------- Painterly shadows ---------- */
+  .shadow-paint {
+    box-shadow: 0 1px 0 rgba(74, 63, 53, 0.25), 4px 6px 0 rgba(74, 63, 53, 0.16);
+  }
+  .shadow-paint-lg {
+    box-shadow: 0 2px 0 rgba(74, 63, 53, 0.2), 8px 12px 0 rgba(74, 63, 53, 0.14);
+  }
+  .shadow-paint-sm {
+    box-shadow: 2px 3px 0 rgba(74, 63, 53, 0.15);
+  }
+  .shadow-soft {
+    box-shadow: 0 18px 40px -18px rgba(74, 63, 53, 0.35);
+  }
+
+  /* ---------- Paper grain ---------- */
+  .paper-grain {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+  }
+
+  /* ---------- Washi tape ---------- */
+  .tape {
+    position: relative;
+  }
+  .tape::before {
+    content: "";
+    position: absolute;
+    top: -12px;
+    left: 50%;
+    transform: translateX(-50%) rotate(-3deg);
+    width: 96px;
+    height: 26px;
+    background: rgba(244, 201, 93, 0.75);
+    border-left: 2px dashed rgba(74, 63, 53, 0.25);
+    border-right: 2px dashed rgba(74, 63, 53, 0.25);
+    border-radius: 3px;
+    box-shadow: 0 2px 4px rgba(74, 63, 53, 0.12);
+  }
+
+  /* ---------- Brush stroke title underline ---------- */
+  .brush-underline {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 14' preserveAspectRatio='none'%3E%3Cpath d='M3 10 C 40 4, 80 12, 118 7 S 175 4, 197 9' fill='none' stroke='%23f4c95d' stroke-width='6' stroke-linecap='round' opacity='0.85'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: 0 100%;
+    background-size: 100% 0.45em;
+    padding-bottom: 0.18em;
+  }
+
+  /* ---------- Animations ---------- */
+  @keyframes drift {
+    from { transform: translateX(-15vw); }
+    to { transform: translateX(115vw); }
+  }
+  .anim-drift {
+    animation: drift linear infinite;
+  }
+
+  @keyframes floaty {
+    0%, 100% { transform: translateY(0) rotate(-1.5deg); }
+    50% { transform: translateY(-14px) rotate(1.5deg); }
+  }
+  .anim-floaty {
+    animation: floaty 6s ease-in-out infinite;
+  }
+  .anim-floaty-slow {
+    animation: floaty 9s ease-in-out infinite;
+  }
+
+  @keyframes sway {
+    0%, 100% { transform: rotate(-3deg); }
+    50% { transform: rotate(3deg); }
+  }
+  .anim-sway {
+    transform-origin: bottom center;
+    animation: sway 4.5s ease-in-out infinite;
+  }
+
+  @keyframes twinkle {
+    0%, 100% { opacity: 0.25; transform: scale(0.8); }
+    50% { opacity: 1; transform: scale(1.15); }
+  }
+  .anim-twinkle {
+    animation: twinkle 3s ease-in-out infinite;
+  }
+
+  @keyframes firefly {
+    0%, 100% { transform: translate(0, 0); opacity: 0.15; }
+    25% { opacity: 0.9; }
+    50% { transform: translate(18px, -26px); opacity: 0.3; }
+    75% { opacity: 1; }
+  }
+  .anim-firefly {
+    animation: firefly 7s ease-in-out infinite;
+  }
+
+  @keyframes bob-wing {
+    0%, 100% { transform: rotate(-14deg); }
+    50% { transform: rotate(16deg); }
+  }
+  .anim-wing {
+    transform-origin: center right;
+    animation: bob-wing 0.9s ease-in-out infinite;
+  }
+
+  @keyframes spin-slower {
+    to { transform: rotate(360deg); }
+  }
+  .anim-spin-slower {
+    animation: spin-slower 22s linear infinite;
+  }
+
+  @keyframes marquee {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+  .anim-marquee {
+    animation: marquee 38s linear infinite;
+  }
+
+  @keyframes leaf-fall {
+    0% { transform: translate(0, -8vh) rotate(0deg); opacity: 0; }
+    10% { opacity: 0.9; }
+    100% { transform: translate(6vw, 108vh) rotate(340deg); opacity: 0.2; }
+  }
+  .anim-leaf {
+    animation: leaf-fall linear infinite;
+  }
+
+  @keyframes pulse-soft {
+    0%, 100% { transform: scale(1); opacity: 0.75; }
+    50% { transform: scale(1.06); opacity: 1; }
+  }
+  .anim-pulse-soft {
+    animation: pulse-soft 3.2s ease-in-out infinite;
+  }
+}
+
+/* Thin cute scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #f5ebd3;
+}
+::-webkit-scrollbar-thumb {
+  background: #d8b98a;
+  border-radius: 99px;
+  border: 2px solid #f5ebd3;
+}
