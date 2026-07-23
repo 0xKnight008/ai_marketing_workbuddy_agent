@@ -113,11 +113,7 @@ export interface SiteContent {
     l2hi: string;
     tagline: string;
     sub: string;
-    emailLabel: string;
-    placeholder: string;
-    button: string;
-    buttonDone: string;
-    doneNote: string;
+    signupFormTitle: string;
     columns: { title: string; links: string[] }[];
     copyright: string;
     madeWith: string;
@@ -444,16 +440,11 @@ const zh: SiteContent = {
     l2hi: "值夜班",
     tagline: "your workbuddy never sleeps",
     sub: "留下邮箱，第一批搬进精灵村。全部计划均可 7 天免费试用，含 100 task 体验额度。",
-    emailLabel: "电子邮箱地址",
-    placeholder: "you@example.com",
-    button: "召唤精灵",
-    buttonDone: "已收到！",
-    doneNote: "精灵已经记住你了，很快捎信来！",
+    signupFormTitle: "Piggybot 订阅表单",
     columns: [
       { title: "产品", links: ["Flow Builder", "AI Copilot", "模板画廊", "统一收件箱", "用量仪表盘"] },
       { title: "场景", links: ["内容一变多", "评论变线索", "每周增长报告", "广告守护"] },
       { title: "资源", links: ["开发者 API", "MCP Server", "帮助中心", "更新日志"] },
-      { title: "公司", links: ["关于我们", "加入我们", "联系村长", "隐私政策"] },
     ],
     copyright: "© 2026 精灵村村委会 · piggybot.me",
     madeWith: "由爱与一缕吉卜力之风打造",
@@ -780,16 +771,11 @@ const en: SiteContent = {
     l2hi: "night shift",
     tagline: "your workbuddy never sleeps",
     sub: "Leave your email and be among the first to move into Sprite Village. Every plan starts with a 7-day free trial and 100 tasks.",
-    emailLabel: "Email address",
-    placeholder: "you@example.com",
-    button: "Summon sprites",
-    buttonDone: "Got it!",
-    doneNote: "The sprites have your note — a letter is on its way!",
+    signupFormTitle: "Piggybot sign-up form",
     columns: [
       { title: "Product", links: ["Flow Builder", "AI Copilot", "Template Gallery", "Unified Inbox", "Usage Dashboard"] },
       { title: "Playbooks", links: ["Repurpose everywhere", "Comments to leads", "Weekly growth report", "Ad guardian"] },
       { title: "Resources", links: ["Developer API", "MCP Server", "Help center", "Changelog"] },
-      { title: "Company", links: ["About us", "Careers", "Contact the mayor", "Privacy policy"] },
     ],
     copyright: "© 2026 Sprite Village Council · piggybot.me",
     madeWith: "built with ♥ and a little Ghibli wind",
@@ -1116,16 +1102,11 @@ const es: SiteContent = {
     l2hi: "a los duendes",
     tagline: "your workbuddy never sleeps",
     sub: "Deja tu email y sé de los primeros en mudarte a la aldea. Todos los planes empiezan con 7 días gratis y 100 tareas.",
-    emailLabel: "Dirección de correo electrónico",
-    placeholder: "tu@email.com",
-    button: "Invocar duendes",
-    buttonDone: "¡Recibido!",
-    doneNote: "¡Los duendes han tomado nota; pronto recibirás noticias!",
+    signupFormTitle: "Formulario de registro de Piggybot",
     columns: [
       { title: "Producto", links: ["Constructor de flujos", "Copilot de IA", "Galería de plantillas", "Bandeja unificada", "Panel de uso"] },
       { title: "Guías", links: ["Un post en todas partes", "Comentarios en leads", "Informe semanal", "Guardián de anuncios"] },
       { title: "Recursos", links: ["API para desarrolladores", "Servidor MCP", "Centro de ayuda", "Novedades"] },
-      { title: "Compañía", links: ["Sobre nosotros", "Únete al equipo", "Contacta al alcalde", "Privacidad"] },
     ],
     copyright: "© 2026 Consejo de la Aldea · piggybot.me",
     madeWith: "creado con ♥ y un poco de viento Ghibli",
