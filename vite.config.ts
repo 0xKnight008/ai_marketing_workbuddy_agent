@@ -9,7 +9,8 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        zh: path.resolve(__dirname, "index.html"),
+        root: path.resolve(__dirname, "index.html"),
+        zh: path.resolve(__dirname, "zh/index.html"),
         en: path.resolve(__dirname, "en/index.html"),
         es: path.resolve(__dirname, "es/index.html"),
       },

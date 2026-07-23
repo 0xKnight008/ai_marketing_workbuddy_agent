@@ -13,8 +13,10 @@ const LANGS: { code: Lang; label: string }[] = [
 /** 相对路径跳转，兼容任意部署子路径（含 /en /es 子目录） */
 function langHref(current: Lang, target: Lang): string {
   if (current === target) return "#top";
-  if (current === "zh") return `./${target}/`;
-  return target === "zh" ? "../" : `../${target}/`;
+  const segs = window.location.pathname.split("/").filter(Boolean);
+  const isLocalePath = segs.some((segment) => segment === "zh" || segment === "en" || segment === "es");
+  if (target === "en") return isLocalePath ? "../" : "#top";
+  return isLocalePath ? `../${target}/` : `./${target}/`;
 }
 
 export function Nav() {
