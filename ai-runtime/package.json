@@ -1,0 +1,30 @@
+{
+  "name": "piggybot-ai-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Piggybot AI-Runtime — Mastra-based AI execution plane (workflows / agents / structured action plans)",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "mastra dev",
+    "build": "mastra build",
+    "start": "mastra start",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@libsql/client": "0.15.15",
+    "@mastra/core": "1.4.0",
+    "@mastra/libsql": "1.0.0",
+    "@mastra/loggers": "1.0.0",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.0",
+    "mastra": "1.4.0",
+    "tsx": "4.19.0",
+    "typescript": "5.7.3"
+  }
+}
