@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: piggybot
+      POSTGRES_USER: piggybot
+      POSTGRES_PASSWORD: piggybot
+    ports:
+      - "5432:5432"
+    volumes:
+      - piggybot-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U piggybot -d piggybot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  piggybot-postgres:
