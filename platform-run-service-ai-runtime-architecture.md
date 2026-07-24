@@ -1,6 +1,8 @@
-# 平台 Run Service + AI-Runtime 架构说明 — Draft v0.2
+# 平台 Run Service + AI-Runtime 架构说明 — MVP Contract v0.3
 
 > 目标：明确平台级营销自动化系统的服务边界。核心是把产品记忆、组织上下文、社交账号连接、任务生命周期、AI 执行这几类职责拆开，避免把状态、凭证和副作用动作混进 AI 执行层。
+>
+> Status: 已确认的 MVP contract。与产品范围对应的实现顺序见 `2026-07-01-zernio-zapier-agent-platform-design.md`。
 
 ## 1. 总体方向
 
@@ -17,6 +19,14 @@ ai-runtime
 核心原则：
 
 > Gateway 负责业务上下文。Connector Service 负责外部账号连接和确定性动作执行。Run Service 负责任务生命周期。AI-Runtime 负责 AI 规划和结构化生成。AI workflow / agent 可以消费上下文，但不拥有平台记忆、connector 凭证或用户数据。
+
+### 1.1 Confirmed implementation decisions
+
+1. **Gateway business API from day one:** 浏览器永不访问 Mastra 或 Connector Service；AI Runtime 只对 Run Service 暴露业务级内部 API。
+2. **Durable run model from day one:** MVP 使用 Postgres 的 Run/StepRun/event/outbox/job 表和 worker。专用 queue broker/Temporal 可以以后引入，但不能用同步 HTTP 或进程内 Map 作为任务 source of truth。
+3. **No request-controlled callback URL:** AI Runtime 事件只发送到配置的 Run Service 内部地址；请求中的 `callbackUrl` 一律不接受，避免 SSRF。
+4. **Approval is deterministic:** LLM 合规输出仅为建议。只有可信 Gateway/Run Service policy 可以定义是否免审批；`auto_approve` 不得因为 LLM "passed" 而绕过审批。
+5. **Model boundary:** AI Runtime 包含 provider adapter 与 structured-output guardrails；Gateway 提供经过权限检查的 context/model policy snapshot；Run Service 记录 model usage、task usage 和 audit facts。
 
 ## 2. 系统关系图
 
@@ -100,6 +110,8 @@ Gateway 不拥有：
 - Connector 凭证实现。
 - 外部社交平台副作用动作执行。
 
+Gateway 必须在创建 run 前把以下 **immutable context snapshot** 交给 Run Service：`workspaceId`、`actorId`、workflow/version、BrandProfile、Policy、允许的 targets、允许的 AI model class。AI Runtime 不回读 Gateway 的用户数据。
+
 ### 3.3 connector-service
 
 外部集成服务。
@@ -165,8 +177,9 @@ Run Service 拥有：
 - `RunStep`
 - `RunEvent`
 - `ApprovalRequest`
-- `TaskEvent` (考虑加入类似Ethereum 状态树的存储逻辑来记录task event state,因为平台上基于每个task做loop优化，并且也是基于task收费的）
+- `TaskEvent`（append-only usage ledger）
 - `AIRuntimeRunMapping`
+- `OutboxEvent` / `Job`（MVP durable worker）
 
 Run Service 不拥有：
 
@@ -175,6 +188,8 @@ Run Service 不拥有：
 - Connector credentials。
 - Zernio SDK 实现。
 - Mastra workflow definitions。
+
+Run Service 对每个外部动作使用 `runId + stepId + attempt + actionType` 作为计量与去重基础，并是唯一可以写入 `TaskEvent`、`ApprovalRequest` 和最终 run 状态的服务。
 
 ### 3.5 ai-runtime
 
@@ -378,10 +393,11 @@ Request：
       "forbiddenWords": ["guaranteed"]
     },
     "approvalPolicy": "required"
-  },
-  "callbackUrl": "https://run-service.internal/internal/ai-runtime-events"
+  }
 }
 ```
+
+AI Runtime 事件的 destination 由 `RUN_SERVICE_CALLBACK_URL` 配置；该 URL 只能由部署配置提供，不属于 request contract。Run Service 也可以轮询内部状态作为 callback delivery 失败时的兜底。
 
 AI-Runtime 内部可以调用 Mastra 原生 route：
 
@@ -389,7 +405,7 @@ AI-Runtime 内部可以调用 Mastra 原生 route：
 POST /api/workflows/prepare-announcement-workflow/start-async
 ```
 
-但 `run-service` 长期不应该感知 Mastra 原生 route。
+但 `run-service` 从 MVP 起就不应该感知 Mastra 原生 route。
 
 ### 5.5 Run Service → Connector Service
 
@@ -502,6 +518,8 @@ ai_run.failed
 
 Connector Service 可以向 Run Service 发出事件，也可以同步返回 connector execution result。
 
+所有内部事件必须包含 `eventId`、`platformRunId`、`createdAt` 和 producer 的 `attempt`。Run Service 按 `eventId` 去重，并将可恢复的事件先写入 outbox 再投递；事件投递失败不得改变已完成的 workflow/connector 状态。
+
 Connector 事件类型：
 
 ```text
@@ -543,6 +561,8 @@ AI-Runtime 接收这些执行时上下文：
 ```
 
 AI-Runtime 可以在执行时使用这些上下文，但不把长期记忆持久化为 source of truth。
+
+`approvalPolicy: none` 是受权限和审计保护的 Gateway/Run Service 选择，不能由浏览器输入或 LLM 输出决定。`auto_approve` 表示可自动推进低风险的 **AI preparation**，并不允许自动发布。
 
 ## 9. 数据归属
 
@@ -596,42 +616,36 @@ AI-Runtime 可以在执行时使用这些上下文，但不把长期记忆持久
 
 ### MVP
 
-- Gateway 创建准备好的 run request。
-- Run Service 创建平台 run 并调用 AI-Runtime。
-- AI-Runtime 执行 AI workflow，返回 draft / action plan，或通过简单 callback 返回结果。
-- Run Service 校验 action plan，并在审批后调用 Connector Service。
-- Frontend 通过 Gateway 轮询 run status。
-- Approval 可以先实现为简单 run status + manual resume API。
+- Frontend 只通过 Gateway 创建 run、查看 timeline 和处理 approval。
+- Gateway 完成认证、workspace RBAC、context/policy snapshot 与产品级校验。
+- Run Service 在 Postgres 中创建 Run/StepRun/ApprovalRequest/TaskEvent/AuditEvent，使用 outbox/job worker 推进状态。
+- AI Runtime 执行 AI workflow，返回结构化 draft/action plan，并向配置的 Run Service destination 发送事件；polling 是兜底。
+- Run Service 校验 action plan，在人工审批后调用 Connector Service 的确定性动作 API。
+- Connector Service 校验 workspace/account ownership，执行 Zernio 动作并返回规范化结果。
+- 成功的 AI step 和外部 action 由 Run Service 生成可审计、幂等的 task usage record。
 
 ### Later
 
-- AI-Runtime → Run Service 的事件 callback。
 - 流式 run timeline。
-- Run Service 和 AI-Runtime 之间增加 durable queue。
-- Run Service 和 Connector Service 之间增加 durable queue，用于副作用动作。
+- Run Service 和 AI-Runtime/Connector Service 之间引入专用 durable queue 或 Temporal。
 - Dead-letter queue。
 - 从失败 step replay。
 - Human approval notification channels。
-- Billing / task ledger integration。
 - Per-workspace execution policy。
 
-## 12. 待确认问题
+## 12. Resolved architecture decisions
 
-1. MVP 阶段，`run-service` 是否直接调用 Mastra 原生 route，还是 `ai-runtime` 从第一天就暴露业务友好的内部 route？
-   - 先调用原生的.
-2. AI-Runtime 是否只生成 action plan，还是可以生成多步骤 execution plan，由 Run Service 解释执行？
-   - 要有多步骤execution plan. Run service我的理解是作为full task的总调度角色，拆解long task into mini-task to ai-runtime, 且审核runtime 返回结果approve后才进行下一步操作
-3. Run Service 是否从第一天就拥有 queue，还是先同步调用 AI-Runtime，等 workflow 变长后再引入 queue？
-   - 等workflow 变长后再queue.
-4. AI-Runtime 生产环境用什么 storage adapter 保存共享 run state？
-   - 考虑加入类似Ethereum 状态树的存储逻辑来记录task event state,因为平台上基于每个task做loop优化，并且也是基于task收费的
-5. Mastra Studio 只指向 staging，还是 production 也开放但加强鉴权？
-   - staging
-6. Connector Service 在 MVP 阶段由 Run Service 同步调用，还是所有副作用动作都先进入 queue？
-   - 可允许多队列的task就同步调用
-7. Gateway 是否持久化 denormalized connected-account view，还是每次都从 Connector Service 读取？
-   - 持久化是为了快速启动？每次读取的延时是否可忽略？持久化的开销是多少？
-## 13. 当前共识
+| Question | Decision |
+|---|---|
+| Mastra API exposure | AI Runtime exposes a business-friendly internal API from day one. Raw Mastra routes are staging-only operational tools. |
+| Long task decomposition | Run Service owns the top-level workflow and state machine. AI Runtime produces scoped plans/results; Run Service validates, approves and schedules the next deterministic action. |
+| Queue strategy | MVP uses a Postgres outbox/job worker. A broker/Temporal is later infrastructure, not a reason to defer retries, schedules or durable state. |
+| AI Runtime persistence | Shared LibSQL (or a supported shared database adapter) is required for runtime polling/recovery. The platform task/audit ledger remains in Run Service's Postgres store; it is not a blockchain/state tree. |
+| Mastra Studio | Staging only. Production endpoints are internal-only and protected with service authentication. |
+| Connector dispatch | Run Service may make a synchronous connector call only from a durable worker and only with an idempotency key. Long/rate-limited actions are scheduled jobs. |
+| Connected-account read model | Connector Service is source of truth. Gateway may keep a denormalized, TTL-bound read model for UX latency; mutations and permission decisions always revalidate against Connector Service. |
+
+## 13. Current consensus
 
 当前假设方向：
 
