@@ -1,4 +1,4 @@
-# AI Agent Automation Platform Product Architecture — MVP Baseline v0.2
+## AI Agent Automation Platform Product Architecture — MVP Baseline v0.2
 
 > Date: 2026-07-24
 > Working name: **Piggybot**（social automation base + Zapier-style task automation + AI agent governance）  
