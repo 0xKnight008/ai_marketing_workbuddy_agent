@@ -2,7 +2,7 @@
 
 > 目标：明确平台级营销自动化系统的服务边界。核心是把产品记忆、组织上下文、社交账号连接、任务生命周期、AI 执行这几类职责拆开，避免把状态、凭证和副作用动作混进 AI 执行层。
 >
-> Status: 已确认的 MVP contract。与产品范围对应的实现顺序见 `2026-07-01-zernio-zapier-agent-platform-design.md`。
+> Status: 已确认的 MVP contract。与产品范围对应的实现顺序见 `ai_Automation_Platform_Product_Architecture.md`。
 
 ## 1. 总体方向
 
