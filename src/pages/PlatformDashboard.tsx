@@ -3,6 +3,7 @@ import { useState } from 'react';
 const gatewayUrl = import.meta.env.VITE_GATEWAY_URL ?? 'http://localhost:4100';
 
 interface RunView { id: string; status: string; workflowId: string; createdAt: string; }
+const templates = [{ id: 'repurpose', name: 'Repurpose and schedule' }, { id: 'weekly_report', name: 'Weekly growth report' }, { id: 'comment_lead', name: 'Comment-to-lead review' }] as const;
 
 export default function PlatformDashboard() {
   const [token, setToken] = useState(() => localStorage.getItem('piggybot_access_token') ?? '');
@@ -18,20 +19,28 @@ export default function PlatformDashboard() {
     setRun(await response.json() as RunView);
   }
 
+  async function publishTemplate(templateId: typeof templates[number]['id']) {
+    setError(''); localStorage.setItem('piggybot_access_token', token);
+    const response = await fetch(`${gatewayUrl}/api/workflow-templates/${templateId}/publish`, { method: 'POST', headers: { authorization: `Bearer ${token}` } });
+    if (!response.ok) { setError('Template publishing needs an editor or admin token.'); return; }
+    const workflow = await response.json() as { workflowId: string; name: string };
+    setError(`${workflow.name} is published. Create a run with workflow ${workflow.workflowId}.`);
+  }
+
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 p-6 md:p-10">
-      <header className="mx-auto max-w-6xl flex flex-col gap-4 border-b border-slate-800 pb-6 md:flex-row md:items-end md:justify-between">
-        <div><p className="text-sm font-medium text-emerald-400">Piggybot Platform</p><h1 className="text-3xl font-bold">Workflow operations</h1></div>
-        <a className="text-sm text-slate-300 hover:text-white" href="/">Back to site</a>
+    <main className="paper-grain min-h-screen bg-paper text-ink p-6 md:p-10">
+      <header className="mx-auto max-w-6xl flex flex-col gap-4 border-b-2 border-ink/30 pb-6 md:flex-row md:items-end md:justify-between">
+        <div><p className="font-hand text-xl text-sky-deep">Piggybot Platform</p><h1 className="font-display text-4xl">Workflow operations</h1></div>
+        <a className="text-sm text-ink-soft hover:text-ink" href="/">Back to site</a>
       </header>
 
       <section className="mx-auto grid max-w-6xl gap-6 py-8 lg:grid-cols-3">
-        <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 lg:col-span-2">
+        <div className="wobble sketch shadow-paint bg-paper-card p-5 lg:col-span-2">
           <h2 className="text-lg font-semibold">Start from a template</h2>
           <p className="mt-1 text-sm text-slate-400">Templates become versioned workflows once a workspace administrator publishes them.</p>
           <div className="mt-5 grid gap-3 md:grid-cols-3">
-            {['Repurpose and schedule', 'Weekly growth report', 'Comment-to-lead review'].map((name) => (
-              <button key={name} className="rounded-lg border border-slate-700 p-4 text-left hover:border-emerald-500 hover:bg-slate-800" onClick={() => setError('Workflow publishing is the next gateway endpoint to connect.')}>
+            {templates.map(({ id, name }) => (
+              <button key={id} className="wobble-2 sketch bg-sky-pale p-4 text-left shadow-paint-sm transition hover:-translate-y-1 hover:bg-sun/40" onClick={() => void publishTemplate(id)}>
                 <span className="block font-medium">{name}</span><span className="mt-2 block text-xs text-slate-400">Approval-first</span>
               </button>
             ))}

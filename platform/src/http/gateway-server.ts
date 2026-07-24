@@ -9,6 +9,7 @@ import { createWorkflowRun } from '../gateway/run-request';
 import { createDurableRun } from '../run-service/repository';
 import { decideApproval } from '../run-service/repository';
 import { requirePermission } from '../foundation/rbac';
+import { createPublishedTemplate } from '../gateway/templates';
 
 const config = z.object({
   DATABASE_URL: z.string().url(),
@@ -41,6 +42,19 @@ app.post('/api/workflow-runs', async (request, reply) => {
   } catch (error) {
     return reply.code(400).send({ error: error instanceof Error ? error.message : 'invalid_request' });
   }
+});
+
+app.post('/api/workflow-templates/:templateId/publish', async (request, reply) => {
+  try {
+    const actor = actorFrom(request);
+    const { templateId } = z.object({ templateId: z.enum(['repurpose', 'weekly_report', 'comment_lead']) }).parse(request.params);
+    return reply.code(201).send(await database.withWorkspace(actor.workspaceId, (tx) => createPublishedTemplate(tx, actor, templateId)));
+  } catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : 'invalid_request' }); }
+});
+
+app.get('/api/approval-requests', async (request, reply) => {
+  try { const actor = actorFrom(request); const rows = await database.withWorkspace(actor.workspaceId, (tx) => tx.query("SELECT id, run_id AS \"runId\", requested_action AS \"requestedAction\", requested_at AS \"requestedAt\" FROM approval_request WHERE status = 'pending' ORDER BY requested_at LIMIT 100")); return reply.send(rows.rows); }
+  catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : 'invalid_request' }); }
 });
 
 app.get('/api/runs/:runId', async (request, reply) => {
