@@ -29,6 +29,14 @@ export class Database {
   }
 
   async close(): Promise<void> { await this.pool.end(); }
+
+  async claimNextJob(workerName: string): Promise<{ id: string; workspaceId: string; runId: string | null; kind: string; payload: Record<string, unknown>; attempt: number } | undefined> {
+    const result = await this.pool.query<{ id: string; workspace_id: string; run_id: string | null; kind: string; payload: Record<string, unknown>; attempt: number }>(
+      'SELECT * FROM claim_next_job($1)', [workerName],
+    );
+    const job = result.rows[0];
+    return job && { id: job.id, workspaceId: job.workspace_id, runId: job.run_id, kind: job.kind, payload: job.payload, attempt: job.attempt };
+  }
 }
 
 async function query<Row extends QueryResultRow>(client: PoolClient, sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {

@@ -25,7 +25,9 @@ export function verifyAccessToken(token: string, secret: string, nowSeconds = Ma
   const [header, payload, signature] = token.split('.');
   if (!header || !payload || !signature) throw new Error('Malformed access token');
   const expected = sign(`${header}.${payload}`, secret);
-  if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) throw new Error('Invalid access token signature');
+  const provided = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (provided.length !== expectedBuffer.length || !timingSafeEqual(provided, expectedBuffer)) throw new Error('Invalid access token signature');
   const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Partial<AccessTokenClaims>;
   if (!claims.actorId || !claims.workspaceId || !claims.role || !claims.exp || claims.exp <= nowSeconds) throw new Error('Expired or incomplete access token');
   if (!['owner', 'admin', 'editor', 'approver', 'viewer'].includes(claims.role as WorkspaceRole)) throw new Error('Invalid workspace role');
