@@ -7,6 +7,8 @@ import { Database } from '../foundation/database';
 import { verifyAccessToken } from '../identity/token';
 import { createWorkflowRun } from '../gateway/run-request';
 import { createDurableRun } from '../run-service/repository';
+import { decideApproval } from '../run-service/repository';
+import { requirePermission } from '../foundation/rbac';
 
 const config = z.object({
   DATABASE_URL: z.string().url(),
@@ -56,6 +58,32 @@ app.get('/api/runs/:runId', async (request, reply) => {
   } catch (error) {
     return reply.code(400).send({ error: error instanceof Error ? error.message : 'invalid_request' });
   }
+});
+
+app.post('/api/approval-requests/:approvalId/:decision', async (request, reply) => {
+  try {
+    const actor = actorFrom(request);
+    requirePermission(actor.role, 'approval:decide');
+    const params = z.object({ approvalId: z.string().uuid(), decision: z.enum(['approved', 'rejected']) }).parse(request.params);
+    const body = z.object({ reason: z.string().max(1000).optional() }).parse(request.body ?? {});
+    return await database.withWorkspace(actor.workspaceId, (tx) => decideApproval(tx, actor, params.approvalId, params.decision, body.reason));
+  } catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : 'invalid_request' }); }
+});
+
+app.get('/api/billing/task-events', async (request, reply) => {
+  try {
+    const actor = actorFrom(request);
+    const events = await database.withWorkspace(actor.workspaceId, (tx) => tx.query('SELECT id, run_id AS "runId", action_type AS "actionType", billable_units AS "billableUnits", status, created_at AS "createdAt" FROM task_event ORDER BY created_at DESC LIMIT 100'));
+    return reply.send(events.rows);
+  } catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : 'invalid_request' }); }
+});
+
+app.get('/api/audit-events', async (request, reply) => {
+  try {
+    const actor = actorFrom(request);
+    const events = await database.withWorkspace(actor.workspaceId, (tx) => tx.query('SELECT id, run_id AS "runId", event_type AS "eventType", payload, created_at AS "createdAt" FROM audit_event ORDER BY created_at DESC LIMIT 100'));
+    return reply.send(events.rows);
+  } catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : 'invalid_request' }); }
 });
 
 await app.listen({ port: config.GATEWAY_PORT, host: '127.0.0.1' });
