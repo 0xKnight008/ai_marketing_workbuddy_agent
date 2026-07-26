@@ -20,6 +20,7 @@ import {
 export class RunServiceEventEmitter {
   constructor(
     private readonly platformRunId: string,
+    private readonly workspaceId: string,
     private readonly aiRunId: string,
   ) {}
 
@@ -27,6 +28,7 @@ export class RunServiceEventEmitter {
     const event: AiRuntimeEvent = aiRuntimeEventSchema.parse({
       eventId: `evt_${randomUUID()}`,
       platformRunId: this.platformRunId,
+      workspaceId: this.workspaceId,
       aiRunId: this.aiRunId,
       type,
       createdAt: new Date().toISOString(),

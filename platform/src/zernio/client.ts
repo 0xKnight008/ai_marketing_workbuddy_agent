@@ -10,6 +10,21 @@ export class ZernioClient {
   private readonly fetchImpl: typeof fetch;
   constructor(private readonly options: ZernioClientOptions) { this.fetchImpl = options.fetchImpl ?? fetch; }
 
+  private async request(input: URL, init: RequestInit, retries = 0): Promise<Response> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const response = await this.fetchImpl(input, { ...init, signal: AbortSignal.timeout(10_000) });
+        if (response.status !== 429 && response.status < 500) return response;
+        lastError = new Error(`Zernio request failed: ${response.status}`);
+      } catch (error) {
+        lastError = error;
+      }
+      if (attempt < retries) await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** attempt));
+    }
+    throw lastError instanceof Error ? lastError : new Error('Zernio request failed');
+  }
+
   connectUrl(workspaceId: string, expiresAt = Math.floor(Date.now() / 1000) + 600): string {
     const payload = Buffer.from(JSON.stringify({ workspaceId, exp: expiresAt })).toString('base64url');
     const state = `${payload}.${signature(payload, this.options.oauthStateSecret)}`;
@@ -33,7 +48,7 @@ export class ZernioClient {
   }
 
   async exchangeCode(code: string): Promise<ZernioToken> {
-    const response = await this.fetchImpl(new URL('/oauth/token', this.options.baseUrl), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, client_id: this.options.oauthClientId, redirect_uri: this.options.oauthRedirectUri, grant_type: 'authorization_code' }) });
+    const response = await this.request(new URL('/oauth/token', this.options.baseUrl), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, client_id: this.options.oauthClientId, redirect_uri: this.options.oauthRedirectUri, grant_type: 'authorization_code' }) }, 1);
     if (!response.ok) throw new Error(`Zernio token exchange failed: ${response.status}`);
     const value = await response.json() as { access_token?: string; refresh_token?: string; expires_in?: number };
     if (!value.access_token) throw new Error('Zernio token response omitted access_token');
@@ -41,14 +56,14 @@ export class ZernioClient {
   }
 
   async listAccounts(accessToken: string): Promise<ZernioAccount[]> {
-    const response = await this.fetchImpl(new URL('/v1/accounts', this.options.baseUrl), { headers: { authorization: `Bearer ${accessToken}` } });
+    const response = await this.request(new URL('/v1/accounts', this.options.baseUrl), { headers: { authorization: `Bearer ${accessToken}` } }, 2);
     if (!response.ok) throw new Error(`Zernio account sync failed: ${response.status}`);
     const value = await response.json() as { accounts?: Array<{ id?: string; name?: string; capabilities?: string[] }> };
     return (value.accounts ?? []).flatMap((account) => account.id && account.name ? [{ externalId: account.id, displayName: account.name, capabilities: account.capabilities ?? [] }] : []);
   }
 
   async executeAction(accessToken: string, idempotencyKey: string, action: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const response = await this.fetchImpl(new URL('/v1/actions', this.options.baseUrl), { method: 'POST', headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json', 'idempotency-key': idempotencyKey }, body: JSON.stringify(action) });
+    const response = await this.request(new URL('/v1/actions', this.options.baseUrl), { method: 'POST', headers: { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json', 'idempotency-key': idempotencyKey }, body: JSON.stringify(action) }, 2);
     if (!response.ok) throw new Error(`Zernio action failed: ${response.status}`);
     return await response.json() as Record<string, unknown>;
   }

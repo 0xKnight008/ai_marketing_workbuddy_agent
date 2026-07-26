@@ -38,7 +38,7 @@ function callbackUrl(): string {
   return url.toString();
 }
 
-const storageUrl = required('MASTRA_STORAGE_URL', 'file:./.mastra/mastra.db');
+const storageUrl = required('MASTRA_STORAGE_URL', 'file:./mastra.db');
 if (process.env.NODE_ENV === 'production' && storageUrl.startsWith('file:')) {
   throw new Error('MASTRA_STORAGE_URL must use a shared LibSQL endpoint in production');
 }

@@ -220,6 +220,7 @@ const buildActionPlanStep = createStep({
           actionCount: actions.length,
           requiresApproval: approvalRequired,
           summary: actionPlan.summary,
+          actionPlan,
         });
 
         return result;

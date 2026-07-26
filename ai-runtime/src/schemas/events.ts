@@ -21,6 +21,7 @@ export type AiRuntimeEventType = z.infer<typeof aiRuntimeEventTypeEnum>;
 export const aiRuntimeEventSchema = z.object({
   eventId: z.string(),
   platformRunId: z.string(),
+  workspaceId: z.string(),
   aiRunId: z.string(),
   type: aiRuntimeEventTypeEnum,
   createdAt: z.string().datetime(),

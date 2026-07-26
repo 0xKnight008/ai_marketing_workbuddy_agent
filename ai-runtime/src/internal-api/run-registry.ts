@@ -144,7 +144,7 @@ export async function updateAiRunRecord(
   await client.execute({
     sql: `
       UPDATE ai_runtime_run_registry
-      SET status = ?,
+      SET status = COALESCE(?, status),
           result_json = COALESCE(?, result_json),
           error = COALESCE(?, error),
           finished_at = COALESCE(?, finished_at),
@@ -152,7 +152,7 @@ export async function updateAiRunRecord(
       WHERE ai_run_id = ?
     `,
     args: [
-      patch.status ?? 'running',
+      patch.status ?? null,
       patch.result === undefined ? null : JSON.stringify(patch.result),
       patch.error ?? null,
       patch.finishedAt ?? null,

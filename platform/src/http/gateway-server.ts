@@ -1,103 +1,226 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
 import cors from '@fastify/cors';
 import Fastify, { type FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
+import { aiRuntimeEventSchema } from '../contracts/ai-runtime-event';
 import type { ActorContext } from '../contracts/domain';
 import { Database } from '../foundation/database';
+import { requirePermission } from '../foundation/rbac';
+import { decryptSecret, encryptSecret } from '../foundation/secrets';
+import { createPublishedTemplate } from '../gateway/templates';
 import { verifyAccessToken } from '../identity/token';
 import { createWorkflowRun } from '../gateway/run-request';
-import { createDurableRun } from '../run-service/repository';
-import { decideApproval } from '../run-service/repository';
-import { requirePermission } from '../foundation/rbac';
-import { createPublishedTemplate } from '../gateway/templates';
+import { createDurableRun, decideApproval, ingestAiRuntimeEvent } from '../run-service/repository';
+import { ZernioClient, type ZernioAccount } from '../zernio/client';
+import { HttpError, publicError } from './errors';
 
 const config = z.object({
   DATABASE_URL: z.string().url(),
   AUTH_TOKEN_SECRET: z.string().min(32),
+  AI_RUNTIME_EVENT_SIGNING_SECRET: z.string().min(32),
+  CORS_ORIGINS: z.string().min(1).default('http://localhost:5173'),
+  SECRET_ENCRYPTION_KEY_BASE64: z.string().min(1).optional(),
+  ZERNIO_BASE_URL: z.string().url().optional(),
+  ZERNIO_OAUTH_CLIENT_ID: z.string().min(1).optional(),
+  ZERNIO_OAUTH_REDIRECT_URI: z.string().url().optional(),
+  ZERNIO_OAUTH_STATE_SECRET: z.string().min(32).optional(),
   GATEWAY_PORT: z.coerce.number().int().min(1).max(65535).default(4100),
 }).parse(process.env);
 
 const database = new Database(config.DATABASE_URL);
 const app = Fastify({ logger: true });
-await app.register(cors, { origin: false });
+const rawBodies = new WeakMap<FastifyRequest, string>();
+
+app.removeContentTypeParser('application/json');
+app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, body, done) => {
+  const raw = body.toString('utf8');
+  try {
+    rawBodies.set(request, raw);
+    done(null, JSON.parse(raw));
+  } catch {
+    done(new HttpError(400, 'invalid_json'));
+  }
+});
+
+await app.register(cors, {
+  origin: config.CORS_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean),
+  credentials: true,
+});
+
+app.setErrorHandler((error, request, reply) => {
+  const response = publicError(error);
+  if (response.statusCode >= 500) request.log.error(error);
+  return reply.code(response.statusCode).send(response.body);
+});
 
 function actorFrom(request: FastifyRequest): ActorContext {
   const authorization = request.headers.authorization;
-  if (!authorization?.startsWith('Bearer ')) throw new Error('Missing bearer token');
-  return verifyAccessToken(authorization.slice('Bearer '.length), config.AUTH_TOKEN_SECRET);
+  if (!authorization?.startsWith('Bearer ')) throw new HttpError(401, 'unauthorized');
+  try {
+    return verifyAccessToken(authorization.slice('Bearer '.length), config.AUTH_TOKEN_SECRET);
+  } catch {
+    throw new HttpError(401, 'unauthorized');
+  }
+}
+
+function verifyAiRuntimeSignature(request: FastifyRequest): void {
+  const raw = rawBodies.get(request);
+  const received = request.headers['x-ai-runtime-signature'];
+  if (!raw || typeof received !== 'string') throw new HttpError(401, 'unauthorized');
+  const expected = createHmac('sha256', config.AI_RUNTIME_EVENT_SIGNING_SECRET).update(raw).digest('hex');
+  const actualBytes = Buffer.from(received);
+  const expectedBytes = Buffer.from(expected);
+  if (actualBytes.length !== expectedBytes.length || !timingSafeEqual(actualBytes, expectedBytes)) {
+    throw new HttpError(401, 'unauthorized');
+  }
+}
+
+function zernioClient(): ZernioClient {
+  if (!config.ZERNIO_BASE_URL || !config.ZERNIO_OAUTH_CLIENT_ID || !config.ZERNIO_OAUTH_REDIRECT_URI || !config.ZERNIO_OAUTH_STATE_SECRET) {
+    throw new HttpError(503, 'provider_not_configured');
+  }
+  return new ZernioClient({
+    baseUrl: config.ZERNIO_BASE_URL,
+    oauthClientId: config.ZERNIO_OAUTH_CLIENT_ID,
+    oauthRedirectUri: config.ZERNIO_OAUTH_REDIRECT_URI,
+    oauthStateSecret: config.ZERNIO_OAUTH_STATE_SECRET,
+  });
+}
+
+async function storeZernioAccounts(workspaceId: string, credential: { accessToken: string; refreshToken?: string }, accounts: ZernioAccount[]): Promise<void> {
+  if (!config.SECRET_ENCRYPTION_KEY_BASE64) throw new HttpError(503, 'provider_not_configured');
+  const encrypted = encryptSecret(JSON.stringify(credential), config.SECRET_ENCRYPTION_KEY_BASE64);
+  await database.withWorkspace(workspaceId, async (tx) => {
+    const stored = await tx.query<{ id: string }>(
+      `INSERT INTO secret (workspace_id, purpose, ciphertext, iv, auth_tag, rotated_at)
+       VALUES ($1, 'zernio.oauth', $2, $3, $4, now())
+       ON CONFLICT (workspace_id, purpose) DO UPDATE
+         SET ciphertext = EXCLUDED.ciphertext, iv = EXCLUDED.iv, auth_tag = EXCLUDED.auth_tag, rotated_at = now()
+       RETURNING id`,
+      [workspaceId, encrypted.ciphertext, encrypted.iv, encrypted.authTag],
+    );
+    const secretId = stored.rows[0]?.id;
+    if (!secretId) throw new Error('Zernio credential was not stored');
+    for (const account of accounts) {
+      await tx.query(
+        `INSERT INTO connected_account (workspace_id, provider, external_account_id, display_name, secret_id, capabilities, status, last_synced_at)
+         VALUES ($1, 'zernio', $2, $3, $4, $5, 'connected', now())
+         ON CONFLICT (workspace_id, provider, external_account_id) DO UPDATE
+           SET display_name = EXCLUDED.display_name, secret_id = EXCLUDED.secret_id, capabilities = EXCLUDED.capabilities,
+               status = 'connected', last_synced_at = now()`,
+        [workspaceId, account.externalId, account.displayName, secretId, account.capabilities],
+      );
+    }
+  });
+}
+
+async function zernioCredential(workspaceId: string): Promise<{ accessToken: string; refreshToken?: string }> {
+  if (!config.SECRET_ENCRYPTION_KEY_BASE64) throw new HttpError(503, 'provider_not_configured');
+  const stored = await database.withWorkspace(workspaceId, (tx) => tx.query<{ ciphertext: string; iv: string; authTag: string }>(
+    "SELECT ciphertext, iv, auth_tag AS \"authTag\" FROM secret WHERE workspace_id = $1 AND purpose = 'zernio.oauth'",
+    [workspaceId],
+  ));
+  const value = stored.rows[0];
+  if (!value) throw new HttpError(404, 'connection_not_found');
+  const parsed = JSON.parse(decryptSecret(value, config.SECRET_ENCRYPTION_KEY_BASE64)) as { accessToken?: unknown; refreshToken?: unknown };
+  if (typeof parsed.accessToken !== 'string' || !parsed.accessToken) throw new Error('Stored Zernio credential is invalid');
+  return { accessToken: parsed.accessToken, refreshToken: typeof parsed.refreshToken === 'string' ? parsed.refreshToken : undefined };
 }
 
 app.get('/internal/health', async () => ({ ok: true, service: 'gateway' }));
 
+app.post('/internal/ai-runtime-events', async (request, reply) => {
+  verifyAiRuntimeSignature(request);
+  const event = aiRuntimeEventSchema.parse(request.body);
+  await database.withWorkspace(event.workspaceId, (tx) => ingestAiRuntimeEvent(tx, event));
+  return reply.code(202).send({ accepted: true });
+});
+
 app.post('/api/workflow-runs', async (request, reply) => {
-  try {
-    const actor = actorFrom(request);
-    const created = await createWorkflowRun(actor, request.body, {
-      createRun: (context, runRequest) => database.withWorkspace(context.workspaceId, async (tx) => {
-        const run = await createDurableRun(tx, context, runRequest);
-        return { runId: run.id, status: 'pending' as const };
-      }),
-    });
-    return reply.code(202).send(created);
-  } catch (error) {
-    return reply.code(400).send({ error: error instanceof Error ? error.message : 'invalid_request' });
-  }
+  const actor = actorFrom(request);
+  const created = await createWorkflowRun(actor, request.body, {
+    createRun: (context, runRequest) => database.withWorkspace(context.workspaceId, async (tx) => {
+      const run = await createDurableRun(tx, context, runRequest);
+      return { runId: run.id, status: 'pending' as const };
+    }),
+  });
+  return reply.code(202).send(created);
 });
 
 app.post('/api/workflow-templates/:templateId/publish', async (request, reply) => {
-  try {
-    const actor = actorFrom(request);
-    const { templateId } = z.object({ templateId: z.enum(['repurpose', 'weekly_report', 'comment_lead']) }).parse(request.params);
-    return reply.code(201).send(await database.withWorkspace(actor.workspaceId, (tx) => createPublishedTemplate(tx, actor, templateId)));
-  } catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : 'invalid_request' }); }
+  const actor = actorFrom(request);
+  const { templateId } = z.object({ templateId: z.enum(['repurpose', 'weekly_report', 'comment_lead']) }).parse(request.params);
+  return reply.code(201).send(await database.withWorkspace(actor.workspaceId, (tx) => createPublishedTemplate(tx, actor, templateId)));
 });
 
-app.get('/api/approval-requests', async (request, reply) => {
-  try { const actor = actorFrom(request); const rows = await database.withWorkspace(actor.workspaceId, (tx) => tx.query("SELECT id, run_id AS \"runId\", requested_action AS \"requestedAction\", requested_at AS \"requestedAt\" FROM approval_request WHERE status = 'pending' ORDER BY requested_at LIMIT 100")); return reply.send(rows.rows); }
-  catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : 'invalid_request' }); }
+app.get('/api/zernio/connect', async (request) => {
+  const actor = actorFrom(request);
+  requirePermission(actor.role, 'connection:manage');
+  return { url: zernioClient().connectUrl(actor.workspaceId) };
+});
+
+app.get('/api/zernio/callback', async (request, reply) => {
+  const query = z.object({ code: z.string().min(1), state: z.string().min(1) }).parse(request.query);
+  const provider = zernioClient();
+  const { workspaceId } = provider.verifyState(query.state);
+  const token = await provider.exchangeCode(query.code);
+  const accounts = await provider.listAccounts(token.accessToken);
+  await storeZernioAccounts(workspaceId, token, accounts);
+  return reply.code(200).type('text/html').send('<!doctype html><title>Piggybot</title><p>Zernio account connected. You may close this window.</p>');
+});
+
+app.post('/api/zernio/sync', async (request) => {
+  const actor = actorFrom(request);
+  requirePermission(actor.role, 'connection:manage');
+  const credential = await zernioCredential(actor.workspaceId);
+  const accounts = await zernioClient().listAccounts(credential.accessToken);
+  await storeZernioAccounts(actor.workspaceId, credential, accounts);
+  return { synced: accounts.length };
+});
+
+app.get('/api/approval-requests', async (request) => {
+  const actor = actorFrom(request);
+  requirePermission(actor.role, 'approval:decide');
+  const rows = await database.withWorkspace(actor.workspaceId, (tx) => tx.query("SELECT id, run_id AS \"runId\", requested_action AS \"requestedAction\", requested_at AS \"requestedAt\" FROM approval_request WHERE workspace_id = $1 AND status = 'pending' ORDER BY requested_at LIMIT 100", [actor.workspaceId]));
+  return rows.rows;
 });
 
 app.get('/api/runs/:runId', async (request, reply) => {
-  try {
-    const actor = actorFrom(request);
-    const params = z.object({ runId: z.string().uuid() }).parse(request.params);
-    const run = await database.withWorkspace(actor.workspaceId, async (tx) => {
-      const result = await tx.query<{ id: string; status: string; workflowId: string; createdAt: string }>(
-        'SELECT id, status, workflow_id AS "workflowId", created_at::text AS "createdAt" FROM workflow_run WHERE id = $1',
-        [params.runId],
-      );
-      return result.rows[0];
-    });
-    return run ? reply.send(run) : reply.code(404).send({ error: 'run_not_found' });
-  } catch (error) {
-    return reply.code(400).send({ error: error instanceof Error ? error.message : 'invalid_request' });
-  }
+  const actor = actorFrom(request);
+  requirePermission(actor.role, 'workflow:run');
+  const params = z.object({ runId: z.string().uuid() }).parse(request.params);
+  const run = await database.withWorkspace(actor.workspaceId, async (tx) => {
+    const result = await tx.query<{ id: string; status: string; workflowId: string; createdAt: string }>(
+      'SELECT id, status, workflow_id AS "workflowId", created_at::text AS "createdAt" FROM workflow_run WHERE id = $1 AND workspace_id = $2',
+      [params.runId, actor.workspaceId],
+    );
+    return result.rows[0];
+  });
+  return run ? reply.send(run) : reply.code(404).send({ error: 'run_not_found' });
 });
 
-app.post('/api/approval-requests/:approvalId/:decision', async (request, reply) => {
-  try {
-    const actor = actorFrom(request);
-    requirePermission(actor.role, 'approval:decide');
-    const params = z.object({ approvalId: z.string().uuid(), decision: z.enum(['approved', 'rejected']) }).parse(request.params);
-    const body = z.object({ reason: z.string().max(1000).optional() }).parse(request.body ?? {});
-    return await database.withWorkspace(actor.workspaceId, (tx) => decideApproval(tx, actor, params.approvalId, params.decision, body.reason));
-  } catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : 'invalid_request' }); }
+app.post('/api/approval-requests/:approvalId/:decision', async (request) => {
+  const actor = actorFrom(request);
+  requirePermission(actor.role, 'approval:decide');
+  const params = z.object({ approvalId: z.string().uuid(), decision: z.enum(['approved', 'rejected']) }).parse(request.params);
+  const body = z.object({ reason: z.string().max(1000).optional() }).parse(request.body ?? {});
+  return database.withWorkspace(actor.workspaceId, (tx) => decideApproval(tx, actor, params.approvalId, params.decision, body.reason));
 });
 
-app.get('/api/billing/task-events', async (request, reply) => {
-  try {
-    const actor = actorFrom(request);
-    const events = await database.withWorkspace(actor.workspaceId, (tx) => tx.query('SELECT id, run_id AS "runId", action_type AS "actionType", billable_units AS "billableUnits", status, created_at AS "createdAt" FROM task_event ORDER BY created_at DESC LIMIT 100'));
-    return reply.send(events.rows);
-  } catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : 'invalid_request' }); }
+app.get('/api/billing/task-events', async (request) => {
+  const actor = actorFrom(request);
+  requirePermission(actor.role, 'billing:view');
+  const events = await database.withWorkspace(actor.workspaceId, (tx) => tx.query('SELECT id, run_id AS "runId", action_type AS "actionType", billable_units AS "billableUnits", status, created_at AS "createdAt" FROM task_event WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 100', [actor.workspaceId]));
+  return events.rows;
 });
 
-app.get('/api/audit-events', async (request, reply) => {
-  try {
-    const actor = actorFrom(request);
-    const events = await database.withWorkspace(actor.workspaceId, (tx) => tx.query('SELECT id, run_id AS "runId", event_type AS "eventType", payload, created_at AS "createdAt" FROM audit_event ORDER BY created_at DESC LIMIT 100'));
-    return reply.send(events.rows);
-  } catch (error) { return reply.code(400).send({ error: error instanceof Error ? error.message : 'invalid_request' }); }
+app.get('/api/audit-events', async (request) => {
+  const actor = actorFrom(request);
+  requirePermission(actor.role, 'workspace:manage');
+  const events = await database.withWorkspace(actor.workspaceId, (tx) => tx.query('SELECT id, run_id AS "runId", event_type AS "eventType", payload, created_at AS "createdAt" FROM audit_event WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 100', [actor.workspaceId]));
+  return events.rows;
 });
 
 await app.listen({ port: config.GATEWAY_PORT, host: '127.0.0.1' });
