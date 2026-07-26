@@ -20,10 +20,6 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-
-      # 3. 配置 npm 镜像源（使用淘宝镜像，与本地一致）
-      - name: Setup npm registry
-        run: npm config set registry https://registry.npmmirror.com
       
       # 3. 安装依赖
       - name: Install dependencies
