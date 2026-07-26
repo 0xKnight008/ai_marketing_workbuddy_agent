@@ -20,3 +20,10 @@ pnpm test
 ```
 
 The migration creates a tenant-scoped Postgres schema. The application must set `app.workspace_id` inside every tenant transaction; direct, unscoped queries are intentionally not part of the repository API.
+
+For a connected runtime, set the same high-entropy value in platform
+`AI_RUNTIME_EVENT_SIGNING_SECRET` and ai-runtime `EVENT_CALLBACK_SIGNING_SECRET`.
+The gateway rejects unsigned runtime events. Use `pnpm issue:token` with
+`ACTOR_ID`, `WORKSPACE_ID`, `WORKSPACE_ROLE`, and `AUTH_TOKEN_SECRET` to mint a
+short-lived operator token for local setup; production sign-in must be supplied
+by the deployment's identity provider.

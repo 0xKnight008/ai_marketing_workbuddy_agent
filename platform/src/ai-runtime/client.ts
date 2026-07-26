@@ -16,6 +16,7 @@ export class AiRuntimeClient {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-internal-token': this.options.internalToken },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) throw new Error(`AI runtime request failed: ${response.status}`);
     return await response.json() as { aiRunId: string; status: 'accepted' };

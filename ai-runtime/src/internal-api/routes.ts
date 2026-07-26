@@ -52,6 +52,7 @@ export const internalApiRoutes = [
       // 3. 注册事件 emitter 与业务态记录
       const emitter = new RunServiceEventEmitter(
         request.platformRunId,
+        request.workspaceId,
         aiRunId,
       );
       registerEmitter(aiRunId, emitter);

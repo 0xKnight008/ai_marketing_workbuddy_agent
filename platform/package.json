@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test src/**/*.test.ts",
     "migrate": "tsx src/foundation/migrate.ts",
+    "issue:token": "tsx src/identity/issue-token.ts",
     "dev:gateway": "tsx src/http/gateway-server.ts",
     "dev:worker": "tsx src/run-service/worker.ts"
   },

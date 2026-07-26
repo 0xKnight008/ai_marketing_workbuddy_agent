@@ -16,7 +16,7 @@ export function assertRunTransition(from: RunStatus, to: RunStatus): void {
   if (!allowedTransitions[from].includes(to)) throw new Error(`Invalid run transition: ${from} -> ${to}`);
 }
 
-export function nextStatusAfterApproval(decision: ApprovalStatus): RunStatus {
+export function nextStatusAfterApproval(decision: Extract<ApprovalStatus, 'approved' | 'rejected' | 'cancelled'>): RunStatus {
   if (decision === 'approved') return 'queued';
   if (decision === 'rejected' || decision === 'cancelled') return 'cancelled';
   throw new Error(`Approval decision ${decision} cannot resume a run`);
