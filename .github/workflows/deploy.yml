@@ -62,7 +62,7 @@ jobs:
           
           # 构建新镜像
           echo "🔨 Building new Docker image..."
-          docker build -t ai-marketing-agent:latest .
+          docker build -f Dockerfile.fixed -t ai-marketing-agent:latest .
           
           # 启动服务
           echo "🚀 Starting services with docker-compose..."
