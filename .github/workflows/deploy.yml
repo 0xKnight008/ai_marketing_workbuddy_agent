@@ -147,8 +147,8 @@ jobs:
             
             # 解压部署包
             echo "📦 Extracting deployment package..."
-            tar -xzf /tmp/deploy.tar.gz
-            rm /tmp/deploy.tar.gz
+            sudo tar -xzf /tmp/deploy.tar.gz
+            #rm /tmp/deploy.tar.gz
             
             # 执行部署脚本
             echo "🚀 Running deployment script..."
