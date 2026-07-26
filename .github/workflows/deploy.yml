@@ -83,14 +83,14 @@ jobs:
           
           # 启动服务
           echo "🚀 Starting services with docker-compose..."
-          sudo docker-compose up -d
+          sudo docker compose up -d
           
           # 等待容器启动
           sleep 3
           
           # 检查容器状态
           echo "✅ Checking container status..."
-          sudo docker-compose ps
+          sudo docker compose ps
           
           # 显示日志
           echo "📄 Container logs (last 20 lines):"
