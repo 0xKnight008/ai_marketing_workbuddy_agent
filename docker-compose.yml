@@ -1,0 +1,19 @@
+version: "3.8"
+services:
+  ai-markting-front:
+    image: ai-marketing-agent:latest
+    pull_policy: never  # 使用本地构建的镜像
+    container_name: ai-markting-front
+    restart: unless-stopped
+    networks:
+      - ss_prod
+    ports:
+      - "8001:80"
+    environment:
+      - APP_ENV=production
+    deploy:
+      replicas: 1
+
+networks:
+  ss_prod:
+    external: true

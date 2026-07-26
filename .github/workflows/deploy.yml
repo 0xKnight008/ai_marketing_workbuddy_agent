@@ -1,0 +1,138 @@
+name: Build and Deploy to Server
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # 支持手动触发
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. 检出代码
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      # 2. 设置 Node.js 环境
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      # 3. 安装依赖
+      - name: Install dependencies
+        run: npm ci
+      
+      # 4. 构建项目
+      - name: Build project
+        run: npm run build
+      
+      # 5. 准备部署文件包
+      - name: Prepare deployment package
+        run: |
+          # 创建部署目录
+          mkdir -p deploy-package
+          
+          # 复制 dist 目录内容到部署包
+          cp -r dist/* deploy-package/
+          
+          # 复制 Docker 相关文件
+          cp Dockerfile deploy-package/
+          cp nginx.conf deploy-package/
+          cp docker-compose.yml deploy-package/
+          
+          # 创建部署脚本
+          cat > deploy-package/deploy.sh << 'EOF'
+          #!/bin/bash
+          set -e
+          
+          echo "=========================================="
+          echo "🚀 Starting deployment..."
+          echo "=========================================="
+          
+          # 停止并删除旧容器
+          echo "📦 Stopping old container..."
+          docker-compose down || true
+          
+          # 删除旧镜像（释放空间）
+          echo "🗑️  Removing old image..."
+          docker rmi ai-marketing-agent:latest 2>/dev/null || echo "No old image to remove"
+          
+          # 构建新镜像
+          echo "🔨 Building new Docker image..."
+          docker build -t ai-marketing-agent:latest .
+          
+          # 启动服务
+          echo "🚀 Starting services with docker-compose..."
+          docker-compose up -d
+          
+          # 等待容器启动
+          sleep 3
+          
+          # 检查容器状态
+          echo "✅ Checking container status..."
+          docker-compose ps
+          
+          # 显示日志
+          echo "📄 Container logs (last 20 lines):"
+          docker logs --tail 20 ai-markting-front || true
+          
+          # 清理悬空镜像
+          echo "🧹 Cleaning up dangling images..."
+          docker image prune -f || true
+          
+          echo "=========================================="
+          echo "✨ Deployment completed successfully!"
+          echo "=========================================="
+          EOF
+          
+          chmod +x deploy-package/deploy.sh
+          
+          # 打包所有文件
+          tar -czf deploy.tar.gz -C deploy-package .
+      
+      # 6. 上传构建产物（用于调试）
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifact
+          path: deploy.tar.gz
+          retention-days: 7
+      
+      # 7. 复制部署包到服务器
+      - name: Copy deployment package to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          source: "deploy.tar.gz"
+          target: "/tmp/"
+      
+      # 8. 在服务器上解压并部署
+      - name: Deploy on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          script: |
+            # 设置部署目录
+            DEPLOY_DIR="/opt/ai-marketing-agent"
+            
+            echo "📁 Preparing deployment directory..."
+            mkdir -p $DEPLOY_DIR
+            cd $DEPLOY_DIR
+            
+            # 解压部署包
+            echo "📦 Extracting deployment package..."
+            tar -xzf /tmp/deploy.tar.gz
+            rm /tmp/deploy.tar.gz
+            
+            # 执行部署脚本
+            echo "🚀 Running deployment script..."
+            bash deploy.sh
