@@ -79,11 +79,11 @@ jobs:
 
           # 停止并删除旧容器
           echo "📦 Stopping old container..."
-          cd /home/ubuntu/ai-markting-index && sudo docker compose down ai-markting-front || true
+          cd /opt/ai-marketing-agent/ && sudo docker compose down ai-markting-front || true
           
           # 启动服务
           echo "🚀 Starting services with docker-compose..."
-          sudo docker compose up -d
+          cd /opt/ai-marketing-agent/ && sudo docker compose up -d
           
           # 等待容器启动
           sleep 3
