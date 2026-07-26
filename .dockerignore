@@ -1,0 +1,10 @@
+# 排除不需要打包进镜像的文件
+node_modules
+dist
+.git
+.gitignore
+.DS_Store
+*.log
+*.md
+.env
+.env.*
