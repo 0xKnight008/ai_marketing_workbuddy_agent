@@ -19,25 +19,32 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+      
+      # 2.1 升级 npm 到稳定版本
+      - name: Upgrade npm
+        run: npm install -g npm@10
       
       # 3. 安装依赖
       - name: Install dependencies
-        run: npm install
-      
-      # 3.1 调试：检查关键依赖是否安装
-      - name: Check installed packages
         run: |
-          echo "Checking framer-motion..."
-          ls -la node_modules/framer-motion 2>/dev/null || echo "❌ framer-motion not found"
-          echo "Checking react-router..."
-          ls -la node_modules/react-router 2>/dev/null || echo "❌ react-router not found"
-          echo "Total packages installed:"
+          echo "===== npm 版本信息 ====="
+          node --version
+          npm --version
+          
+          echo "===== 清理旧文件 ====="
+          rm -rf node_modules package-lock.json
+          
+          echo "===== 安装依赖（使用 --legacy-peer-deps 避免依赖冲突） ====="
+          npm install --legacy-peer-deps --no-audit --no-fund
+          
+          echo "===== 验证安装结果 ====="
           ls node_modules | wc -l
+          test -d node_modules/vite && echo "✅ vite 已安装" || (echo "❌ vite 未安装" && exit 1)
+          test -d node_modules/react && echo "✅ react 已安装" || (echo "❌ react 未安装" && exit 1)
       
-      # 4. 构建项目（跳过 TypeScript 类型检查，直接构建）
+      # 4. 构建项目（使用 CI 专用脚本，跳过类型检查）
       - name: Build project
-        run: npx vite build
+        run: npm run build:ci
       
       # 5. 准备部署文件包
       - name: Prepare deployment package
