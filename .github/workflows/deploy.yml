@@ -56,7 +56,7 @@ jobs:
           cp -r dist/* deploy-package/
           
           # 复制 Docker 相关文件
-          cp Dockerfile deploy-package/
+          cp Dockerfile.fixed deploy-package/
           cp nginx.conf deploy-package/
           cp docker-compose.yml deploy-package/
           
@@ -69,17 +69,17 @@ jobs:
           echo "🚀 Starting deployment..."
           echo "=========================================="
           
-          # 停止并删除旧容器
-          echo "📦 Stopping old container..."
-          sudo cd /home/ubuntu/ai-markting-index && docker compose ai-markting-front || true
-          
           # 删除旧镜像（释放空间）
-          echo "🗑️  Removing old image..."
-          sudo docker rmi ai-marketing-agent:latest 2>/dev/null || echo "No old image to remove"
+          # echo "🗑️  Removing old image..."
+          # sudo docker rmi ai-marketing-agent:latest 2>/dev/null || echo "No old image to remove"
           
           # 构建新镜像
           echo "🔨 Building new Docker image..."
           sudo docker build -f Dockerfile.fixed -t ai-marketing-agent:latest .
+
+          # 停止并删除旧容器
+          echo "📦 Stopping old container..."
+          cd /home/ubuntu/ai-markting-index && sudo docker compose stop ai-markting-front || true
           
           # 启动服务
           echo "🚀 Starting services with docker-compose..."
