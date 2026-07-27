@@ -392,13 +392,13 @@ const zh: SiteContent = {
     overage: [
       <>· 额外社交账号：<b className="text-ink">$1 – $6 / 账号 / 月</b>（按量级与平台成本）</>,
       <>· 额外任务：<b className="text-ink">$10 / 10,000 task</b> 起</>,
-      <>· 高级 AI 任务：旗舰模型生成 ≈ <b className="text-ink">3 个标准 task</b></>,
+      <>· AI 用量：每次运行前展示 <b className="text-ink">模型、最大输入/输出、AI credit 和预计供应商成本</b>；确认后才开始</>,
     ],
     taskTitle: "✨ 什么算一个 task？",
     taskRules: [
       <>· 触发监听、过滤条件、审批通知：<b className="text-ink">0 task</b></>,
       <>· 成功的对外动作（发布 / 回复 / 写入）：<b className="text-ink">1 task</b></>,
-      <>· AI 生成 / 分类：<b className="text-ink">1 – 3 task</b>，按模型成本计</>,
+      <>· AI 生成 / 分类：按模型与实际 token 消耗 <b className="text-ink">AI credit</b>；超过上限会先提示</>,
       <>· 失败的步骤：<b className="text-ink">不计费</b></>,
     ],
   },
@@ -723,13 +723,13 @@ const en: SiteContent = {
     overage: [
       <>· Extra social account: <b className="text-ink">$1 – $6 / account / mo</b> (by volume & platform)</>,
       <>· Extra tasks: from <b className="text-ink">$10 / 10,000 tasks</b></>,
-      <>· Premium AI tasks: frontier-model generation ≈ <b className="text-ink">3 standard tasks</b></>,
+      <>· AI usage: before every run, we show the <b className="text-ink">model, maximum input/output, AI credits, and estimated supplier cost</b>. Nothing starts until you confirm.</>,
     ],
     taskTitle: "✨ What counts as a task?",
     taskRules: [
       <>· Triggers, filters, approval pings: <b className="text-ink">0 tasks</b></>,
       <>· Successful external action (publish / reply / write): <b className="text-ink">1 task</b></>,
-      <>· AI generation / classification: <b className="text-ink">1 – 3 tasks</b>, by model cost</>,
+      <>· AI generation / classification: uses <b className="text-ink">AI credits</b> based on the model and actual tokens; caps are shown before the run starts</>,
       <>· Failed steps: <b className="text-ink">free</b></>,
     ],
   },
@@ -1054,13 +1054,13 @@ const es: SiteContent = {
     overage: [
       <>· Cuenta social extra: <b className="text-ink">$1 – $6 / cuenta / mes</b> (según volumen y plataforma)</>,
       <>· Tareas extra: desde <b className="text-ink">$10 / 10.000 tareas</b></>,
-      <>· Tareas de IA prémium: generación con un modelo de frontera ≈ <b className="text-ink">3 tareas estándar</b></>,
+      <>· Uso de IA: antes de cada ejecución mostramos el <b className="text-ink">modelo, entrada/salida máximas, créditos de IA y coste estimado del proveedor</b>. Nada empieza hasta que confirmes.</>,
     ],
     taskTitle: "✨ ¿Qué cuenta como una tarea?",
     taskRules: [
       <>· Disparadores, filtros y avisos: <b className="text-ink">0 tareas</b></>,
       <>· Acción externa exitosa (publicar / responder / escribir): <b className="text-ink">1 tarea</b></>,
-      <>· Generación o clasificación IA: <b className="text-ink">1 – 3 tareas</b>, según el modelo</>,
+      <>· Generación o clasificación IA: usa <b className="text-ink">créditos de IA</b> según el modelo y los tokens reales; los límites se muestran antes de empezar</>,
       <>· Pasos fallidos: <b className="text-ink">gratis</b></>,
     ],
   },
