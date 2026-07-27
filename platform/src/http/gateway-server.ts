@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { aiRuntimeEventSchema } from '../contracts/ai-runtime-event';
 import type { ActorContext } from '../contracts/domain';
 import { Database } from '../foundation/database';
+import { loadGatewayConfig } from '../foundation/platform-config';
 import { requirePermission } from '../foundation/rbac';
 import { decryptSecret, encryptSecret } from '../foundation/secrets';
 import { createPublishedTemplate } from '../gateway/templates';
@@ -16,18 +17,7 @@ import { createDurableRun, decideApproval, ingestAiRuntimeEvent } from '../run-s
 import { ZernioClient, type ZernioAccount } from '../zernio/client';
 import { HttpError, publicError } from './errors';
 
-const config = z.object({
-  DATABASE_URL: z.string().url(),
-  AUTH_TOKEN_SECRET: z.string().min(32),
-  AI_RUNTIME_EVENT_SIGNING_SECRET: z.string().min(32),
-  CORS_ORIGINS: z.string().min(1).default('http://localhost:5173'),
-  SECRET_ENCRYPTION_KEY_BASE64: z.string().min(1).optional(),
-  ZERNIO_BASE_URL: z.string().url().optional(),
-  ZERNIO_OAUTH_CLIENT_ID: z.string().min(1).optional(),
-  ZERNIO_OAUTH_REDIRECT_URI: z.string().url().optional(),
-  ZERNIO_OAUTH_STATE_SECRET: z.string().min(32).optional(),
-  GATEWAY_PORT: z.coerce.number().int().min(1).max(65535).default(4100),
-}).parse(process.env);
+const config = loadGatewayConfig();
 
 const database = new Database(config.DATABASE_URL);
 const app = Fastify({ logger: true });
@@ -45,7 +35,7 @@ app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, bo
 });
 
 await app.register(cors, {
-  origin: config.CORS_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean),
+  origin: config.CORS_ORIGINS,
   credentials: true,
 });
 

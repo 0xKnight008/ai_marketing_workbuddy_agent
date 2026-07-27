@@ -27,3 +27,11 @@ The gateway rejects unsigned runtime events. Use `pnpm issue:token` with
 `ACTOR_ID`, `WORKSPACE_ID`, `WORKSPACE_ROLE`, and `AUTH_TOKEN_SECRET` to mint a
 short-lived operator token for local setup; production sign-in must be supplied
 by the deployment's identity provider.
+
+## Framework direction
+
+The platform is being prepared for a staged adoption of stable Egg 3.x. The
+current Fastify gateway remains the compatible production adapter while the
+domain services are separated from process lifecycle concerns. See
+[`EGG_ADOPTION.md`](./EGG_ADOPTION.md) for the review, target layout, and
+cutover acceptance criteria.
