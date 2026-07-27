@@ -114,6 +114,12 @@ export interface SiteContent {
     tagline: string;
     sub: string;
     signupFormTitle: string;
+    signupPlaceholder: string;
+    signupButton: string;
+    signupLoading: string;
+    signupSuccess: string;
+    signupInvalid: string;
+    signupError: string;
     columns: { title: string; links: string[] }[];
     copyright: string;
     madeWith: string;
@@ -441,6 +447,12 @@ const zh: SiteContent = {
     tagline: "your workbuddy never sleeps",
     sub: "留下邮箱，第一批搬进精灵村。全部计划均可 7 天免费试用，含 100 task 体验额度。",
     signupFormTitle: "Piggybot 订阅表单",
+    signupPlaceholder: "输入你的邮箱",
+    signupButton: "订阅",
+    signupLoading: "提交中…",
+    signupSuccess: "🎉 订阅成功！精灵会第一时间把新消息送到你的邮箱。",
+    signupInvalid: "请输入有效的邮箱地址",
+    signupError: "提交失败，请稍后重试",
     columns: [
       { title: "产品", links: ["Flow Builder", "AI Copilot", "模板画廊", "统一收件箱", "用量仪表盘"] },
       { title: "场景", links: ["内容一变多", "评论变线索", "每周增长报告", "广告守护"] },
@@ -772,6 +784,12 @@ const en: SiteContent = {
     tagline: "your workbuddy never sleeps",
     sub: "Leave your email and be among the first to move into Sprite Village. Every plan starts with a 7-day free trial and 100 tasks.",
     signupFormTitle: "Piggybot sign-up form",
+    signupPlaceholder: "Enter your email",
+    signupButton: "Subscribe",
+    signupLoading: "Subscribing…",
+    signupSuccess: "🎉 You're on the list! Sprites will deliver the news to your inbox.",
+    signupInvalid: "Please enter a valid email address",
+    signupError: "Something went wrong. Please try again.",
     columns: [
       { title: "Product", links: ["Flow Builder", "AI Copilot", "Template Gallery", "Unified Inbox", "Usage Dashboard"] },
       { title: "Playbooks", links: ["Repurpose everywhere", "Comments to leads", "Weekly growth report", "Ad guardian"] },
@@ -1103,6 +1121,12 @@ const es: SiteContent = {
     tagline: "your workbuddy never sleeps",
     sub: "Deja tu email y sé de los primeros en mudarte a la aldea. Todos los planes empiezan con 7 días gratis y 100 tareas.",
     signupFormTitle: "Formulario de registro de Piggybot",
+    signupPlaceholder: "Tu correo electrónico",
+    signupButton: "Suscribirse",
+    signupLoading: "Enviando…",
+    signupSuccess: "🎉 ¡Suscripción exitosa! Los duendes enviarán las novedades a tu correo.",
+    signupInvalid: "Introduce un correo electrónico válido",
+    signupError: "Algo salió mal. Inténtalo de nuevo.",
     columns: [
       { title: "Producto", links: ["Constructor de flujos", "Copilot de IA", "Galería de plantillas", "Bandeja unificada", "Panel de uso"] },
       { title: "Guías", links: ["Un post en todas partes", "Comentarios en leads", "Informe semanal", "Guardián de anuncios"] },

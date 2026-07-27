@@ -1,8 +1,9 @@
+import { useState } from "react";
 import { Piggy, SpritePuff } from "../components/ghibli/Piggy";
 import { Moon, NightHills, Fireflies, TwinkleStar } from "../components/ghibli/Scenery";
 import { Reveal } from "../components/Reveal";
 import { useT } from "../i18n/LangContext";
-import { GOOGLE_FORM_EMBED_URL } from "../config";
+import { GOOGLE_FORM_EMBED_URL, GOOGLE_FORM_EMAIL_ENTRY, GOOGLE_FORM_ID } from "../config";
 
 const STARS = [
   { left: "6%", top: "10%" }, { left: "14%", top: "26%" }, { left: "23%", top: "8%" },
@@ -10,6 +11,81 @@ const STARS = [
   { left: "66%", top: "9%" }, { left: "76%", top: "24%" }, { left: "88%", top: "12%" },
   { left: "94%", top: "30%" }, { left: "50%", top: "30%" }, { left: "27%", top: "34%" },
 ];
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+type SubscribeState = "idle" | "sending" | "done" | "invalid" | "error";
+
+function SubscribeForm() {
+  const { t } = useT();
+  const f = t.footer;
+  const [email, setEmail] = useState("");
+  const [state, setState] = useState<SubscribeState>("idle");
+
+  async function subscribe(event: React.FormEvent) {
+    event.preventDefault();
+    const value = email.trim();
+
+    if (!EMAIL_RE.test(value)) {
+      setState("invalid");
+      return;
+    }
+
+    setState("sending");
+    try {
+      await fetch(`https://docs.google.com/forms/d/e/${GOOGLE_FORM_ID}/formResponse`, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ [`entry.${GOOGLE_FORM_EMAIL_ENTRY}`]: value }),
+      });
+      setState("done");
+    } catch {
+      setState("error");
+    }
+  }
+
+  if (state === "done") {
+    return (
+      <p className="mt-8 mx-auto w-fit max-w-full px-6 py-3.5 bg-meadow text-[#FFF9EC] font-display sketch wobble shadow-paint" role="status">
+        {f.signupSuccess}
+      </p>
+    );
+  }
+
+  return (
+    <form onSubmit={(event) => void subscribe(event)} className="mt-8 mx-auto w-full max-w-md" noValidate>
+      <div className="flex flex-col sm:flex-row gap-3">
+        <input
+          type="email"
+          name="email"
+          autoComplete="email"
+          value={email}
+          onChange={(event) => {
+            setEmail(event.target.value);
+            if (state === "invalid" || state === "error") setState("idle");
+          }}
+          placeholder={f.signupPlaceholder}
+          aria-label={f.signupFormTitle}
+          aria-invalid={state === "invalid"}
+          className="flex-1 sketch wobble-2 bg-paper-card px-5 py-3.5 text-ink placeholder:text-ink-faint font-bold outline-none focus:ring-4 focus:ring-sun/50"
+        />
+        <button
+          type="submit"
+          disabled={state === "sending"}
+          className="shrink-0 px-6 py-3.5 bg-sunset text-[#FFF9EC] font-display sketch wobble shadow-paint transition-all hover:-translate-y-0.5 disabled:opacity-60 disabled:hover:translate-y-0"
+        >
+          {state === "sending" ? f.signupLoading : f.signupButton}
+        </button>
+      </div>
+      {(state === "invalid" || state === "error") && (
+        <p className="mt-2.5 text-sm font-bold text-[#F4B8A0]" role="alert">
+          {state === "invalid" ? f.signupInvalid : f.signupError}
+        </p>
+      )}
+    </form>
+  );
+}
 
 export function Footer() {
   const { t } = useT();
@@ -47,14 +123,18 @@ export function Footer() {
           <p className="font-hand text-2xl text-sky mt-2 -rotate-1">{f.tagline}</p>
           <p className="mt-4 text-[#C8CFDF] leading-relaxed">{f.sub}</p>
 
-          <iframe
-            title={f.signupFormTitle}
-            src={GOOGLE_FORM_EMBED_URL}
-            className="mt-8 h-[409px] w-full max-w-[640px] rounded-xl bg-paper-card"
-            style={{ border: 0 }}
-          >
-            正在加载…
-          </iframe>
+          {GOOGLE_FORM_EMAIL_ENTRY ? (
+            <SubscribeForm />
+          ) : (
+            <iframe
+              title={f.signupFormTitle}
+              src={GOOGLE_FORM_EMBED_URL}
+              className="mt-8 h-[409px] w-full max-w-[640px] rounded-xl bg-paper-card"
+              style={{ border: 0 }}
+            >
+              正在加载…
+            </iframe>
+          )}
         </Reveal>
 
         {/* 链接列 */}
