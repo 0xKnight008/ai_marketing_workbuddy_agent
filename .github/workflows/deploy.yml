@@ -23,6 +23,9 @@ jobs:
       # 2.1 升级 npm 到稳定版本
       - name: Upgrade npm
         run: npm install -g npm@10
+
+      - name: Test subscription endpoint
+        run: node --test server/subscribe-server.test.mjs
       
       # 3. 安装依赖
       - name: Install dependencies
@@ -57,8 +60,10 @@ jobs:
           
           # 复制 Docker 相关文件
           cp Dockerfile.fixed deploy-package/
+          cp Dockerfile.subscribe deploy-package/
           cp nginx.conf deploy-package/
           cp docker-compose.yml deploy-package/
+          cp -r server deploy-package/
           
           # 创建部署脚本
           cat > deploy-package/deploy.sh << 'EOF'
@@ -76,6 +81,9 @@ jobs:
           # 构建新镜像
           echo "🔨 Building new Docker image..."
           sudo docker build -f Dockerfile.fixed -t ai-marketing-agent:latest .
+
+          echo "🔨 Building subscription API image..."
+          sudo docker compose build newsletter-api
 
           # 停止并删除旧容器
           echo "📦 Stopping old container..."

@@ -3,7 +3,7 @@ import { Piggy, SpritePuff } from "../components/ghibli/Piggy";
 import { Moon, NightHills, Fireflies, TwinkleStar } from "../components/ghibli/Scenery";
 import { Reveal } from "../components/Reveal";
 import { useT } from "../i18n/LangContext";
-import { GOOGLE_FORM_EMBED_URL, GOOGLE_FORM_EMAIL_ENTRY, GOOGLE_FORM_ID } from "../config";
+import { GOOGLE_FORM_EMBED_URL, GOOGLE_FORM_EMAIL_ENTRY } from "../config";
 
 const STARS = [
   { left: "6%", top: "10%" }, { left: "14%", top: "26%" }, { left: "23%", top: "8%" },
@@ -33,12 +33,12 @@ function SubscribeForm() {
 
     setState("sending");
     try {
-      await fetch(`https://docs.google.com/forms/d/e/${GOOGLE_FORM_ID}/formResponse`, {
+      const response = await fetch('/api/subscribe', {
         method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ [`entry.${GOOGLE_FORM_EMAIL_ENTRY}`]: value }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: value }),
       });
+      if (!response.ok) throw new Error('Subscription was not accepted');
       setState("done");
     } catch {
       setState("error");

@@ -38,6 +38,7 @@ if [ $? -ne 0 ]; then
 fi
 
 echo -e "${YELLOW}🚀 Starting services with docker-compose...${NC}"
+docker-compose build newsletter-api
 docker-compose up -d
 
 if [ $? -ne 0 ]; then
