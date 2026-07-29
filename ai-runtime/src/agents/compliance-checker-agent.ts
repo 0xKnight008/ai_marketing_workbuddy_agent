@@ -1,12 +1,12 @@
 import { Agent } from '@mastra/core/agent';
-import { config } from '../config';
 
 /**
  * 合规校验 agent。与确定性校验（禁用词扫描、长度上限）互补，
  * 负责语义层面的执行时校验：语气漂移、夸大承诺、平台政策风险。
  * 只输出 ComplianceReport，不修改文案 —— 修改属于 copy-optimization-agent 的职责。
  */
-export const complianceCheckerAgent = new Agent({
+export function createComplianceCheckerAgent(model: string) {
+  return new Agent({
   id: 'compliance-checker-agent',
   name: 'compliance-checker-agent',
   instructions: `You are the compliance checker for Piggybot, an AI marketing automation platform.
@@ -29,5 +29,6 @@ Rules:
 - If nothing is wrong, return passed=true with an empty or info-only issues list.
 - passed=false if and only if at least one blocker exists.
 - Output strictly follows the structured schema.`,
-  model: config.model,
-});
+    model,
+  });
+}

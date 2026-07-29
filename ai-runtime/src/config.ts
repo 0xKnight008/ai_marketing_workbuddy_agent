@@ -44,7 +44,11 @@ if (process.env.NODE_ENV === 'production' && storageUrl.startsWith('file:')) {
 }
 
 export const config = {
-  model: process.env.AI_MODEL ?? 'openai/gpt-4o-mini',
+  models: {
+    eco: process.env.AI_MODEL_ECO ?? process.env.AI_MODEL ?? 'openai/gpt-4o-mini',
+    standard: process.env.AI_MODEL_STANDARD ?? 'openai/gpt-4o',
+    flagship: process.env.AI_MODEL_FLAGSHIP ?? 'openai/o3',
+  },
 
   internalApiToken: process.env.INTERNAL_API_TOKEN ?? '',
 

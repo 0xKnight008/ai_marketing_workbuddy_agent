@@ -1,12 +1,12 @@
 import { Agent } from '@mastra/core/agent';
-import { config } from '../config';
 
 /**
  * 公告内容规划 agent。
  * 输入：brief + targets + 品牌上下文；输出：ContentPlan（每平台切入角度与要点）。
  * 只做规划，不产出最终文案，也不感知 connector / 发布动作。
  */
-export const announcementPlannerAgent = new Agent({
+export function createAnnouncementPlannerAgent(model: string) {
+  return new Agent({
   id: 'announcement-planner-agent',
   name: 'announcement-planner-agent',
   instructions: `You are the announcement content planner for Piggybot, an AI marketing automation platform.
@@ -23,5 +23,6 @@ Rules:
 - Use prior approved examples (when provided) as style reference, not as content to copy.
 - Write in the language specified by the brand profile.
 - Output strictly follows the structured schema. No commentary outside the schema.`,
-  model: config.model,
-});
+    model,
+  });
+}

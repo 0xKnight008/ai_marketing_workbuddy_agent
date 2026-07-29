@@ -5,6 +5,9 @@ import Fastify, { type FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import { aiRuntimeEventSchema } from '../contracts/ai-runtime-event';
+import { PLAN_KEYS } from '../billing/plans';
+import { activateStripeSubscription, resumeBillingPausedRuns, updateEntitlement, usageSnapshot } from '../billing/guardrails';
+import { createStripeCheckoutSession, stripeActivationFromWebhook, verifyStripeWebhookSignature } from '../billing/stripe';
 import type { ActorContext } from '../contracts/domain';
 import { Database } from '../foundation/database';
 import { loadGatewayConfig } from '../foundation/platform-config';
@@ -139,6 +142,28 @@ app.post('/api/workflow-runs', async (request, reply) => {
   return reply.code(202).send(created);
 });
 
+app.post('/webhooks/stripe', async (request, reply) => {
+  if (!config.STRIPE_WEBHOOK_SECRET) throw new HttpError(503, 'stripe_not_configured');
+  const raw = rawBodies.get(request);
+  const signature = request.headers['stripe-signature'];
+  if (!raw || typeof signature !== 'string') throw new HttpError(401, 'stripe_signature_missing');
+  verifyStripeWebhookSignature(raw, signature, config.STRIPE_WEBHOOK_SECRET, config.STRIPE_WEBHOOK_TOLERANCE_SECONDS);
+  const activation = stripeActivationFromWebhook(raw, config.STRIPE_TRIAL_DAYS);
+  if (!activation) return reply.code(202).send({ received: true, activated: false });
+  const result = await database.withWorkspace(activation.workspaceId, async (tx) => {
+    const applied = await activateStripeSubscription(tx, activation);
+    if (applied.applied) {
+      await tx.query('INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)', [activation.workspaceId, 'billing.stripe_activated', {
+        plan: activation.plan,
+        stripeEventId: activation.eventId,
+        stripeSubscriptionId: activation.subscriptionId,
+      }]);
+    }
+    return applied;
+  });
+  return reply.code(200).send({ received: true, activated: result.applied });
+});
+
 app.post('/api/workflow-templates/:templateId/publish', async (request, reply) => {
   const actor = actorFrom(request);
   const { templateId } = z.object({ templateId: z.enum(['repurpose', 'weekly_report', 'comment_lead']) }).parse(request.params);
@@ -202,8 +227,44 @@ app.post('/api/approval-requests/:approvalId/:decision', async (request) => {
 app.get('/api/billing/task-events', async (request) => {
   const actor = actorFrom(request);
   requirePermission(actor.role, 'billing:view');
-  const events = await database.withWorkspace(actor.workspaceId, (tx) => tx.query('SELECT id, run_id AS "runId", action_type AS "actionType", billable_units AS "billableUnits", status, created_at AS "createdAt" FROM task_event WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 100', [actor.workspaceId]));
+  const events = await database.withWorkspace(actor.workspaceId, (tx) => tx.query('SELECT id, run_id AS "runId", action_type AS "actionType", billable_units AS "billableUnits", ai_credits AS "aiCredits", supplier_cost_micros AS "supplierCostMicros", status, created_at AS "createdAt" FROM task_event WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 100', [actor.workspaceId]));
   return events.rows;
+});
+
+app.get('/api/billing/usage', async (request) => {
+  const actor = actorFrom(request);
+  requirePermission(actor.role, 'billing:view');
+  return database.withWorkspace(actor.workspaceId, usageSnapshot);
+});
+
+app.post('/api/billing/checkout-session', async (request) => {
+  const actor = actorFrom(request);
+  if (actor.role !== 'owner') throw new HttpError(403, 'owner_required');
+  const body = z.object({ plan: z.enum(PLAN_KEYS) }).parse(request.body);
+  const checkout = await createStripeCheckoutSession(config, { workspaceId: actor.workspaceId, actorId: actor.actorId, plan: body.plan });
+  await database.withWorkspace(actor.workspaceId, (tx) => tx.query('INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)', [actor.workspaceId, actor.actorId, 'billing.stripe_checkout_started', { plan: body.plan, stripeCheckoutSessionId: checkout.id }]));
+  return checkout;
+});
+
+// This endpoint is intended to be called by the verified payment webhook or
+// an owner-only admin console. It never accepts payment details itself.
+app.post('/api/billing/entitlements', async (request) => {
+  if (!config.BILLING_ADMIN_TOKEN || request.headers['x-billing-admin-token'] !== config.BILLING_ADMIN_TOKEN) {
+    throw new HttpError(403, 'billing_admin_required');
+  }
+  const actor = actorFrom(request);
+  const body = z.object({
+    plan: z.enum(PLAN_KEYS).optional(),
+    additionalAiCredits: z.number().int().nonnegative().refine((value) => value % 1_000 === 0, 'additionalAiCredits must be a multiple of 1000').default(0),
+  }).parse(request.body ?? {});
+  if (!body.plan && body.additionalAiCredits === 0) throw new HttpError(400, 'entitlement_change_required');
+  return database.withWorkspace(actor.workspaceId, async (tx) => {
+    const current = await usageSnapshot(tx);
+    const usage = await updateEntitlement(tx, body.plan ?? current.plan, body.additionalAiCredits);
+    const resumedRuns = usage.status === 'paused' ? 0 : await resumeBillingPausedRuns(tx);
+    await tx.query('INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)', [actor.workspaceId, actor.actorId, 'billing.entitlement_updated', { plan: usage.plan, additionalAiCredits: body.additionalAiCredits, resumedRuns }]);
+    return { usage, resumedRuns };
+  });
 });
 
 app.get('/api/audit-events', async (request) => {
