@@ -2,9 +2,6 @@ import { Mastra } from '@mastra/core';
 import { LibSQLStore } from '@mastra/libsql';
 import { PinoLogger } from '@mastra/loggers';
 
-import { announcementPlannerAgent } from '../agents/announcement-planner-agent';
-import { complianceCheckerAgent } from '../agents/compliance-checker-agent';
-import { copyOptimizationAgent } from '../agents/copy-optimization-agent';
 import { config } from '../config';
 import { internalApiRoutes } from '../internal-api/routes';
 import { prepareAnnouncementWorkflow } from '../workflows/prepare-announcement-workflow';
@@ -21,11 +18,7 @@ import { prepareAnnouncementWorkflow } from '../workflows/prepare-announcement-w
  * - Mastra Studio 只指向 staging（§12.5），通过 MASTRA_STUDIO_ENABLED 控制。
  */
 export const mastra = new Mastra({
-  agents: {
-    announcementPlannerAgent,
-    copyOptimizationAgent,
-    complianceCheckerAgent,
-  },
+  agents: {},
   workflows: {
     prepareAnnouncementWorkflow,
   },

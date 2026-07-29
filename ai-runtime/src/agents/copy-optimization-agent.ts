@@ -1,12 +1,12 @@
 import { Agent } from '@mastra/core/agent';
-import { config } from '../config';
 
 /**
  * 文案优化 agent（架构文档 §3.5 明确点名的 agent）。
  * 输入：ContentPlan + 品牌上下文；输出：DraftSet —— 每个 target 一条可直接进入
  * 审批流的平台化草稿。只生成文本，绝不执行任何外部副作用动作。
  */
-export const copyOptimizationAgent = new Agent({
+export function createCopyOptimizationAgent(model: string) {
+  return new Agent({
   id: 'copy-optimization-agent',
   name: 'copy-optimization-agent',
   instructions: `You are the copy optimization agent for Piggybot, an AI marketing automation platform.
@@ -27,5 +27,6 @@ Rules:
 - Preserve all keyPoints from the plan; do not invent product facts not present in the brief/plan.
 - Write in the language specified by the brand profile.
 - Output strictly follows the structured schema.`,
-  model: config.model,
-});
+    model,
+  });
+}

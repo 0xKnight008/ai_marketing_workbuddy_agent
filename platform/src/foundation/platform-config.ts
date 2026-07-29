@@ -20,6 +20,15 @@ export const gatewayConfigSchema = databaseConfigSchema.extend({
   ZERNIO_OAUTH_CLIENT_ID: z.string().min(1).optional(),
   ZERNIO_OAUTH_REDIRECT_URI: z.string().url().optional(),
   ZERNIO_OAUTH_STATE_SECRET: z.string().min(32).optional(),
+  PUBLIC_SITE_URL: z.string().url().default('http://localhost:5173'),
+  STRIPE_SECRET_KEY: z.string().min(1).optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
+  BILLING_ADMIN_TOKEN: z.string().min(32).optional(),
+  STRIPE_PRICE_CREATOR: z.string().min(1).optional(),
+  STRIPE_PRICE_GROWTH: z.string().min(1).optional(),
+  STRIPE_PRICE_AGENCY: z.string().min(1).optional(),
+  STRIPE_TRIAL_DAYS: z.coerce.number().int().min(1).max(30).default(7),
+  STRIPE_WEBHOOK_TOLERANCE_SECONDS: z.coerce.number().int().min(1).max(3600).default(300),
   GATEWAY_PORT: z.coerce.number().int().min(1).max(65535).default(4100),
 });
 

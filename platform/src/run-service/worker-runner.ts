@@ -1,4 +1,7 @@
 import { actionPlanSchema, type ActionPlan } from '../contracts/ai-runtime-event';
+import type { BrandContextSnapshot } from '../contracts/domain';
+import { MODEL_BAND_POLICIES } from '../billing/plans';
+import { projectedActionUsage, recordSuccessfulAction, reserveAiRun, type AiReservation, type UsageSnapshot } from '../billing/guardrails';
 import { assertExecutableAction, type ConnectedAccountView } from '../connector-service/actions';
 import type { TenantTransaction } from '../foundation/database';
 import { decryptSecret } from '../foundation/secrets';
@@ -62,18 +65,32 @@ export class RunWorker {
 
   private async executePrepare(job: ClaimedJob): Promise<void> {
     if (!job.runId) throw new Error('prepare_ai_run is missing runId');
-    const run = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
-      const result = await tx.query<{ id: string; input: Record<string, unknown>; context: Record<string, unknown>; requestedBy: string }>(
+    const prepared = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+      const result = await tx.query<{ id: string; input: Record<string, unknown>; context: BrandContextSnapshot; requestedBy: string }>(
         'SELECT id, input, context_snapshot AS context, requested_by AS "requestedBy" FROM workflow_run WHERE id = $1 AND workspace_id = $2',
         [job.runId, job.workspaceId],
       );
       const found = result.rows[0];
       if (!found) throw new Error('Run not found');
+      const reservation = await reserveAiRun(tx, found.context.allowedModelClasses, found.id);
+      if (reservation.guardrail.status === 'paused') {
+        await this.pauseForBilling(tx, job, reservation.guardrail, 'ai_run');
+        return undefined;
+      }
       await tx.query("UPDATE workflow_run SET status = 'running', started_at = COALESCE(started_at, now()) WHERE id = $1 AND workspace_id = $2 AND status IN ('pending', 'queued')", [found.id, job.workspaceId]);
-      return found;
+      if (reservation.guardrail.status === 'approval_required') await this.recordApprovalRequirement(tx, found.id, reservation.guardrail, 'ai_run');
+      return { run: found, reservation };
     });
+    if (!prepared) return;
+    const { run, reservation } = prepared;
 
-    const accepted = await this.options.aiRuntime.prepareAnnouncement({ platformRunId: run.id, workspaceId: job.workspaceId, actorId: run.requestedBy, input: run.input, executionContext: run.context });
+    const accepted = await this.options.aiRuntime.prepareAnnouncement({
+      platformRunId: run.id,
+      workspaceId: job.workspaceId,
+      actorId: run.requestedBy,
+      input: run.input,
+      executionContext: toAiExecutionContext(run.context, reservation),
+    });
     await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
       await tx.query('INSERT INTO run_event (workspace_id, run_id, event_key, event_type, payload) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (run_id, event_key) DO NOTHING', [job.workspaceId, run.id, `ai:${accepted.aiRunId}:accepted`, 'ai_run.accepted', accepted]);
       await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
@@ -87,6 +104,21 @@ export class RunWorker {
       const operation = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
         const run = await tx.query<{ status: string }>('SELECT status FROM workflow_run WHERE id = $1 AND workspace_id = $2', [job.runId, job.workspaceId]);
         if (!run.rows[0] || !['queued', 'running'].includes(run.rows[0].status)) throw new Error('Run is not ready for action execution');
+        const guardrail = await projectedActionUsage(tx, action.platform === 'x');
+        if (guardrail.status === 'paused') {
+          await this.pauseForBilling(tx, job, guardrail, 'publish');
+          return { halted: true };
+        }
+        if (guardrail.status === 'approval_required') {
+          const event = await tx.query<{ id: string }>('INSERT INTO run_event (workspace_id, run_id, event_key, event_type, payload) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (run_id, event_key) DO NOTHING RETURNING id', [job.workspaceId, job.runId, `billing:${job.runId}:approval_required`, 'billing.approval_required', guardrail]);
+          if (event.rows[0]) {
+            await tx.query("UPDATE workflow_run SET status = 'waiting_approval' WHERE id = $1 AND workspace_id = $2", [job.runId, job.workspaceId]);
+            await tx.query('INSERT INTO approval_request (workspace_id, run_id, status, requested_action) VALUES ($1, $2, \'pending\', $3)', [job.workspaceId, job.runId, actionPlan]);
+            await tx.query('INSERT INTO audit_event (workspace_id, run_id, event_type, payload) VALUES ($1, $2, $3, $4)', [job.workspaceId, job.runId, 'billing.approval_required', guardrail]);
+            await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
+            return { halted: true };
+          }
+        }
         const stepKey = `action:${action.stepOrder}`;
         await tx.query(`INSERT INTO step_run (workspace_id, run_id, step_key, status, input, started_at)
           VALUES ($1, $2, $3, 'running', $4, now()) ON CONFLICT (run_id, step_key, attempt) DO NOTHING`, [job.workspaceId, job.runId, stepKey, action]);
@@ -108,6 +140,7 @@ export class RunWorker {
         return { stepRunId: stepRun.id, connected, action };
       });
       if (!operation) continue;
+      if ('halted' in operation) return;
       const { zernio, secretEncryptionKeyBase64 } = this.options;
       if (!zernio || !secretEncryptionKeyBase64) throw new Error('Zernio action execution is not configured');
       const { ciphertext, iv, authTag } = operation.connected;
@@ -124,13 +157,27 @@ export class RunWorker {
       const result = await zernio.executeAction(credential.accessToken, operation.action.idempotencyKey, operation.action);
       await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
         await tx.query("UPDATE step_run SET status = 'succeeded', output = $2, finished_at = now() WHERE id = $1 AND workspace_id = $3", [operation.stepRunId, result, job.workspaceId]);
-        await tx.query("INSERT INTO task_event (workspace_id, run_id, step_run_id, action_type, billable_units, status) VALUES ($1, $2, $3, $4, 1, 'succeeded') ON CONFLICT DO NOTHING", [job.workspaceId, job.runId, operation.stepRunId, operation.action.type]);
+        await recordSuccessfulAction(tx, { runId: job.runId!, stepRunId: operation.stepRunId, actionType: operation.action.type, isX: operation.action.platform === 'x' });
       });
     }
     await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
       await tx.query("UPDATE workflow_run SET status = 'succeeded', finished_at = now() WHERE id = $1 AND workspace_id = $2 AND status IN ('queued', 'running')", [job.runId, job.workspaceId]);
       await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
     });
+  }
+
+  private async pauseForBilling(tx: TenantTransaction, job: ClaimedJob, guardrail: UsageSnapshot, stage: 'ai_run' | 'publish'): Promise<void> {
+    if (!job.runId) throw new Error('Billing pause is missing runId');
+    const payload = { stage, guardrail, jobKind: job.kind, jobPayload: job.payload };
+    await tx.query("UPDATE workflow_run SET status = 'waiting_approval' WHERE id = $1 AND workspace_id = $2 AND status IN ('pending', 'queued', 'running')", [job.runId, job.workspaceId]);
+    await tx.query('INSERT INTO run_event (workspace_id, run_id, event_key, event_type, payload) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (run_id, event_key) DO NOTHING', [job.workspaceId, job.runId, `billing:${job.id}:paused`, 'billing.paused', payload]);
+    await tx.query('INSERT INTO audit_event (workspace_id, run_id, event_type, payload) VALUES ($1, $2, $3, $4)', [job.workspaceId, job.runId, 'billing.paused', payload]);
+    await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
+  }
+
+  private async recordApprovalRequirement(tx: TenantTransaction, runId: string, guardrail: UsageSnapshot, stage: 'ai_run' | 'publish'): Promise<void> {
+    await tx.query('INSERT INTO run_event (workspace_id, run_id, event_key, event_type, payload) VALUES (current_setting(\'app.workspace_id\')::uuid, $1, $2, $3, $4) ON CONFLICT (run_id, event_key) DO NOTHING', [runId, `billing:${runId}:approval_required`, 'billing.approval_required', { stage, guardrail }]);
+    await tx.query('INSERT INTO audit_event (workspace_id, run_id, event_type, payload) VALUES (current_setting(\'app.workspace_id\')::uuid, $1, $2, $3)', [runId, 'billing.approval_required', { stage, guardrail }]);
   }
 
   private async failJob(job: ClaimedJob, error: unknown): Promise<void> {
@@ -154,4 +201,26 @@ export function parseZernioCredential(value: string): { accessToken: string } {
   }
   if (value) return { accessToken: value };
   throw new Error('Connected Zernio account credential is invalid');
+}
+
+function toAiExecutionContext(context: BrandContextSnapshot, reservation: AiReservation) {
+  const policy = MODEL_BAND_POLICIES[reservation.band];
+  return {
+    brandProfile: {
+      tone: context.tone,
+      language: context.language,
+      forbiddenWords: context.forbiddenWords,
+    },
+    priorApprovedExamples: [],
+    // The 80% guardrail is deliberately enforced even when a workspace has
+    // otherwise enabled auto-approval: the next publish must be explicitly approved.
+    approvalPolicy: reservation.guardrail.status === 'approval_required' ? 'required' : context.approvalPolicy,
+    runPolicy: {
+      approvalRequiredForPublish: reservation.guardrail.status === 'approval_required' || context.approvalPolicy !== 'none',
+      modelBand: reservation.band,
+      maxInputTokens: policy.maxInputTokens,
+      maxOutputTokens: policy.maxOutputTokens,
+      maxTargets: policy.maxTargets,
+    },
+  };
 }

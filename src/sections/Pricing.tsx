@@ -26,8 +26,9 @@ function Lantern({ className = "", style, delay = 0 }: { className?: string; sty
 }
 
 export function Pricing() {
-  const { t } = useT();
+  const { lang, t } = useT();
   const p = t.pricing;
+  const activationBase = lang === 'zh' ? '/activate' : `/${lang}/activate`;
 
   return (
     <section id="pricing" className="relative py-20 sm:py-28 bg-gradient-to-b from-paper via-[#FBF0D9] to-paper overflow-hidden">
@@ -88,6 +89,7 @@ export function Pricing() {
 
                   <div className="mt-4 space-y-1.5 text-sm font-bold text-ink">
                     <p className="flex items-center gap-2"><Coins className="w-4 h-4 text-sunset" /> {plan.tasks}</p>
+                    <p className="flex items-center gap-2"><Sparkles className="w-4 h-4 text-sunset" /> {plan.credits}</p>
                     <p className="flex items-center gap-2"><Check className="w-4 h-4 text-meadow-deep" strokeWidth={3} /> {plan.accounts}</p>
                   </div>
                   <ul className="mt-4 pt-4 border-t-2 border-dashed border-ink/15 space-y-2 flex-1">
@@ -99,7 +101,7 @@ export function Pricing() {
                     ))}
                   </ul>
                   <a
-                    href="#top"
+                    href={`${activationBase}?plan=${plan.name.toLowerCase()}`}
                     className={`mt-6 inline-flex justify-center items-center px-5 py-3 font-display sketch transition-all hover:-translate-y-0.5 ${
                       highlight ? "bg-sunset text-[#FFF9EC] wobble shadow-paint" : "bg-paper-deep text-ink wobble-2 shadow-paint-sm"
                     }`}
@@ -114,7 +116,7 @@ export function Pricing() {
         </div>
 
         {/* 超额与 task 说明 */}
-        <div className="mt-12 grid gap-5 md:grid-cols-2">
+        <div className="mt-12 grid gap-5 md:grid-cols-3">
           <Reveal delay={0.1}>
             <div className="h-full bg-paper-card sketch wobble-3 shadow-paint p-6">
               <h4 className="font-display text-lg text-ink">{p.overageTitle}</h4>
@@ -131,6 +133,16 @@ export function Pricing() {
               <ul className="mt-3 space-y-2 text-sm text-ink-soft leading-relaxed">
                 {p.taskRules.map((r, i) => (
                   <li key={i}>{r}</li>
+                ))}
+              </ul>
+            </div>
+          </Reveal>
+          <Reveal delay={0.26}>
+            <div className="h-full bg-paper-card sketch wobble-2 shadow-paint p-6">
+              <h4 className="font-display text-lg text-ink">{p.guardrailTitle}</h4>
+              <ul className="mt-3 space-y-2 text-sm text-ink-soft leading-relaxed">
+                {p.guardrails.map((guardrail, i) => (
+                  <li key={i}>{guardrail}</li>
                 ))}
               </ul>
             </div>
