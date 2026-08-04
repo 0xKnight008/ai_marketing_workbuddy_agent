@@ -28,10 +28,14 @@ The gateway rejects unsigned runtime events. Use `pnpm issue:token` with
 short-lived operator token for local setup; production sign-in must be supplied
 by the deployment's identity provider.
 
-## Framework direction
+## Egg runtime
 
-The platform is being prepared for a staged adoption of stable Egg 3.x. The
-current Fastify gateway remains the compatible production adapter while the
-domain services are separated from process lifecycle concerns. See
-[`EGG_ADOPTION.md`](./EGG_ADOPTION.md) for the review, target layout, and
-cutover acceptance criteria.
+The primary HTTP runtime is stable Egg 3.x. `pnpm dev` starts Egg locally and
+`pnpm start` uses `egg-scripts` for production. Egg owns route loading,
+middleware, lifecycle-managed resources, and the bounded run-worker schedule.
+The Postgres claim function remains the cross-machine work lock.
+
+The legacy Fastify entrypoint is retained only as an explicit rollback adapter
+(`pnpm dev:legacy-gateway`); it is not used by the production scripts. See
+[`EGG_ADOPTION.md`](./EGG_ADOPTION.md) for the runtime boundaries and rollout
+requirements.
