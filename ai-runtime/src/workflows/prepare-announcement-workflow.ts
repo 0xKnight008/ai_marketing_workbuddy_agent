@@ -1,12 +1,14 @@
 import { createStep, createWorkflow } from '@mastra/core/workflows';
 import { z } from 'zod';
 
-import { announcementPlannerAgent } from '../agents/announcement-planner-agent';
-import { copyOptimizationAgent } from '../agents/copy-optimization-agent';
-import { complianceCheckerAgent } from '../agents/compliance-checker-agent';
+import { createAnnouncementPlannerAgent } from '../agents/announcement-planner-agent';
+import { createCopyOptimizationAgent } from '../agents/copy-optimization-agent';
+import { createComplianceCheckerAgent } from '../agents/compliance-checker-agent';
+import { config } from '../config';
 import { getEmitter } from '../events/emitter';
 import { resolveApprovalRequirement } from '../lib/approval-policy';
 import { runDeterministicChecks } from '../lib/deterministic-checks';
+import { assertDraftsWithinPolicy, assertRunInputWithinPolicy } from '../lib/run-policy';
 import { assertTargetsMatch } from '../lib/target-validation';
 import {
   actionPlanSchema,
@@ -41,6 +43,10 @@ const workflowInputSchema = z.object({
   executionContext: executionContextSchema,
 });
 
+function modelForBand(band: 'eco' | 'standard' | 'flagship'): string {
+  return config.models[band];
+}
+
 /** step 间传递的流水线数据 */
 const pipelineContextSchema = z.object({
   platformRunId: z.string(),
@@ -67,6 +73,8 @@ const contentPlanningStep = createStep({
     withStepEvents(runId, WORKFLOW_STEP_IDS.contentPlanning, async () => {
       const { input, executionContext } = inputData;
       const brand = executionContext.brandProfile;
+      assertRunInputWithinPolicy(input, executionContext);
+      const announcementPlannerAgent = createAnnouncementPlannerAgent(modelForBand(executionContext.runPolicy.modelBand));
 
       const { object } = await announcementPlannerAgent.generate(
         [
@@ -105,6 +113,7 @@ const copyOptimizationStep = createStep({
       runId,
       WORKFLOW_STEP_IDS.copyOptimization,
       async () => {
+        const copyOptimizationAgent = createCopyOptimizationAgent(modelForBand(inputData.executionContext.runPolicy.modelBand));
         const { object } = await copyOptimizationAgent.generate(
           [
             `Content plan: ${JSON.stringify(inputData.contentPlan)}`,
@@ -115,6 +124,7 @@ const copyOptimizationStep = createStep({
 
         const draftSet = draftSetSchema.parse(object);
         assertTargetsMatch(inputData.targets, draftSet.drafts, 'drafts');
+        assertDraftsWithinPolicy(draftSet.drafts, inputData.executionContext);
 
         // §7 draft.created：run-service 据此更新 timeline / 展示草稿预览
         for (const draft of draftSet.drafts) {
@@ -146,6 +156,7 @@ const complianceCheckStep = createStep({
       WORKFLOW_STEP_IDS.complianceCheck,
       async () => {
         const brand = inputData.executionContext.brandProfile;
+        const complianceCheckerAgent = createComplianceCheckerAgent(modelForBand(inputData.executionContext.runPolicy.modelBand));
 
         // 1) 确定性校验：禁用词 / 平台长度上限 / 字数一致性
         const deterministicIssues = runDeterministicChecks(inputData.drafts, brand);

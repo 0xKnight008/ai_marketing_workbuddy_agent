@@ -14,6 +14,22 @@ services:
     deploy:
       replicas: 1
 
+  newsletter-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.subscribe
+    image: ai-marketing-subscribe-api:latest
+    pull_policy: never
+    container_name: ai-marketing-subscribe-api
+    restart: unless-stopped
+    networks:
+      - ss_prod
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      GOOGLE_FORM_ID: ${GOOGLE_FORM_ID:-1FAIpQLSf0snTCY6aXd-eREWUYHvfHUPsdAxRLiCW2KxJanUQomT0ncA}
+      GOOGLE_FORM_EMAIL_ENTRY: ${GOOGLE_FORM_EMAIL_ENTRY:-1237653730}
+
 networks:
   ss_prod:
     external: true

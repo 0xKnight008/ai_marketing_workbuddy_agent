@@ -63,7 +63,13 @@ test('semantic compliance output cannot remove the approval gate', () => {
       approvalPolicy: 'auto_approve',
       brandProfile: { tone: 'clear', language: 'en', forbiddenWords: [] },
       priorApprovedExamples: [],
-      runPolicy: { approvalRequiredForPublish: false },
+      runPolicy: {
+        approvalRequiredForPublish: false,
+        modelBand: 'eco',
+        maxInputTokens: 8_000,
+        maxOutputTokens: 1_500,
+        maxTargets: 5,
+      },
     }),
     true,
   );
