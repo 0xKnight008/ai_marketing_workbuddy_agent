@@ -21,6 +21,11 @@ pnpm test
 
 The migration creates a tenant-scoped Postgres schema. The application must set `app.workspace_id` inside every tenant transaction; direct, unscoped queries are intentionally not part of the repository API.
 
+`pnpm migrate` uses Sequelize and Umzug to apply the versioned schema files and
+record their state in `schema_migration`. It deliberately does not call
+`sequelize.sync()` in production: versioned migrations preserve the RLS,
+Postgres enum, index, and function definitions that the platform requires.
+
 For a connected runtime, set the same high-entropy value in platform
 `AI_RUNTIME_EVENT_SIGNING_SECRET` and ai-runtime `EVENT_CALLBACK_SIGNING_SECRET`.
 The gateway rejects unsigned runtime events. Use `pnpm issue:token` with

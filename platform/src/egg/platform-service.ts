@@ -4,9 +4,9 @@ import { z } from 'zod';
 
 import { aiRuntimeEventSchema } from '../contracts/ai-runtime-event';
 import type { ActorContext } from '../contracts/domain';
-import type { TenantTransaction } from '../foundation/database';
 import { Database } from '../foundation/database';
 import type { GatewayConfig } from '../foundation/platform-config';
+import { PlatformOrm } from '../foundation/sequelize';
 import { requirePermission } from '../foundation/rbac';
 import { decryptSecret, encryptSecret } from '../foundation/secrets';
 import { createWorkflowRun } from '../gateway/run-request';
@@ -18,7 +18,11 @@ import { HttpError } from '../http/errors';
 
 /** Framework-neutral orchestration used by Egg controllers and scheduled work. */
 export class PlatformService {
-  constructor(private readonly config: GatewayConfig, private readonly database: Database) {}
+  constructor(
+    private readonly config: GatewayConfig,
+    private readonly database: Database,
+    private readonly orm: PlatformOrm,
+  ) {}
 
   actorFrom(authorization: string | undefined): ActorContext {
     if (!authorization?.startsWith('Bearer ')) throw new HttpError(401, 'unauthorized');
@@ -78,11 +82,7 @@ export class PlatformService {
 
   async pendingApprovals(actor: ActorContext): Promise<unknown[]> {
     requirePermission(actor.role, 'approval:decide');
-    const rows = await this.database.withWorkspace(actor.workspaceId, (tx) => tx.query(
-      'SELECT id, run_id AS "runId", requested_action AS "requestedAction", requested_at AS "requestedAt" FROM approval_request WHERE workspace_id = $1 AND status = \'pending\' ORDER BY requested_at LIMIT 100',
-      [actor.workspaceId],
-    ));
-    return rows.rows;
+    return this.orm.pendingApprovals(actor.workspaceId);
   }
 
   async run(actor: ActorContext, runId: string): Promise<unknown | undefined> {
@@ -135,7 +135,7 @@ export class PlatformService {
   private async storeZernioAccounts(workspaceId: string, credential: { accessToken: string; refreshToken?: string }, accounts: ZernioAccount[]): Promise<void> {
     if (!this.config.SECRET_ENCRYPTION_KEY_BASE64) throw new HttpError(503, 'provider_not_configured');
     const encrypted = encryptSecret(JSON.stringify(credential), this.config.SECRET_ENCRYPTION_KEY_BASE64);
-    await this.database.withWorkspace(workspaceId, async (tx: TenantTransaction) => {
+    await this.database.withWorkspace(workspaceId, async (tx) => {
       const stored = await tx.query<{ id: string }>(
         `INSERT INTO secret (workspace_id, purpose, ciphertext, iv, auth_tag, rotated_at)
          VALUES ($1, 'zernio.oauth', $2, $3, $4, now())

@@ -2,7 +2,7 @@ import type { Context } from 'egg';
 
 export default {
   schedule: {
-    interval: '1s',
+    interval: '3s',
     type: 'worker',
     immediate: true,
   },

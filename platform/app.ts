@@ -3,6 +3,7 @@ import type { Application } from 'egg';
 import { AiRuntimeClient } from './src/ai-runtime/client';
 import { Database } from './src/foundation/database';
 import { loadGatewayConfig, loadWorkerConfig } from './src/foundation/platform-config';
+import { PlatformOrm } from './src/foundation/sequelize';
 import { PlatformService } from './src/egg/platform-service';
 import { RunWorker } from './src/run-service/worker-runner';
 import { ZernioClient } from './src/zernio/client';
@@ -19,12 +20,14 @@ export default class AppBootHook {
     if (gatewayConfig.DATABASE_URL !== workerConfig.DATABASE_URL) throw new Error('Gateway and worker must use the same DATABASE_URL');
 
     const database = new Database(gatewayConfig.DATABASE_URL);
+    const orm = new PlatformOrm(gatewayConfig.DATABASE_URL);
     const zernio = workerConfig.ZERNIO_BASE_URL
       ? new ZernioClient({ baseUrl: workerConfig.ZERNIO_BASE_URL, oauthClientId: 'worker', oauthRedirectUri: 'http://localhost/unused', oauthStateSecret: 'worker-not-used' })
       : undefined;
     this.app.platform = {
       database,
-      service: new PlatformService(gatewayConfig, database),
+      orm,
+      service: new PlatformService(gatewayConfig, database, orm),
       worker: new RunWorker({
         workerName: workerConfig.WORKER_NAME,
         database,
@@ -37,6 +40,6 @@ export default class AppBootHook {
   }
 
   async beforeClose(): Promise<void> {
-    await this.app.platform.database.close();
+    await Promise.all([this.app.platform.database.close(), this.app.platform.orm.close()]);
   }
 }
