@@ -2,25 +2,41 @@
   "name": "piggybot-platform",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
-  "engines": { "node": ">=22.13.0" },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "egg": {
+    "typescript": true
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/**/*.test.ts",
+    "test": "tsx --test src/**/*.test.ts && egg-bin test --ts",
+    "test:egg": "egg-bin test --ts",
     "migrate": "tsx src/foundation/migrate.ts",
     "issue:token": "tsx src/identity/issue-token.ts",
-    "dev:gateway": "tsx src/http/gateway-server.ts",
+    "dev": "egg-bin dev --ts",
+    "start": "egg-scripts start --title=piggybot-platform",
+    "stop": "egg-scripts stop --title=piggybot-platform",
+    "dev:gateway": "egg-bin dev --ts",
+    "dev:legacy-gateway": "tsx src/http/gateway-server.ts",
     "dev:worker": "tsx src/run-service/worker.ts"
   },
   "dependencies": {
     "@fastify/cors": "10.0.1",
+    "egg": "3.34.0",
+    "egg-scripts": "3.1.0",
     "fastify": "5.2.1",
     "pg": "8.13.1",
+    "sequelize": "6.37.8",
+    "umzug": "3.8.3",
     "zod": "3.25.76"
   },
   "devDependencies": {
+    "@types/mocha": "10.0.10",
     "@types/node": "22.10.0",
     "@types/pg": "8.11.10",
+    "egg-bin": "6.13.0",
+    "egg-mock": "5.15.2",
     "tsx": "4.19.0",
     "typescript": "5.7.3"
   }

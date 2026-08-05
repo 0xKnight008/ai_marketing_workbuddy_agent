@@ -4,6 +4,7 @@ import { loadWorkerConfig } from '../foundation/platform-config';
 import { ZernioClient } from '../zernio/client';
 import { RunWorker } from './worker-runner';
 
+async function main(): Promise<void> {
 const config = loadWorkerConfig();
 const database = new Database(config.DATABASE_URL);
 const aiRuntime = new AiRuntimeClient({ baseUrl: config.AI_RUNTIME_URL, internalToken: config.INTERNAL_SERVICE_TOKEN });
@@ -29,3 +30,6 @@ try {
 } finally {
   await database.close();
 }
+}
+
+void main();

@@ -1,2 +1,3 @@
 allowBuilds:
+  egg-bin: true
   esbuild: true

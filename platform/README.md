@@ -21,6 +21,11 @@ pnpm test
 
 The migration creates a tenant-scoped Postgres schema. The application must set `app.workspace_id` inside every tenant transaction; direct, unscoped queries are intentionally not part of the repository API.
 
+`pnpm migrate` uses Sequelize and Umzug to apply the versioned schema files and
+record their state in `schema_migration`. It deliberately does not call
+`sequelize.sync()` in production: versioned migrations preserve the RLS,
+Postgres enum, index, and function definitions that the platform requires.
+
 For a connected runtime, set the same high-entropy value in platform
 `AI_RUNTIME_EVENT_SIGNING_SECRET` and ai-runtime `EVENT_CALLBACK_SIGNING_SECRET`.
 The gateway rejects unsigned runtime events. Use `pnpm issue:token` with
@@ -28,10 +33,14 @@ The gateway rejects unsigned runtime events. Use `pnpm issue:token` with
 short-lived operator token for local setup; production sign-in must be supplied
 by the deployment's identity provider.
 
-## Framework direction
+## Egg runtime
 
-The platform is being prepared for a staged adoption of stable Egg 3.x. The
-current Fastify gateway remains the compatible production adapter while the
-domain services are separated from process lifecycle concerns. See
-[`EGG_ADOPTION.md`](./EGG_ADOPTION.md) for the review, target layout, and
-cutover acceptance criteria.
+The primary HTTP runtime is stable Egg 3.x. `pnpm dev` starts Egg locally and
+`pnpm start` uses `egg-scripts` for production. Egg owns route loading,
+middleware, lifecycle-managed resources, and the bounded run-worker schedule.
+The Postgres claim function remains the cross-machine work lock.
+
+The legacy Fastify entrypoint is retained only as an explicit rollback adapter
+(`pnpm dev:legacy-gateway`); it is not used by the production scripts. See
+[`EGG_ADOPTION.md`](./EGG_ADOPTION.md) for the runtime boundaries and rollout
+requirements.

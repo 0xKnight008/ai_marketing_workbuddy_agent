@@ -20,6 +20,8 @@ import { createDurableRun, decideApproval, ingestAiRuntimeEvent } from '../run-s
 import { ZernioClient, type ZernioAccount } from '../zernio/client';
 import { HttpError, publicError } from './errors';
 
+async function main(): Promise<void> {
+
 const config = loadGatewayConfig();
 
 const database = new Database(config.DATABASE_URL);
@@ -279,3 +281,6 @@ await app.listen({ port: config.GATEWAY_PORT, host: '127.0.0.1' });
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => void app.close().then(() => database.close()));
 }
+}
+
+void main();
