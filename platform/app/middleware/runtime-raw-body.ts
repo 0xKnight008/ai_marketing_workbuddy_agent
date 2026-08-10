@@ -3,9 +3,10 @@ import type { Context } from 'egg';
 import { HttpError } from '../../src/http/errors';
 
 const MAX_RUNTIME_EVENT_BYTES = 1_048_576;
+const RAW_BODY_PATHS = new Set(['/internal/ai-runtime-events', '/webhooks/stripe']);
 
 export default () => async (ctx: Context, next: () => Promise<void>) => {
-  if (ctx.path !== '/internal/ai-runtime-events') return next();
+  if (!RAW_BODY_PATHS.has(ctx.path)) return next();
   const chunks: Buffer[] = [];
   let bytes = 0;
   for await (const chunk of ctx.req) {

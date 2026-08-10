@@ -62,6 +62,13 @@ export async function ingestAiRuntimeEvent(tx: TenantTransaction, event: AiRunti
 
   if (event.type === 'action_plan.created') {
     const actionPlan = actionPlanSchema.parse(event.payload.actionPlan);
+    if (actionPlan.blockedByCompliance) {
+      await tx.query(
+        "UPDATE workflow_run SET status = 'failed', finished_at = now() WHERE id = $1 AND workspace_id = $2 AND status IN ('pending', 'queued', 'running')",
+        [event.platformRunId, event.workspaceId],
+      );
+      return;
+    }
     const transitioned = await tx.query<{ id: string }>(
       "UPDATE workflow_run SET status = 'waiting_approval' WHERE id = $1 AND workspace_id = $2 AND status = 'running' RETURNING id",
       [event.platformRunId, event.workspaceId],

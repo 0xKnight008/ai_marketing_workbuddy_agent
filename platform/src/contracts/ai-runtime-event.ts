@@ -16,6 +16,7 @@ const plannedActionSchema = z.object({
 export const actionPlanSchema = z.object({
   summary: z.string(),
   requiresApproval: z.boolean(),
+  blockedByCompliance: z.boolean().default(false),
   actions: z.array(plannedActionSchema),
 }).strict();
 export type ActionPlan = z.infer<typeof actionPlanSchema>;

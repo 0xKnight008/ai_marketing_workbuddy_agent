@@ -1,10 +1,11 @@
-import { actionPlanSchema, type ActionPlan } from '../contracts/ai-runtime-event';
+import { actionPlanSchema, type ActionPlan, type AiRuntimeEvent } from '../contracts/ai-runtime-event';
 import type { BrandContextSnapshot } from '../contracts/domain';
 import { MODEL_BAND_POLICIES } from '../billing/plans';
 import { projectedActionUsage, recordSuccessfulAction, reserveAiRun, type AiReservation, type UsageSnapshot } from '../billing/guardrails';
 import { assertExecutableAction, type ConnectedAccountView } from '../connector-service/actions';
 import type { TenantTransaction } from '../foundation/database';
 import { decryptSecret } from '../foundation/secrets';
+import { ingestAiRuntimeEvent } from './repository';
 
 export interface ClaimedJob {
   id: string;
@@ -22,6 +23,14 @@ export interface RunWorkerDatabase {
 
 export interface RunWorkerAiRuntime {
   prepareAnnouncement(payload: Record<string, unknown>): Promise<{ aiRunId: string; status: 'accepted' }>;
+  getAnnouncementRun(aiRunId: string): Promise<{
+    aiRunId: string;
+    platformRunId: string;
+    workspaceId: string;
+    status: 'accepted' | 'running' | 'succeeded' | 'failed';
+    result?: Record<string, unknown>;
+    error?: string;
+  }>;
 }
 
 export interface RunWorkerZernio {
@@ -49,6 +58,7 @@ export class RunWorker {
     if (!job) return false;
     try {
       if (job.kind === 'prepare_ai_run') await this.executePrepare(job);
+      else if (job.kind === 'reconcile_ai_run') await this.reconcileAiRun(job);
       else if (job.kind === 'execute_approved_actions') await this.executeApprovedActions(job);
       else throw new Error(`Unsupported job: ${job.kind}`);
     } catch (error) {
@@ -93,6 +103,61 @@ export class RunWorker {
     });
     await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
       await tx.query('INSERT INTO run_event (workspace_id, run_id, event_key, event_type, payload) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (run_id, event_key) DO NOTHING', [job.workspaceId, run.id, `ai:${accepted.aiRunId}:accepted`, 'ai_run.accepted', accepted]);
+      // Event callbacks are best-effort. Persist a reconciliation job so a
+      // transient callback failure cannot leave the platform run in `running`.
+      await tx.query(
+        "INSERT INTO job (workspace_id, run_id, kind, payload, available_at) VALUES ($1, $2, 'reconcile_ai_run', $3, now() + interval '10 seconds')",
+        [job.workspaceId, run.id, { aiRunId: accepted.aiRunId }],
+      );
+      await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
+    });
+  }
+
+  private async reconcileAiRun(job: ClaimedJob): Promise<void> {
+    if (!job.runId) throw new Error('reconcile_ai_run is missing runId');
+    const aiRunId = job.payload.aiRunId;
+    if (typeof aiRunId !== 'string' || !aiRunId) throw new Error('reconcile_ai_run is missing aiRunId');
+    const aiRun = await this.options.aiRuntime.getAnnouncementRun(aiRunId);
+    if (aiRun.aiRunId !== aiRunId || aiRun.platformRunId !== job.runId || aiRun.workspaceId !== job.workspaceId) {
+      throw new Error('AI runtime reconciliation returned a mismatched run');
+    }
+    if (aiRun.status === 'accepted' || aiRun.status === 'running') {
+      await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+        // Polling is normal work, not a failed attempt. Keep the durable job
+        // alive until the runtime reaches a terminal state.
+        await tx.query(
+          "UPDATE job SET status = 'queued', attempt = GREATEST(attempt - 1, 0), available_at = now() + interval '10 seconds', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2",
+          [job.id, job.workspaceId],
+        );
+      });
+      return;
+    }
+
+    const event: AiRuntimeEvent = aiRun.status === 'succeeded'
+      ? {
+          eventId: `reconcile:${aiRunId}:action-plan`,
+          platformRunId: job.runId,
+          workspaceId: job.workspaceId,
+          aiRunId,
+          type: 'action_plan.created',
+          createdAt: new Date().toISOString(),
+          payload: { actionPlan: aiRun.result?.actionPlan },
+        }
+      : {
+          eventId: `reconcile:${aiRunId}:failed`,
+          platformRunId: job.runId,
+          workspaceId: job.workspaceId,
+          aiRunId,
+          type: 'ai_run.failed',
+          createdAt: new Date().toISOString(),
+          payload: { error: aiRun.error ?? 'AI runtime failed' },
+    };
+    await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+      const delivered = await tx.query<{ id: string }>(
+        "SELECT id FROM run_event WHERE run_id = $1 AND event_type = $2 AND payload->>'aiRunId' = $3 LIMIT 1",
+        [job.runId, event.type, aiRunId],
+      );
+      if (!delivered.rows[0]) await ingestAiRuntimeEvent(tx, event);
       await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
     });
   }
@@ -100,6 +165,9 @@ export class RunWorker {
   private async executeApprovedActions(job: ClaimedJob): Promise<void> {
     if (!job.runId) throw new Error('execute_approved_actions is missing runId');
     const actionPlan = actionPlanSchema.parse(job.payload.actionPlan) as ActionPlan;
+    if (actionPlan.blockedByCompliance) {
+      throw new Error('Refusing to execute an action plan blocked by compliance');
+    }
     for (const action of actionPlan.actions) {
       const operation = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
         const run = await tx.query<{ status: string }>('SELECT status FROM workflow_run WHERE id = $1 AND workspace_id = $2', [job.runId, job.workspaceId]);

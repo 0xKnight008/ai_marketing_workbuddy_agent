@@ -20,6 +20,16 @@ export default class PlatformController extends Controller {
     this.ctx.body = created;
   }
 
+  async createStripeCheckout(): Promise<void> {
+    this.ctx.body = await this.app.platform.service.createStripeCheckout(this.actor(), this.ctx.request.body);
+  }
+
+  async stripeWebhook(): Promise<void> {
+    const rawBody = (this.ctx.state as { rawBody?: Buffer }).rawBody;
+    if (!rawBody) throw new HttpError(400, 'invalid_request');
+    this.ctx.body = await this.app.platform.service.ingestStripeWebhook(rawBody.toString('utf8'), this.ctx.get('stripe-signature'));
+  }
+
   async publishTemplate(): Promise<void> {
     this.ctx.status = 201;
     this.ctx.body = await this.app.platform.service.publishTemplate(this.actor(), this.ctx.params.templateId);
@@ -50,6 +60,14 @@ export default class PlatformController extends Controller {
   }
 
   async taskEvents(): Promise<void> { this.ctx.body = await this.app.platform.service.taskEvents(this.actor()); }
+  async billingUsage(): Promise<void> { this.ctx.body = await this.app.platform.service.billingUsage(this.actor()); }
+  async updateBillingEntitlements(): Promise<void> {
+    this.ctx.body = await this.app.platform.service.updateBillingEntitlements(
+      this.actor(),
+      this.ctx.get('x-billing-admin-token'),
+      this.ctx.request.body,
+    );
+  }
   async auditEvents(): Promise<void> { this.ctx.body = await this.app.platform.service.auditEvents(this.actor()); }
 
   private actor() { return this.app.platform.service.actorFrom(this.ctx.get('authorization')); }

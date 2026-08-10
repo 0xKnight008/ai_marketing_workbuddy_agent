@@ -197,7 +197,8 @@ const buildActionPlanStep = createStep({
       WORKFLOW_STEP_IDS.buildActionPlan,
       async () => {
         const { platformRunId, executionContext } = inputData;
-        const approvalRequired = resolveApprovalRequirement(executionContext);
+        const blockedByCompliance = !inputData.compliance.passed;
+        const approvalRequired = blockedByCompliance || resolveApprovalRequirement(executionContext);
 
         const actions: PlannedAction[] = inputData.drafts.map((draft, index) => ({
           stepOrder: index + 1,
@@ -215,6 +216,7 @@ const buildActionPlanStep = createStep({
         const actionPlan = actionPlanSchema.parse({
           summary: buildPlanSummary(actions, inputData.compliance),
           requiresApproval: approvalRequired,
+          blockedByCompliance,
           actions,
         });
 
@@ -230,6 +232,7 @@ const buildActionPlanStep = createStep({
           stepId: WORKFLOW_STEP_IDS.buildActionPlan,
           actionCount: actions.length,
           requiresApproval: approvalRequired,
+          blockedByCompliance,
           summary: actionPlan.summary,
           actionPlan,
         });
