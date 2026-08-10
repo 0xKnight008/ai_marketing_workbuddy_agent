@@ -4,8 +4,8 @@ import { z } from 'zod';
 
 import { aiRuntimeEventSchema } from '../contracts/ai-runtime-event';
 import { PLAN_KEYS } from '../billing/plans';
-import { activateStripeSubscription, resumeBillingPausedRuns, updateEntitlement, usageSnapshot } from '../billing/guardrails';
-import { createStripeCheckoutSession, stripeActivationFromWebhook, verifyStripeWebhookSignature } from '../billing/stripe';
+import { activateStripeSubscription, resumeBillingPausedRuns, updateEntitlement, updateStripeSubscriptionStatus, usageSnapshot } from '../billing/guardrails';
+import { createStripeCheckoutSession, retrieveStripeSubscription, stripeActivationFromWebhook, stripeSubscriptionStatusFromWebhook, verifyStripeWebhookSignature } from '../billing/stripe';
 import type { ActorContext } from '../contracts/domain';
 import { Database } from '../foundation/database';
 import type { GatewayConfig } from '../foundation/platform-config';
@@ -75,15 +75,52 @@ export class PlatformService {
   async ingestStripeWebhook(rawBody: string, signature: string | undefined): Promise<{ received: true; activated: boolean }> {
     if (!this.config.STRIPE_WEBHOOK_SECRET) throw new HttpError(503, 'stripe_not_configured');
     verifyStripeWebhookSignature(rawBody, signature, this.config.STRIPE_WEBHOOK_SECRET, this.config.STRIPE_WEBHOOK_TOLERANCE_SECONDS);
-    const activation = stripeActivationFromWebhook(rawBody, this.config.STRIPE_TRIAL_DAYS);
-    if (!activation) return { received: true, activated: false };
-    const result = await this.database.withWorkspace(activation.workspaceId, async (tx) => {
-      const applied = await activateStripeSubscription(tx, activation);
+    const activation = stripeActivationFromWebhook(rawBody);
+    if (activation) {
+      const subscription = activation.subscriptionId
+        ? await retrieveStripeSubscription(this.config, activation.subscriptionId)
+        : undefined;
+      if (subscription?.workspaceId && subscription.workspaceId !== activation.workspaceId) {
+        throw new HttpError(400, 'stripe_workspace_mismatch');
+      }
+      const hydrated = {
+        ...activation,
+        customerId: subscription?.customerId ?? activation.customerId,
+        subscriptionId: subscription?.id ?? activation.subscriptionId,
+        priceId: subscription?.priceId ?? activation.priceId,
+        subscriptionStatus: subscription?.status ?? activation.subscriptionStatus,
+        trialEndsAt: subscription?.trialEndsAt,
+      };
+      const result = await this.database.withWorkspace(hydrated.workspaceId, async (tx) => {
+        const applied = await activateStripeSubscription(tx, hydrated);
+        if (applied.applied) {
+          await tx.query('INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)', [
+            hydrated.workspaceId,
+            'billing.stripe_activated',
+            { plan: hydrated.plan, stripeEventId: hydrated.eventId, stripeSubscriptionId: hydrated.subscriptionId },
+          ]);
+        }
+        return applied;
+      });
+      return { received: true, activated: result.applied };
+    }
+
+    const statusEvent = stripeSubscriptionStatusFromWebhook(rawBody, this.config.STRIPE_PAYMENT_GRACE_DAYS);
+    if (!statusEvent) return { received: true, activated: false };
+    const subscription = statusEvent.workspaceId ? undefined : await retrieveStripeSubscription(this.config, statusEvent.subscriptionId);
+    const workspaceId = statusEvent.workspaceId ?? subscription?.workspaceId;
+    if (!workspaceId) throw new HttpError(400, 'stripe_workspace_metadata_missing');
+    const result = await this.database.withWorkspace(workspaceId, async (tx) => {
+      const applied = await updateStripeSubscriptionStatus(tx, {
+        ...statusEvent,
+        customerId: subscription?.customerId ?? statusEvent.customerId,
+        subscriptionId: subscription?.id ?? statusEvent.subscriptionId,
+      });
       if (applied.applied) {
         await tx.query('INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)', [
-          activation.workspaceId,
-          'billing.stripe_activated',
-          { plan: activation.plan, stripeEventId: activation.eventId, stripeSubscriptionId: activation.subscriptionId },
+          workspaceId,
+          'billing.stripe_subscription_status_changed',
+          { eventType: statusEvent.eventType, stripeEventId: statusEvent.eventId, stripeSubscriptionId: statusEvent.subscriptionId, status: statusEvent.subscriptionStatus },
         ]);
       }
       return applied;

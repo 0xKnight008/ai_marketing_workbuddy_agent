@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type { QueryResultRow } from 'pg';
 
 import type { AiRuntimeEvent } from '../contracts/ai-runtime-event';
 import type { TenantTransaction } from '../foundation/database';
@@ -8,12 +9,12 @@ import { ingestAiRuntimeEvent } from './repository';
 test('compliance-blocked action plans fail the run without creating an approval or execution job', async () => {
   const statements: string[] = [];
   const tx: TenantTransaction = {
-    async query(sql) {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string, _values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
       statements.push(sql);
       if (sql.startsWith('SELECT id, status FROM workflow_run')) {
-        return { rows: [{ id: '11111111-1111-4111-8111-111111111111', status: 'running' }], rowCount: 1 };
+        return { rows: [{ id: '11111111-1111-4111-8111-111111111111', status: 'running' }] as unknown as Row[], rowCount: 1 };
       }
-      if (sql.includes('INSERT INTO run_event')) return { rows: [{ id: 'event-1' }], rowCount: 1 };
+      if (sql.includes('INSERT INTO run_event')) return { rows: [{ id: 'event-1' }] as unknown as Row[], rowCount: 1 };
       return { rows: [], rowCount: 1 };
     },
   };

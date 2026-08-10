@@ -28,6 +28,7 @@ export const gatewayConfigSchema = databaseConfigSchema.extend({
   STRIPE_PRICE_GROWTH: z.string().min(1).optional(),
   STRIPE_PRICE_AGENCY: z.string().min(1).optional(),
   STRIPE_TRIAL_DAYS: z.coerce.number().int().min(1).max(30).default(7),
+  STRIPE_PAYMENT_GRACE_DAYS: z.coerce.number().int().min(1).max(30).default(7),
   STRIPE_WEBHOOK_TOLERANCE_SECONDS: z.coerce.number().int().min(1).max(3600).default(300),
   GATEWAY_PORT: z.coerce.number().int().min(1).max(65535).default(4100),
 });

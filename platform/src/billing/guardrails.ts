@@ -3,6 +3,12 @@ import { MODEL_BAND_POLICIES, PLAN_CATALOG, planKey, requestedModelBand, type Mo
 
 const WARNING_RATIO = 0.8;
 const MICROS_PER_CENT = 10_000;
+/**
+ * Zernio bills Piggybot as one aggregated platform tenant.  Guardrails must
+ * therefore use the platform's marginal cost, rather than the public
+ * per-customer retail tiers.
+ */
+export const ZERNIO_AGGREGATE_COST_PER_ACCOUNT_MICROS = 150_000;
 
 export type GuardrailStatus = 'normal' | 'approval_required' | 'paused';
 
@@ -17,9 +23,16 @@ export interface UsageSnapshot {
   status: GuardrailStatus;
   subscriptionStatus: string;
   trialEndsAt?: string;
+  paymentGraceEndsAt?: string;
 }
 
-interface BillingRow { plan: string; purchasedCredits: string | number; subscriptionStatus: string; trialEndsAt: string | null; }
+interface BillingRow {
+  plan: string;
+  purchasedCredits: string | number;
+  subscriptionStatus: string;
+  trialEndsAt: string | null;
+  paymentGraceEndsAt: string | null;
+}
 interface UsageRow { taskUsed: string | number; aiCreditsUsed: string | number; supplierSpendMicros: string | number; }
 interface AccountRow { connectedAccounts: string | number; }
 
@@ -27,12 +40,8 @@ function number(value: string | number | undefined): number {
   return typeof value === 'number' ? value : Number(value ?? 0);
 }
 
-function monthlyZernioMicros(accountCount: number): number {
-  const paidAccounts = Math.max(0, accountCount - 2);
-  const tierOne = Math.min(paidAccounts, 8) * 600_000;
-  const tierTwo = Math.min(Math.max(0, paidAccounts - 8), 90) * 300_000;
-  const tierThree = Math.max(0, paidAccounts - 98) * 100_000;
-  return tierOne + tierTwo + tierThree;
+export function monthlyZernioMicros(accountCount: number): number {
+  return Math.max(0, accountCount) * ZERNIO_AGGREGATE_COST_PER_ACCOUNT_MICROS;
 }
 
 export function guardrailStatus(taskUsed: number, taskQuota: number, supplierSpendMicros: number, supplierSpendLimitMicros: number): GuardrailStatus {
@@ -49,7 +58,7 @@ async function billingRow(tx: TenantTransaction): Promise<BillingRow> {
       SET period_start = EXCLUDED.period_start,
           purchased_ai_credits = CASE WHEN workspace_billing.period_start < EXCLUDED.period_start THEN 0 ELSE workspace_billing.purchased_ai_credits END,
           updated_at = now()
-    RETURNING plan, purchased_ai_credits AS "purchasedCredits", subscription_status AS "subscriptionStatus", trial_ends_at::text AS "trialEndsAt"`, []);
+    RETURNING plan, purchased_ai_credits AS "purchasedCredits", subscription_status AS "subscriptionStatus", trial_ends_at::text AS "trialEndsAt", payment_grace_ends_at::text AS "paymentGraceEndsAt"`, []);
   const value = row.rows[0];
   if (!value) throw new Error('Workspace billing record was not available');
   return value;
@@ -60,6 +69,7 @@ export async function usageSnapshot(tx: TenantTransaction): Promise<UsageSnapsho
   const plan = planKey(billing.plan);
   const entitlement = PLAN_CATALOG[plan];
   const trialActive = billing.trialEndsAt !== null && new Date(billing.trialEndsAt).getTime() > Date.now();
+  const paymentGraceActive = billing.paymentGraceEndsAt !== null && new Date(billing.paymentGraceEndsAt).getTime() > Date.now();
   const periodUsage = await tx.query<UsageRow>(`
     SELECT COALESCE(SUM(CASE WHEN status = 'reversed' THEN -billable_units ELSE billable_units END), 0) AS "taskUsed",
            COALESCE(SUM(CASE WHEN status = 'reversed' THEN -ai_credits ELSE ai_credits END), 0) AS "aiCreditsUsed",
@@ -81,11 +91,14 @@ export async function usageSnapshot(tx: TenantTransaction): Promise<UsageSnapsho
     aiCreditsAvailable: Math.max(0, (trialActive ? 30 : entitlement.aiCredits) + number(billing.purchasedCredits) - aiCreditsUsed),
     supplierSpendMicros,
     supplierSpendLimitMicros,
-    status: billing.subscriptionStatus === 'inactive'
+    status: billing.subscriptionStatus === 'inactive' || (billing.subscriptionStatus === 'past_due' && !paymentGraceActive)
       ? 'paused'
-      : guardrailStatus(taskUsed, entitlement.taskQuota, supplierSpendMicros, supplierSpendLimitMicros),
+      : billing.subscriptionStatus === 'past_due'
+        ? 'approval_required'
+        : guardrailStatus(taskUsed, entitlement.taskQuota, supplierSpendMicros, supplierSpendLimitMicros),
     subscriptionStatus: billing.subscriptionStatus,
     trialEndsAt: trialActive ? billing.trialEndsAt ?? undefined : undefined,
+    paymentGraceEndsAt: paymentGraceActive ? billing.paymentGraceEndsAt ?? undefined : undefined,
   };
 }
 
@@ -174,6 +187,7 @@ export async function activateStripeSubscription(tx: TenantTransaction, activati
         stripe_price_id = $4,
         subscription_status = $5,
         trial_ends_at = $6::timestamptz,
+        payment_grace_ends_at = NULL,
         activated_at = COALESCE(activated_at, now()),
         updated_at = now()
     WHERE workspace_id = current_setting('app.workspace_id')::uuid`, [
@@ -184,6 +198,43 @@ export async function activateStripeSubscription(tx: TenantTransaction, activati
     activation.subscriptionStatus,
     activation.trialEndsAt ?? null,
   ]);
+  return { applied: true, usage: await usageSnapshot(tx) };
+}
+
+export interface StripeSubscriptionStatusUpdate {
+  eventId: string;
+  eventType: string;
+  subscriptionId?: string;
+  customerId?: string;
+  subscriptionStatus: string;
+  paymentGraceEndsAt?: string;
+}
+
+/** Applies a verified cancellation or payment-failure event once. */
+export async function updateStripeSubscriptionStatus(
+  tx: TenantTransaction,
+  update: StripeSubscriptionStatusUpdate,
+): Promise<{ applied: boolean; usage?: UsageSnapshot }> {
+  const recorded = await tx.query<{ externalEventId: string }>(`
+    INSERT INTO billing_webhook_event (provider, external_event_id, workspace_id, event_type)
+    VALUES ('stripe', $1, current_setting('app.workspace_id')::uuid, $2)
+    ON CONFLICT (provider, external_event_id) DO NOTHING
+    RETURNING external_event_id AS "externalEventId"`, [update.eventId, update.eventType]);
+  if (!recorded.rows[0]) return { applied: false };
+  await billingRow(tx);
+  const updated = await tx.query(`UPDATE workspace_billing
+    SET subscription_status = $1,
+        payment_grace_ends_at = CASE WHEN $1 = 'past_due' THEN COALESCE($2::timestamptz, payment_grace_ends_at) ELSE NULL END,
+        updated_at = now()
+    WHERE workspace_id = current_setting('app.workspace_id')::uuid
+      AND ($3::text IS NULL OR stripe_subscription_id IS NULL OR stripe_subscription_id = $3)
+      AND ($4::text IS NULL OR stripe_customer_id IS NULL OR stripe_customer_id = $4)`, [
+    update.subscriptionStatus,
+    update.paymentGraceEndsAt ?? null,
+    update.subscriptionId ?? null,
+    update.customerId ?? null,
+  ]);
+  if (updated.rowCount !== 1) throw new Error('Stripe subscription does not match workspace billing record');
   return { applied: true, usage: await usageSnapshot(tx) };
 }
 
