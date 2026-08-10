@@ -18,36 +18,46 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-      
-      # 2.1 升级 npm 到稳定版本
-      - name: Upgrade npm
-        run: npm install -g npm@10
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            platform/package-lock.json
+            ai-runtime/package-lock.json
 
       - name: Test subscription endpoint
         run: node --test server/subscribe-server.test.mjs
       
-      # 3. 安装依赖
-      - name: Install dependencies
-        run: |
-          echo "===== npm 版本信息 ====="
-          node --version
-          npm --version
-          
-          echo "===== 清理旧文件 ====="
-          rm -rf node_modules package-lock.json
-          
-          echo "===== 安装依赖（使用 --legacy-peer-deps 避免依赖冲突） ====="
-          npm install --legacy-peer-deps --no-audit --no-fund
-          
-          echo "===== 验证安装结果 ====="
-          ls node_modules | wc -l
-          test -d node_modules/vite && echo "✅ vite 已安装" || (echo "❌ vite 未安装" && exit 1)
-          test -d node_modules/react && echo "✅ react 已安装" || (echo "❌ react 未安装" && exit 1)
-      
-      # 4. 构建项目（使用 CI 专用脚本，跳过类型检查）
+      - name: Install website dependencies
+        run: npm ci
+
+      - name: Install platform dependencies
+        working-directory: platform
+        run: npm ci
+
+      - name: Install AI runtime dependencies
+        working-directory: ai-runtime
+        run: npm ci
+
+      - name: Typecheck platform
+        working-directory: platform
+        run: npm run typecheck
+
+      - name: Test platform
+        working-directory: platform
+        run: npm test
+
+      - name: Typecheck AI runtime
+        working-directory: ai-runtime
+        run: npm run typecheck
+
+      - name: Test AI runtime
+        working-directory: ai-runtime
+        run: npm test
+
+      # 4. 构建项目（含 TypeScript 检查）
       - name: Build project
-        run: npm run build:ci
+        run: npm run build
       
       # 5. 准备部署文件包
       - name: Prepare deployment package

@@ -6,8 +6,8 @@ import { z } from 'zod';
 
 import { aiRuntimeEventSchema } from '../contracts/ai-runtime-event';
 import { PLAN_KEYS } from '../billing/plans';
-import { activateStripeSubscription, resumeBillingPausedRuns, updateEntitlement, usageSnapshot } from '../billing/guardrails';
-import { createStripeCheckoutSession, stripeActivationFromWebhook, verifyStripeWebhookSignature } from '../billing/stripe';
+import { activateStripeSubscription, resumeBillingPausedRuns, updateEntitlement, updateStripeSubscriptionStatus, usageSnapshot } from '../billing/guardrails';
+import { createStripeCheckoutSession, retrieveStripeSubscription, stripeActivationFromWebhook, stripeSubscriptionStatusFromWebhook, verifyStripeWebhookSignature } from '../billing/stripe';
 import type { ActorContext } from '../contracts/domain';
 import { Database } from '../foundation/database';
 import { loadGatewayConfig } from '../foundation/platform-config';
@@ -150,15 +150,49 @@ app.post('/webhooks/stripe', async (request, reply) => {
   const signature = request.headers['stripe-signature'];
   if (!raw || typeof signature !== 'string') throw new HttpError(401, 'stripe_signature_missing');
   verifyStripeWebhookSignature(raw, signature, config.STRIPE_WEBHOOK_SECRET, config.STRIPE_WEBHOOK_TOLERANCE_SECONDS);
-  const activation = stripeActivationFromWebhook(raw, config.STRIPE_TRIAL_DAYS);
-  if (!activation) return reply.code(202).send({ received: true, activated: false });
-  const result = await database.withWorkspace(activation.workspaceId, async (tx) => {
-    const applied = await activateStripeSubscription(tx, activation);
+  const activation = stripeActivationFromWebhook(raw);
+  if (activation) {
+    const subscription = activation.subscriptionId ? await retrieveStripeSubscription(config, activation.subscriptionId) : undefined;
+    if (subscription?.workspaceId && subscription.workspaceId !== activation.workspaceId) throw new HttpError(400, 'stripe_workspace_mismatch');
+    const hydrated = {
+      ...activation,
+      customerId: subscription?.customerId ?? activation.customerId,
+      subscriptionId: subscription?.id ?? activation.subscriptionId,
+      priceId: subscription?.priceId ?? activation.priceId,
+      subscriptionStatus: subscription?.status ?? activation.subscriptionStatus,
+      trialEndsAt: subscription?.trialEndsAt,
+    };
+    const result = await database.withWorkspace(hydrated.workspaceId, async (tx) => {
+      const applied = await activateStripeSubscription(tx, hydrated);
+      if (applied.applied) {
+        await tx.query('INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)', [hydrated.workspaceId, 'billing.stripe_activated', {
+          plan: hydrated.plan,
+          stripeEventId: hydrated.eventId,
+          stripeSubscriptionId: hydrated.subscriptionId,
+        }]);
+      }
+      return applied;
+    });
+    return reply.code(200).send({ received: true, activated: result.applied });
+  }
+
+  const statusEvent = stripeSubscriptionStatusFromWebhook(raw, config.STRIPE_PAYMENT_GRACE_DAYS);
+  if (!statusEvent) return reply.code(202).send({ received: true, activated: false });
+  const subscription = statusEvent.workspaceId ? undefined : await retrieveStripeSubscription(config, statusEvent.subscriptionId);
+  const workspaceId = statusEvent.workspaceId ?? subscription?.workspaceId;
+  if (!workspaceId) throw new HttpError(400, 'stripe_workspace_metadata_missing');
+  const result = await database.withWorkspace(workspaceId, async (tx) => {
+    const applied = await updateStripeSubscriptionStatus(tx, {
+      ...statusEvent,
+      customerId: subscription?.customerId ?? statusEvent.customerId,
+      subscriptionId: subscription?.id ?? statusEvent.subscriptionId,
+    });
     if (applied.applied) {
-      await tx.query('INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)', [activation.workspaceId, 'billing.stripe_activated', {
-        plan: activation.plan,
-        stripeEventId: activation.eventId,
-        stripeSubscriptionId: activation.subscriptionId,
+      await tx.query('INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)', [workspaceId, 'billing.stripe_subscription_status_changed', {
+        eventType: statusEvent.eventType,
+        stripeEventId: statusEvent.eventId,
+        stripeSubscriptionId: statusEvent.subscriptionId,
+        status: statusEvent.subscriptionStatus,
       }]);
     }
     return applied;

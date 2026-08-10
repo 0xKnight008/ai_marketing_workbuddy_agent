@@ -31,6 +31,25 @@ export interface StripeActivationEvent {
   trialEndsAt?: string;
 }
 
+export interface StripeSubscriptionStatusEvent {
+  eventId: string;
+  eventType: 'customer.subscription.deleted' | 'customer.subscription.updated' | 'invoice.payment_failed';
+  workspaceId?: string;
+  subscriptionId: string;
+  customerId?: string;
+  subscriptionStatus: string;
+  paymentGraceEndsAt?: string;
+}
+
+interface StripeSubscription {
+  id: string;
+  customerId?: string;
+  status: string;
+  trialEndsAt?: string;
+  priceId?: string;
+  workspaceId?: string;
+}
+
 function stripeConfiguration(config: GatewayConfig, plan: PlanKey) {
   const priceIds: Record<PlanKey, string | undefined> = {
     creator: config.STRIPE_PRICE_CREATOR,
@@ -42,6 +61,11 @@ function stripeConfiguration(config: GatewayConfig, plan: PlanKey) {
     throw new HttpError(503, 'stripe_not_configured');
   }
   return { secretKey: config.STRIPE_SECRET_KEY, priceId };
+}
+
+function stripeSecret(config: GatewayConfig): string {
+  if (!config.STRIPE_SECRET_KEY) throw new HttpError(503, 'stripe_not_configured');
+  return config.STRIPE_SECRET_KEY;
 }
 
 export async function createStripeCheckoutSession(config: GatewayConfig, input: { workspaceId: string; actorId: string; plan: PlanKey }): Promise<StripeCheckoutSession> {
@@ -93,16 +117,13 @@ export function verifyStripeWebhookSignature(rawBody: string, header: string | u
   if (!valid) throw new HttpError(401, 'stripe_signature_invalid');
 }
 
-export function stripeActivationFromWebhook(rawBody: string, trialDays = 7): StripeActivationEvent | undefined {
-  const event = z.object({
-    id: z.string().min(1),
-    type: z.string().min(1),
-    data: z.object({ object: z.record(z.unknown()) }),
-  }).parse(JSON.parse(rawBody)) as StripeEvent;
+export function stripeActivationFromWebhook(rawBody: string): StripeActivationEvent | undefined {
+  const event = stripeEventFromWebhook(rawBody);
   if (event.type !== 'checkout.session.completed') return undefined;
   const session = event.data.object;
   if (session.payment_status !== 'paid' && session.payment_status !== 'no_payment_required') return undefined;
-  const metadata = z.object({ workspaceId: z.string().uuid(), plan: planSchema }).parse(session.metadata ?? {});
+  const metadata = workspaceMetadata(session.metadata);
+  if (!metadata?.plan) return undefined;
   return {
     eventId: event.id,
     eventType: event.type,
@@ -111,9 +132,109 @@ export function stripeActivationFromWebhook(rawBody: string, trialDays = 7): Str
     customerId: stringValue(session.customer),
     subscriptionId: stringValue(session.subscription),
     priceId: undefined,
-    subscriptionStatus: 'trialing',
-    trialEndsAt: new Date(Date.now() + trialDays * 86_400_000).toISOString(),
+    // Checkout only supplies a subscription id. The service hydrates this from
+    // Stripe before persisting so trial expiry always matches Stripe's clock.
+    subscriptionStatus: 'active',
   };
+}
+
+/** Extracts lifecycle changes; callers may resolve metadata from Stripe when an invoice omits it. */
+export function stripeSubscriptionStatusFromWebhook(
+  rawBody: string,
+  paymentGraceDays: number,
+  now = new Date(),
+): StripeSubscriptionStatusEvent | undefined {
+  const event = stripeEventFromWebhook(rawBody);
+  const object = event.data.object;
+  if (event.type === 'customer.subscription.deleted') {
+    const subscriptionId = stringValue(object.id);
+    if (!subscriptionId) return undefined;
+    return {
+      eventId: event.id,
+      eventType: event.type,
+      workspaceId: workspaceMetadata(object.metadata)?.workspaceId,
+      subscriptionId,
+      customerId: stringValue(object.customer),
+      subscriptionStatus: 'inactive',
+    };
+  }
+  if (event.type === 'customer.subscription.updated') {
+    const subscriptionId = stringValue(object.id);
+    const status = stringValue(object.status);
+    if (!subscriptionId || !status) return undefined;
+    return {
+      eventId: event.id,
+      eventType: event.type,
+      workspaceId: workspaceMetadata(object.metadata)?.workspaceId,
+      subscriptionId,
+      customerId: stringValue(object.customer),
+      subscriptionStatus: normalizedSubscriptionStatus(status),
+    };
+  }
+  if (event.type !== 'invoice.payment_failed') return undefined;
+  const parent = recordValue(object.parent);
+  const subscriptionDetails = recordValue(object.subscription_details) ?? recordValue(parent?.subscription_details);
+  const subscriptionId = stringValue(object.subscription) ?? stringValue(subscriptionDetails?.subscription);
+  if (!subscriptionId) return undefined;
+  return {
+    eventId: event.id,
+    eventType: event.type,
+    workspaceId: workspaceMetadata(subscriptionDetails?.metadata ?? object.metadata)?.workspaceId,
+    subscriptionId,
+    customerId: stringValue(object.customer),
+    subscriptionStatus: 'past_due',
+    paymentGraceEndsAt: new Date(now.getTime() + paymentGraceDays * 86_400_000).toISOString(),
+  };
+}
+
+/** Retrieves authoritative subscription status and trial end from Stripe. */
+export async function retrieveStripeSubscription(config: GatewayConfig, subscriptionId: string): Promise<StripeSubscription> {
+  const response = await fetch(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(subscriptionId)}`, {
+    headers: { authorization: `Bearer ${stripeSecret(config)}` },
+  });
+  const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+  if (!response.ok) throw new HttpError(502, 'stripe_subscription_fetch_failed');
+  const id = stringValue(payload.id);
+  const status = stringValue(payload.status);
+  if (!id || !status) throw new HttpError(502, 'stripe_subscription_fetch_failed');
+  const itemData = recordValue(payload.items)?.data;
+  const firstItem = Array.isArray(itemData) ? recordValue(itemData[0]) : undefined;
+  const priceId = stringValue(recordValue(firstItem?.price)?.id);
+  return {
+    id,
+    customerId: stringValue(payload.customer),
+    status,
+    trialEndsAt: unixTimestampToIso(payload.trial_end),
+    priceId,
+    workspaceId: workspaceMetadata(payload.metadata)?.workspaceId,
+  };
+}
+
+function stripeEventFromWebhook(rawBody: string): StripeEvent {
+  return z.object({
+    id: z.string().min(1),
+    type: z.string().min(1),
+    data: z.object({ object: z.record(z.unknown()) }),
+  }).parse(JSON.parse(rawBody)) as StripeEvent;
+}
+
+function workspaceMetadata(value: unknown): { workspaceId: string; plan?: PlanKey } | undefined {
+  const parsed = z.object({ workspaceId: z.string().uuid(), plan: planSchema.optional() }).safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function unixTimestampToIso(value: unknown): string | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+    ? new Date(value * 1_000).toISOString()
+    : undefined;
+}
+
+function normalizedSubscriptionStatus(status: string): string {
+  return ['canceled', 'incomplete_expired', 'unpaid'].includes(status) ? 'inactive' : status;
 }
 
 function stringValue(value: unknown): string | undefined {
