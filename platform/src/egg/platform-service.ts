@@ -3,6 +3,9 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 
 import { aiRuntimeEventSchema } from '../contracts/ai-runtime-event';
+import { PLAN_KEYS } from '../billing/plans';
+import { activateStripeSubscription, resumeBillingPausedRuns, updateEntitlement, usageSnapshot } from '../billing/guardrails';
+import { createStripeCheckoutSession, stripeActivationFromWebhook, verifyStripeWebhookSignature } from '../billing/stripe';
 import type { ActorContext } from '../contracts/domain';
 import { Database } from '../foundation/database';
 import type { GatewayConfig } from '../foundation/platform-config';
@@ -51,6 +54,68 @@ export class PlatformService {
         const run = await createDurableRun(tx, context, request);
         return { runId: run.id, status: 'pending' as const };
       }),
+    });
+  }
+
+  async createStripeCheckout(actor: ActorContext, body: unknown): Promise<{ id: string; url: string }> {
+    if (actor.role !== 'owner') throw new HttpError(403, 'owner_required');
+    const parsed = z.object({ plan: z.enum(PLAN_KEYS) }).parse(body);
+    const checkout = await createStripeCheckoutSession(this.config, {
+      workspaceId: actor.workspaceId,
+      actorId: actor.actorId,
+      plan: parsed.plan,
+    });
+    await this.database.withWorkspace(actor.workspaceId, (tx) => tx.query(
+      'INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)',
+      [actor.workspaceId, actor.actorId, 'billing.stripe_checkout_started', { plan: parsed.plan, stripeCheckoutSessionId: checkout.id }],
+    ));
+    return checkout;
+  }
+
+  async ingestStripeWebhook(rawBody: string, signature: string | undefined): Promise<{ received: true; activated: boolean }> {
+    if (!this.config.STRIPE_WEBHOOK_SECRET) throw new HttpError(503, 'stripe_not_configured');
+    verifyStripeWebhookSignature(rawBody, signature, this.config.STRIPE_WEBHOOK_SECRET, this.config.STRIPE_WEBHOOK_TOLERANCE_SECONDS);
+    const activation = stripeActivationFromWebhook(rawBody, this.config.STRIPE_TRIAL_DAYS);
+    if (!activation) return { received: true, activated: false };
+    const result = await this.database.withWorkspace(activation.workspaceId, async (tx) => {
+      const applied = await activateStripeSubscription(tx, activation);
+      if (applied.applied) {
+        await tx.query('INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)', [
+          activation.workspaceId,
+          'billing.stripe_activated',
+          { plan: activation.plan, stripeEventId: activation.eventId, stripeSubscriptionId: activation.subscriptionId },
+        ]);
+      }
+      return applied;
+    });
+    return { received: true, activated: result.applied };
+  }
+
+  async billingUsage(actor: ActorContext): Promise<unknown> {
+    requirePermission(actor.role, 'billing:view');
+    return this.database.withWorkspace(actor.workspaceId, usageSnapshot);
+  }
+
+  async updateBillingEntitlements(actor: ActorContext, adminToken: string | undefined, body: unknown): Promise<unknown> {
+    if (!this.config.BILLING_ADMIN_TOKEN || adminToken !== this.config.BILLING_ADMIN_TOKEN) {
+      throw new HttpError(403, 'billing_admin_required');
+    }
+    const parsed = z.object({
+      plan: z.enum(PLAN_KEYS).optional(),
+      additionalAiCredits: z.number().int().nonnegative().refine((value) => value % 1_000 === 0, 'additionalAiCredits must be a multiple of 1000').default(0),
+    }).parse(body ?? {});
+    if (!parsed.plan && parsed.additionalAiCredits === 0) throw new HttpError(400, 'entitlement_change_required');
+    return this.database.withWorkspace(actor.workspaceId, async (tx) => {
+      const current = await usageSnapshot(tx);
+      const usage = await updateEntitlement(tx, parsed.plan ?? current.plan, parsed.additionalAiCredits);
+      const resumedRuns = usage.status === 'paused' ? 0 : await resumeBillingPausedRuns(tx);
+      await tx.query('INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)', [
+        actor.workspaceId,
+        actor.actorId,
+        'billing.entitlement_updated',
+        { plan: usage.plan, additionalAiCredits: parsed.additionalAiCredits, resumedRuns },
+      ]);
+      return { usage, resumedRuns };
     });
   }
 

@@ -160,6 +160,8 @@ export type PlannedAction = z.infer<typeof plannedActionSchema>;
 export const actionPlanSchema = z.object({
   summary: z.string(),
   requiresApproval: z.boolean(),
+  /** A deterministic or semantic compliance blocker prevents this plan from executing. */
+  blockedByCompliance: z.boolean().default(false),
   actions: z.array(plannedActionSchema),
 });
 export type ActionPlan = z.infer<typeof actionPlanSchema>;
