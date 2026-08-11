@@ -10,12 +10,14 @@ COPY nginx.conf /etc/nginx/conf.d/app.conf
 COPY index.html /usr/share/nginx/html/
 COPY favicon.png /usr/share/nginx/html/
 COPY assets/ /usr/share/nginx/html/assets/
+COPY zh/ /usr/share/nginx/html/zh/
 COPY en/ /usr/share/nginx/html/en/
 COPY es/ /usr/share/nginx/html/es/
 
 # 验证文件已复制
 RUN ls -la /usr/share/nginx/html/ && \
     ls -la /usr/share/nginx/html/assets/ && \
+    ls -la /usr/share/nginx/html/zh/ && \
     ls -la /usr/share/nginx/html/en/ && \
     ls -la /usr/share/nginx/html/es/
 

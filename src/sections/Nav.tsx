@@ -10,12 +10,11 @@ const LANGS: { code: Lang; label: string }[] = [
   { code: "es", label: "ES" },
 ];
 
-/** 相对路径跳转，兼容任意部署子路径（含 /en /es 子目录） */
+/** Route every locale to its own static entry point. */
 function langHref(current: Lang, target: Lang): string {
   if (current === target) return "#top";
   const segs = window.location.pathname.split("/").filter(Boolean);
   const isLocalePath = segs.some((segment) => segment === "zh" || segment === "en" || segment === "es");
-  if (target === "en") return isLocalePath ? "../" : "#top";
   return isLocalePath ? `../${target}/` : `./${target}/`;
 }
 

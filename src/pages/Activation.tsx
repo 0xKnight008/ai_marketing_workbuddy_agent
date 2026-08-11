@@ -43,7 +43,7 @@ export default function Activation({ lang }: { lang: Lang }) {
   const [state, setState] = useState<'idle' | 'sending' | 'error'>('idle');
   const [message, setMessage] = useState('');
   const result = useMemo(() => new URLSearchParams(window.location.search).get('checkout'), []);
-  const home = lang === 'zh' ? '/' : `/${lang}/`;
+  const home = `/${lang}/`;
 
   async function startCheckout() {
     if (!token.trim()) { setState('error'); setMessage(t.missing); return; }
