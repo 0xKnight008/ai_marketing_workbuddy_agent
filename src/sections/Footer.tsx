@@ -168,6 +168,7 @@ export function Footer() {
             <span>{f.copyright}</span>
           </div>
           <a href={lang === 'en' ? '/contact' : `/${lang}/contact`} className="font-bold text-[#A8B4CC] hover:text-sun">{contactLabel}</a>
+          <a href={lang === 'en' ? '/activate' : `/${lang}/activate`} className="font-bold text-[#A8B4CC] hover:text-sun">Refer &amp; earn 20%</a>
           <p className="font-hand text-lg text-[#A8B4CC]">{f.madeWith}</p>
         </div>
       </div>

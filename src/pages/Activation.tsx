@@ -43,6 +43,7 @@ export default function Activation({ lang }: { lang: Lang }) {
   const [state, setState] = useState<'idle' | 'sending' | 'error'>('idle');
   const [message, setMessage] = useState('');
   const result = useMemo(() => new URLSearchParams(window.location.search).get('checkout'), []);
+  const referralCode = useMemo(() => new URLSearchParams(window.location.search).get('ref')?.toUpperCase(), []);
   const home = `/${lang}/`;
 
   async function startCheckout() {
@@ -52,7 +53,7 @@ export default function Activation({ lang }: { lang: Lang }) {
       const response = await fetch(`${gatewayUrl}/api/billing/checkout-session`, {
         method: 'POST',
         headers: { authorization: `Bearer ${token.trim()}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ plan, referralCode }),
       });
       const body = await response.json().catch(() => ({})) as { url?: unknown };
       if (!response.ok || typeof body.url !== 'string') throw new Error('checkout unavailable');
@@ -68,6 +69,8 @@ export default function Activation({ lang }: { lang: Lang }) {
         <p className="font-hand text-xl text-sky-deep">{t.eyebrow}</p>
         <h1 className="mt-2 font-display text-3xl leading-tight sm:text-4xl">{t.title}</h1>
         <p className="mt-4 text-sm leading-relaxed text-ink-soft">{t.description}</p>
+
+        {referralCode && <Notice tone="success">You’re joining Piggybot through a friend’s referral.</Notice>}
 
         {result === 'success' && <Notice tone="success"><CheckCircle2 className="h-5 w-5 shrink-0" />{t.success}</Notice>}
         {result === 'cancelled' && <Notice tone="neutral">{t.cancelled}</Notice>}

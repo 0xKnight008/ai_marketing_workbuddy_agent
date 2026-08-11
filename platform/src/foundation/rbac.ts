@@ -6,14 +6,16 @@ export type Permission =
   | 'workflow:run'
   | 'approval:decide'
   | 'connection:manage'
-  | 'billing:view';
+  | 'billing:view'
+  | 'referral:view'
+  | 'referral:manage';
 
 const permissions: Readonly<Record<WorkspaceRole, readonly Permission[]>> = {
-  owner: ['workspace:manage', 'workflow:edit', 'workflow:run', 'approval:decide', 'connection:manage', 'billing:view'],
-  admin: ['workspace:manage', 'workflow:edit', 'workflow:run', 'approval:decide', 'connection:manage', 'billing:view'],
+  owner: ['workspace:manage', 'workflow:edit', 'workflow:run', 'approval:decide', 'connection:manage', 'billing:view', 'referral:view', 'referral:manage'],
+  admin: ['workspace:manage', 'workflow:edit', 'workflow:run', 'approval:decide', 'connection:manage', 'billing:view', 'referral:view', 'referral:manage'],
   editor: ['workflow:edit', 'workflow:run'],
   approver: ['approval:decide', 'workflow:run'],
-  viewer: ['billing:view'],
+  viewer: ['billing:view', 'referral:view'],
 };
 
 export function can(role: WorkspaceRole, permission: Permission): boolean {

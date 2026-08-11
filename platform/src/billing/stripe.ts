@@ -41,6 +41,21 @@ export interface StripeSubscriptionStatusEvent {
   paymentGraceEndsAt?: string;
 }
 
+export interface StripeInvoicePaidEvent { invoiceId: string; workspaceId: string; paidMicros: number; currency: string; }
+
+export function stripeInvoicePaidFromWebhook(rawBody: string): StripeInvoicePaidEvent | undefined {
+  const event = stripeEventFromWebhook(rawBody);
+  if (event.type !== 'invoice.paid') return undefined;
+  const invoice = event.data.object;
+  const details = recordValue(invoice.subscription_details) ?? recordValue(recordValue(invoice.parent)?.subscription_details);
+  const workspaceId = workspaceMetadata(details?.metadata ?? invoice.metadata)?.workspaceId;
+  const invoiceId = stringValue(invoice.id);
+  const amountPaid = typeof invoice.amount_paid === 'number' && Number.isInteger(invoice.amount_paid) ? invoice.amount_paid : undefined;
+  const currency = stringValue(invoice.currency) ?? 'usd';
+  if (!workspaceId || !invoiceId || !amountPaid || amountPaid <= 0) return undefined;
+  return { invoiceId, workspaceId, paidMicros: amountPaid * 10_000, currency };
+}
+
 interface StripeSubscription {
   id: string;
   customerId?: string;
@@ -68,7 +83,7 @@ function stripeSecret(config: GatewayConfig): string {
   return config.STRIPE_SECRET_KEY;
 }
 
-export async function createStripeCheckoutSession(config: GatewayConfig, input: { workspaceId: string; actorId: string; plan: PlanKey }): Promise<StripeCheckoutSession> {
+export async function createStripeCheckoutSession(config: GatewayConfig, input: { workspaceId: string; actorId: string; plan: PlanKey; referralCode?: string }): Promise<StripeCheckoutSession> {
   const stripe = stripeConfiguration(config, input.plan);
   const body = new URLSearchParams();
   body.set('mode', 'subscription');
@@ -78,6 +93,7 @@ export async function createStripeCheckoutSession(config: GatewayConfig, input: 
   body.set('metadata[workspaceId]', input.workspaceId);
   body.set('metadata[actorId]', input.actorId);
   body.set('metadata[plan]', input.plan);
+  if (input.referralCode) body.set('metadata[referral_code]', input.referralCode);
   body.set('subscription_data[metadata][workspaceId]', input.workspaceId);
   body.set('subscription_data[metadata][plan]', input.plan);
   body.set('subscription_data[trial_period_days]', String(config.STRIPE_TRIAL_DAYS));

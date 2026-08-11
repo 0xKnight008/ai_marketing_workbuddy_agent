@@ -124,6 +124,10 @@ export function createFeedbackStore(databaseUrl) {
     async setDiscordThread(ticketId, threadId) {
       await pool.query('UPDATE feedback_message SET discord_thread_id = $2 WHERE ticket_no = $1', [ticketId, threadId]);
     },
+    async activeReferral(code) {
+      const result = await pool.query('SELECT code FROM referral_link WHERE code = $1 AND revoked_at IS NULL', [code]);
+      return result.rows[0]?.code;
+    },
     async close() { await pool.end(); },
   };
 }
@@ -167,10 +171,24 @@ export function createSubscriptionServer({ env = process.env, fetchImpl = fetch,
   if (!/^[A-Za-z0-9_-]{20,}$/.test(formId) || !/^\d+$/.test(emailEntry)) throw new Error('Google Form configuration is invalid');
   const allowSubscribe = createRateLimiter(now, SUBSCRIBE_RATE_LIMIT);
   const allowFeedback = createRateLimiter(now, FEEDBACK_RATE_LIMIT);
+  const allowReferral = createRateLimiter(now, { windowMs: 60_000, maxRequests: 30 });
 
   const server = createServer(async (request, reply) => {
     const { pathname } = new URL(request.url ?? '/', 'http://localhost');
     if (request.method === 'GET' && pathname === '/health') return sendJson(reply, 200, { ok: true });
+
+    const referralMatch = /^\/r\/([23456789ABCDEFGHJKMNPQRSTVWXYZ]{8})$/.exec(pathname);
+    if (request.method === 'GET' && referralMatch) {
+      if (!allowReferral(clientIp(request))) return sendJson(reply, 429, { error: 'rate_limited' });
+      const code = referralMatch[1];
+      try {
+        if (!feedbackStore || !(await feedbackStore.activeReferral(code))) return sendJson(reply, 404, { error: 'referral_not_found' });
+        reply.writeHead(302, { 'Cache-Control': 'no-store', Location: `/activate?ref=${code}`, 'Set-Cookie': `piggy_ref=${code}; Max-Age=2592000; Path=/; HttpOnly; Secure; SameSite=Lax` });
+        return reply.end();
+      } catch {
+        return sendJson(reply, 503, { error: 'referral_unavailable' });
+      }
+    }
 
     try {
       if (request.method === 'POST' && pathname === '/api/subscribe') {

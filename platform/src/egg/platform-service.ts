@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { aiRuntimeEventSchema } from '../contracts/ai-runtime-event';
 import { PLAN_KEYS } from '../billing/plans';
 import { activateStripeSubscription, resumeBillingPausedRuns, updateEntitlement, updateStripeSubscriptionStatus, usageSnapshot } from '../billing/guardrails';
-import { createStripeCheckoutSession, retrieveStripeSubscription, stripeActivationFromWebhook, stripeSubscriptionStatusFromWebhook, verifyStripeWebhookSignature } from '../billing/stripe';
+import { createStripeCheckoutSession, retrieveStripeSubscription, stripeActivationFromWebhook, stripeInvoicePaidFromWebhook, stripeSubscriptionStatusFromWebhook, verifyStripeWebhookSignature } from '../billing/stripe';
 import type { ActorContext } from '../contracts/domain';
 import { Database } from '../foundation/database';
 import type { GatewayConfig } from '../foundation/platform-config';
@@ -18,6 +18,7 @@ import { verifyAccessToken } from '../identity/token';
 import { createDurableRun, decideApproval, ingestAiRuntimeEvent } from '../run-service/repository';
 import { ZernioClient, type ZernioAccount } from '../zernio/client';
 import { HttpError } from '../http/errors';
+import { activeReferralLink, referralSummary } from '../referral/service';
 
 /** Framework-neutral orchestration used by Egg controllers and scheduled work. */
 export class PlatformService {
@@ -59,11 +60,12 @@ export class PlatformService {
 
   async createStripeCheckout(actor: ActorContext, body: unknown): Promise<{ id: string; url: string }> {
     if (actor.role !== 'owner') throw new HttpError(403, 'owner_required');
-    const parsed = z.object({ plan: z.enum(PLAN_KEYS) }).parse(body);
+    const parsed = z.object({ plan: z.enum(PLAN_KEYS), referralCode: z.string().regex(/^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$/).optional() }).parse(body);
     const checkout = await createStripeCheckoutSession(this.config, {
       workspaceId: actor.workspaceId,
       actorId: actor.actorId,
       plan: parsed.plan,
+      referralCode: parsed.referralCode,
     });
     await this.database.withWorkspace(actor.workspaceId, (tx) => tx.query(
       'INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)',
@@ -93,6 +95,10 @@ export class PlatformService {
       };
       const result = await this.database.withWorkspace(hydrated.workspaceId, async (tx) => {
         const applied = await activateStripeSubscription(tx, hydrated);
+        const referralCode = referralCodeFromWebhook(rawBody);
+        if (applied.applied && referralCode) {
+          await tx.query('SELECT attribute_referral($1, $2::uuid, $3)', [referralCode, hydrated.workspaceId, 'checkout']);
+        }
         if (applied.applied) {
           await tx.query('INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)', [
             hydrated.workspaceId,
@@ -103,6 +109,15 @@ export class PlatformService {
         return applied;
       });
       return { received: true, activated: result.applied };
+    }
+
+    const invoice = stripeInvoicePaidFromWebhook(rawBody);
+    if (invoice) {
+      await this.database.withWorkspace(invoice.workspaceId, (tx) => tx.query(
+        'SELECT accrue_referral_credit($1, $2::uuid, $3::bigint, $4)',
+        [invoice.invoiceId, invoice.workspaceId, invoice.paidMicros, invoice.currency],
+      ));
+      return { received: true, activated: false };
     }
 
     const statusEvent = stripeSubscriptionStatusFromWebhook(rawBody, this.config.STRIPE_PAYMENT_GRACE_DAYS);
@@ -131,6 +146,17 @@ export class PlatformService {
   async billingUsage(actor: ActorContext): Promise<unknown> {
     requirePermission(actor.role, 'billing:view');
     return this.database.withWorkspace(actor.workspaceId, usageSnapshot);
+  }
+
+  async referralLink(actor: ActorContext): Promise<{ code: string; url: string }> {
+    requirePermission(actor.role, 'referral:manage');
+    const link = await this.database.withWorkspace(actor.workspaceId, activeReferralLink);
+    return { ...link, url: `${this.config.PUBLIC_SITE_URL.replace(/\/$/, '')}/r/${link.code}` };
+  }
+
+  async referralSummary(actor: ActorContext): Promise<unknown> {
+    requirePermission(actor.role, 'referral:view');
+    return this.database.withWorkspace(actor.workspaceId, referralSummary);
   }
 
   async updateBillingEntitlements(actor: ActorContext, adminToken: string | undefined, body: unknown): Promise<unknown> {
@@ -341,4 +367,12 @@ export class PlatformService {
 
 function feedbackText(value: string, maxLength: number): string {
   return value.normalize('NFKC').replace(/<[^>]*>/g, '').replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLength + 1);
+}
+
+function referralCodeFromWebhook(rawBody: string): string | undefined {
+  try {
+    const value = JSON.parse(rawBody) as { data?: { object?: { metadata?: { referral_code?: unknown } } } };
+    const code = value.data?.object?.metadata?.referral_code;
+    return typeof code === 'string' && /^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$/.test(code) ? code : undefined;
+  } catch { return undefined; }
 }

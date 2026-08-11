@@ -16,6 +16,8 @@ export default (app: Application) => {
   router.post('/api/approval-requests/:approvalId/:decision', controller.platform.decideApproval);
   router.get('/api/billing/task-events', controller.platform.taskEvents);
   router.get('/api/billing/usage', controller.platform.billingUsage);
+  router.post('/api/referral/link', controller.platform.referralLink);
+  router.get('/api/referral/summary', controller.platform.referralSummary);
   router.post('/api/billing/entitlements', controller.platform.updateBillingEntitlements);
   router.post('/api/feedback', controller.platform.feedback);
   router.get('/api/audit-events', controller.platform.auditEvents);

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import test from 'node:test';
 
-import { stripeActivationFromWebhook, stripeSubscriptionStatusFromWebhook, verifyStripeWebhookSignature } from './stripe';
+import { stripeActivationFromWebhook, stripeInvoicePaidFromWebhook, stripeSubscriptionStatusFromWebhook, verifyStripeWebhookSignature } from './stripe';
 
 const secret = 'whsec_test_secret';
 const timestamp = 1_900_000_000;
@@ -74,4 +74,12 @@ test('places payment failures into a bounded grace period and restores status on
     data: { object: { id: 'sub_123', customer: 'cus_123', status: 'active', metadata: { workspaceId: '00000000-0000-4000-8000-000000000001' } } },
   }), 7, now);
   assert.equal(restored?.subscriptionStatus, 'active');
+});
+
+test('uses the invoice amount actually paid when accruing referral credit', () => {
+  const invoice = stripeInvoicePaidFromWebhook(JSON.stringify({
+    id: 'evt_invoice_paid_1', type: 'invoice.paid',
+    data: { object: { id: 'in_123', amount_paid: 5900, currency: 'usd', subscription_details: { metadata: { workspaceId: '00000000-0000-4000-8000-000000000001' } } } },
+  }));
+  assert.deepEqual(invoice, { invoiceId: 'in_123', workspaceId: '00000000-0000-4000-8000-000000000001', paidMicros: 59_000_000, currency: 'usd' });
 });
