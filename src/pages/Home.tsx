@@ -13,6 +13,7 @@ import { Integrations } from "../sections/Integrations";
 import { Pricing } from "../sections/Pricing";
 import { Faq } from "../sections/Faq";
 import { Footer } from "../sections/Footer";
+import { ContactSupport } from "../components/ContactSupport";
 
 function setMeta(selector: string, content: string) {
   const element = document.head.querySelector<HTMLMetaElement>(selector);
@@ -48,6 +49,7 @@ export default function Home({ lang }: { lang: Lang }) {
           <Faq />
         </main>
         <Footer />
+        <ContactSupport lang={lang} />
       </div>
     </LangProvider>
   );

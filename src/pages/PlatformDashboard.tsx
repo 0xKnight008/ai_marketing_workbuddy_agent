@@ -18,6 +18,9 @@ export default function PlatformDashboard() {
   const [taskEvents, setTaskEvents] = useState<TaskEventView[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEventView[]>([]);
   const [message, setMessage] = useState('');
+  const [feedbackCategory, setFeedbackCategory] = useState('other');
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [feedbackStatus, setFeedbackStatus] = useState('');
 
   function headers(): HeadersInit { return { authorization: `Bearer ${token}` }; }
 
@@ -56,11 +59,23 @@ export default function PlatformDashboard() {
     if (response.ok) await loadWorkspace();
   }
 
+  async function sendFeedback() {
+    setFeedbackStatus('');
+    const response = await fetch(`${gatewayUrl}/api/feedback`, {
+      method: 'POST', headers: { ...headers(), 'content-type': 'application/json' },
+      body: JSON.stringify({ category: feedbackCategory, message: feedbackMessage, locale: document.documentElement.lang.slice(0, 2), pageUrl: window.location.href }),
+    });
+    const result = await response.json().catch(() => ({})) as { ticketId?: string };
+    if (!response.ok || !result.ticketId) { setFeedbackStatus('Your message could not be sent. Confirm that your workspace session is active.'); return; }
+    setFeedbackMessage('');
+    setFeedbackStatus(`Thanks — ticket ${result.ticketId} was sent to support.`);
+  }
+
   return (
     <main className="paper-grain min-h-screen bg-paper text-ink p-6 md:p-10">
       <header className="mx-auto max-w-6xl flex flex-col gap-4 border-b-2 border-ink/30 pb-6 md:flex-row md:items-end md:justify-between">
         <div><p className="font-hand text-xl text-sky-deep">Piggybot Platform</p><h1 className="font-display text-4xl">Workflow operations</h1></div>
-        <a className="text-sm text-ink-soft hover:text-ink" href="/">Back to site</a>
+        <div className="flex gap-4 text-sm"><a className="text-ink-soft hover:text-ink" href="/contact">Help</a><a className="text-ink-soft hover:text-ink" href="/">Back to site</a></div>
       </header>
 
       <section className="mx-auto grid max-w-6xl gap-6 py-8 lg:grid-cols-3">
@@ -81,6 +96,17 @@ export default function PlatformDashboard() {
           <textarea value={token} onChange={(event) => setToken(event.target.value)} className="mt-2 h-28 w-full rounded-md border border-ink/20 bg-paper p-2 text-xs" placeholder="Paste a short-lived workspace token" />
           <button onClick={() => void loadWorkspace()} className="mt-3 w-full rounded-md bg-sky-deep px-4 py-2 text-sm font-medium text-white">Load workspace</button>
         </div>
+      </section>
+
+      <section className="mx-auto max-w-6xl rounded-xl border border-ink/20 bg-paper-card p-5">
+        <h2 className="text-lg font-semibold">Help & support</h2>
+        <p className="mt-1 text-sm text-ink-soft">Send a message with this workspace automatically attached. We reply within one business day.</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-[180px_1fr_auto]">
+          <select value={feedbackCategory} onChange={(event) => setFeedbackCategory(event.target.value)} className="rounded-md border border-ink/20 bg-paper p-3"><option value="billing">Billing</option><option value="bug">Bug</option><option value="feature">Feature request</option><option value="other">Other</option></select>
+          <textarea value={feedbackMessage} maxLength={2000} onChange={(event) => setFeedbackMessage(event.target.value)} className="min-h-24 rounded-md border border-ink/20 bg-paper p-3" placeholder="How can we help?" />
+          <button disabled={!token || !feedbackMessage.trim()} onClick={() => void sendFeedback()} className="h-fit rounded-md bg-sky-deep px-5 py-3 font-medium text-white disabled:cursor-not-allowed disabled:opacity-50">Send to support</button>
+        </div>
+        {feedbackStatus && <p className="mt-3 text-sm text-sky-deep" role="status">{feedbackStatus}</p>}
       </section>
 
       <section className="mx-auto max-w-6xl rounded-xl border border-ink/20 bg-paper-card p-5">

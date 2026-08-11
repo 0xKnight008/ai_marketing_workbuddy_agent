@@ -9,8 +9,8 @@ const env = {
   GOOGLE_FORM_ID: '1FAIpQLSf0snTCY6aXd-eREWUYHvfHUPsdAxRLiCW2KxJanUQomT0ncA',
 };
 
-async function withServer(fetchImpl, run) {
-  const server = createSubscriptionServer({ env, fetchImpl });
+async function withServer(fetchImpl, run, feedbackStore, extraEnv = {}) {
+  const server = createSubscriptionServer({ env: { ...env, ...extraEnv }, fetchImpl, feedbackStore });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   try {
@@ -91,4 +91,63 @@ test('rate limits repeated requests from one address', async () => {
     assert.equal(blocked.status, 429);
   });
   assert.equal(calls, 5);
+});
+
+test('stores valid feedback and returns its ticket number', async () => {
+  const stored = [];
+  const feedbackStore = {
+    async create(feedback) { stored.push(feedback); return { ...feedback, ticketId: 'FB-8F3K2Q' }; },
+    async setDiscordThread() {},
+  };
+  await withServer(async () => new Response('', { status: 200 }), async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/feedback`, {
+      body: JSON.stringify({ email: 'support@example.com', name: '  Ada  ', category: 'bug', message: '<b>Cannot</b> save\n a workflow', locale: 'en', pageUrl: 'https://piggybot.example/contact', website: '' }),
+      headers: { 'Content-Type': 'application/json' }, method: 'POST',
+    });
+    assert.equal(response.status, 201);
+    assert.deepEqual(await response.json(), { ticketId: 'FB-8F3K2Q' });
+  }, feedbackStore);
+  assert.deepEqual(stored, [{ email: 'support@example.com', name: 'Ada', category: 'bug', message: 'Cannot save a workflow', locale: 'en', pageUrl: 'https://piggybot.example/contact' }]);
+});
+
+test('feedback honeypot returns a fake success without storing a message', async () => {
+  let stored = 0;
+  await withServer(async () => new Response('', { status: 200 }), async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/feedback`, {
+      body: JSON.stringify({ email: 'bot@example.com', message: 'spam', website: 'filled' }),
+      headers: { 'Content-Type': 'application/json' }, method: 'POST',
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ticketId: 'FB-RECEIVED' });
+  }, { async create() { stored += 1; }, async setDiscordThread() {} });
+  assert.equal(stored, 0);
+});
+
+test('feedback validates email and limits requests to three per IP', async () => {
+  let stored = 0;
+  const feedbackStore = { async create(feedback) { stored += 1; return { ...feedback, ticketId: `FB-${stored}` }; }, async setDiscordThread() {} };
+  await withServer(async () => new Response('', { status: 200 }), async (baseUrl) => {
+    const invalid = await fetch(`${baseUrl}/api/feedback`, { body: JSON.stringify({ email: 'bad', message: 'hello' }), headers: { 'Content-Type': 'application/json' }, method: 'POST' });
+    assert.equal(invalid.status, 400);
+    for (let index = 0; index < 3; index += 1) {
+      const response = await fetch(`${baseUrl}/api/feedback`, { body: JSON.stringify({ email: 'support@example.com', message: 'hello' }), headers: { 'Content-Type': 'application/json' }, method: 'POST' });
+      assert.equal(response.status, 201);
+    }
+    const blocked = await fetch(`${baseUrl}/api/feedback`, { body: JSON.stringify({ email: 'support@example.com', message: 'hello' }), headers: { 'Content-Type': 'application/json' }, method: 'POST' });
+    assert.equal(blocked.status, 429);
+  }, feedbackStore);
+  assert.equal(stored, 3);
+});
+
+test('feedback rejects oversized payloads and tolerates Discord failures', async () => {
+  const feedbackStore = { async create(feedback) { return { ...feedback, ticketId: 'FB-DISCORD' }; }, async setDiscordThread() {} };
+  await withServer(async (url) => {
+    if (url.startsWith('https://discord.com/')) throw new Error('Discord offline');
+    return new Response('', { status: 200 });
+  }, async (baseUrl) => {
+    const oversized = await fetch(`${baseUrl}/api/feedback`, { body: JSON.stringify({ email: 'support@example.com', message: 'x'.repeat(9_000) }), headers: { 'Content-Type': 'application/json' }, method: 'POST' });
+    assert.equal(oversized.status, 413);
+    const accepted = await fetch(`${baseUrl}/api/feedback`, { body: JSON.stringify({ email: 'support@example.com', message: 'Hello' }), headers: { 'Content-Type': 'application/json' }, method: 'POST' });
+    assert.equal(accepted.status, 201);
+  }, feedbackStore, { DISCORD_BOT_TOKEN: 'test-token', DISCORD_FEEDBACK_CHANNEL_ID: 'feedback-channel' });
 });

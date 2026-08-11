@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import { z } from 'zod';
 
@@ -222,6 +222,50 @@ export class PlatformService {
     return events.rows;
   }
 
+  async createFeedback(actor: ActorContext, body: unknown): Promise<{ ticketId: string }> {
+    const input = z.object({
+      category: z.enum(['billing', 'bug', 'feature', 'other']).default('other'),
+      message: z.string().max(2_000),
+      locale: z.enum(['zh', 'en', 'es']).optional(),
+      pageUrl: z.string().url().max(2_048).optional(),
+      name: z.string().max(120).optional(),
+    }).parse(body ?? {});
+    const message = feedbackText(input.message, 2_000);
+    if (!message) throw new HttpError(400, 'invalid_message');
+    const name = input.name ? feedbackText(input.name, 120) || undefined : undefined;
+
+    const feedback = await this.database.withWorkspace(actor.workspaceId, async (tx) => {
+      const member = await tx.query<{ email: string }>(
+        `SELECT u.email::text AS email
+           FROM app_user u JOIN workspace_membership m ON m.user_id = u.id
+          WHERE m.workspace_id = $1 AND m.user_id = $2`,
+        [actor.workspaceId, actor.actorId],
+      );
+      const email = member.rows[0]?.email;
+      if (!email) throw new HttpError(403, 'workspace_membership_required');
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const ticketId = `FB-${randomBytes(4).toString('hex').toUpperCase()}`;
+        try {
+          await tx.query(
+            `INSERT INTO feedback_message (ticket_no, source, workspace_id, email, name, category, message, locale, page_url)
+             VALUES ($1, 'platform', $2, $3, $4, $5, $6, $7, $8)`,
+            [ticketId, actor.workspaceId, email, name, input.category, message, input.locale, input.pageUrl],
+          );
+          return { ticketId, email, name, category: input.category, message };
+        } catch (error) {
+          if ((error as { code?: string }).code !== '23505' || attempt === 2) throw error;
+        }
+      }
+      throw new Error('ticket_generation_failed');
+    });
+    try {
+      await this.notifyDiscordFeedback(feedback);
+    } catch (error) {
+      console.error('Discord support notification failed', { ticketId: feedback.ticketId, message: error instanceof Error ? error.message : 'unknown_error' });
+    }
+    return { ticketId: feedback.ticketId };
+  }
+
   private zernioClient(): ZernioClient {
     if (!this.config.ZERNIO_BASE_URL || !this.config.ZERNIO_OAUTH_CLIENT_ID || !this.config.ZERNIO_OAUTH_REDIRECT_URI || !this.config.ZERNIO_OAUTH_STATE_SECRET) {
       throw new HttpError(503, 'provider_not_configured');
@@ -232,6 +276,26 @@ export class PlatformService {
       oauthRedirectUri: this.config.ZERNIO_OAUTH_REDIRECT_URI,
       oauthStateSecret: this.config.ZERNIO_OAUTH_STATE_SECRET,
     });
+  }
+
+  private async notifyDiscordFeedback(feedback: { ticketId: string; email: string; name?: string; category: string; message: string }): Promise<void> {
+    if (!this.config.DISCORD_BOT_TOKEN || !this.config.DISCORD_FEEDBACK_CHANNEL_ID) return;
+    const headers = { Authorization: `Bot ${this.config.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' };
+    const posted = await fetch(`https://discord.com/api/v10/channels/${this.config.DISCORD_FEEDBACK_CHANNEL_ID}/messages`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ content: `**${feedback.ticketId}** · ${feedback.category}\n${feedback.email}${feedback.name ? ` (${feedback.name})` : ''}\n\n${feedback.message}` }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!posted.ok) throw new Error(`discord_message_failed_${posted.status}`);
+    const message = await posted.json() as { id?: string };
+    if (!message.id) throw new Error('discord_message_missing_id');
+    const thread = await fetch(`https://discord.com/api/v10/channels/${this.config.DISCORD_FEEDBACK_CHANNEL_ID}/messages/${message.id}/threads`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ name: `${feedback.ticketId} · ${feedback.category}`, auto_archive_duration: 1440 }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!thread.ok) throw new Error(`discord_thread_failed_${thread.status}`);
+    await thread.json();
   }
 
   private async storeZernioAccounts(workspaceId: string, credential: { accessToken: string; refreshToken?: string }, accounts: ZernioAccount[]): Promise<void> {
@@ -273,4 +337,8 @@ export class PlatformService {
     if (typeof parsed.accessToken !== 'string' || !parsed.accessToken) throw new Error('Stored Zernio credential is invalid');
     return { accessToken: parsed.accessToken, refreshToken: typeof parsed.refreshToken === 'string' ? parsed.refreshToken : undefined };
   }
+}
+
+function feedbackText(value: string, maxLength: number): string {
+  return value.normalize('NFKC').replace(/<[^>]*>/g, '').replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLength + 1);
 }

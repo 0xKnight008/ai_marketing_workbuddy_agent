@@ -30,6 +30,8 @@ export const gatewayConfigSchema = databaseConfigSchema.extend({
   STRIPE_TRIAL_DAYS: z.coerce.number().int().min(1).max(30).default(7),
   STRIPE_PAYMENT_GRACE_DAYS: z.coerce.number().int().min(1).max(30).default(7),
   STRIPE_WEBHOOK_TOLERANCE_SECONDS: z.coerce.number().int().min(1).max(3600).default(300),
+  DISCORD_BOT_TOKEN: z.string().min(1).optional(),
+  DISCORD_FEEDBACK_CHANNEL_ID: z.string().min(1).optional(),
   GATEWAY_PORT: z.coerce.number().int().min(1).max(65535).default(4100),
 });
 
