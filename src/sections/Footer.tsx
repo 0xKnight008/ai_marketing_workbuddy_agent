@@ -88,8 +88,9 @@ function SubscribeForm() {
 }
 
 export function Footer() {
-  const { t } = useT();
+  const { t, lang } = useT();
   const f = t.footer;
+  const contactLabel = lang === 'zh' ? '联系我们' : lang === 'es' ? 'Contáctanos' : 'Contact us';
   return (
     <footer className="relative bg-night overflow-hidden">
       {/* 星空 */}
@@ -166,6 +167,7 @@ export function Footer() {
             <span className="font-display text-[#F6E7C1]">Piggybot</span>
             <span>{f.copyright}</span>
           </div>
+          <a href={lang === 'en' ? '/contact' : `/${lang}/contact`} className="font-bold text-[#A8B4CC] hover:text-sun">{contactLabel}</a>
           <p className="font-hand text-lg text-[#A8B4CC]">{f.madeWith}</p>
         </div>
       </div>

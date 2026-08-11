@@ -69,6 +69,10 @@ export default class PlatformController extends Controller {
     );
   }
   async auditEvents(): Promise<void> { this.ctx.body = await this.app.platform.service.auditEvents(this.actor()); }
+  async feedback(): Promise<void> {
+    this.ctx.status = 201;
+    this.ctx.body = await this.app.platform.service.createFeedback(this.actor(), this.ctx.request.body);
+  }
 
   private actor() { return this.app.platform.service.actorFrom(this.ctx.get('authorization')); }
 }
