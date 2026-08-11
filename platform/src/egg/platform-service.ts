@@ -120,6 +120,13 @@ export class PlatformService {
       return { received: true, activated: false };
     }
 
+    const refundedInvoiceId = refundedInvoiceFromWebhook(rawBody);
+    if (refundedInvoiceId) {
+      // The security-definer function locates the referrer workspace safely.
+      await this.database.withWorkspace('00000000-0000-4000-8000-000000000000', (tx) => tx.query('SELECT queue_referral_clawback($1)', [refundedInvoiceId]));
+      return { received: true, activated: false };
+    }
+
     const statusEvent = stripeSubscriptionStatusFromWebhook(rawBody, this.config.STRIPE_PAYMENT_GRACE_DAYS);
     if (!statusEvent) return { received: true, activated: false };
     const subscription = statusEvent.workspaceId ? undefined : await retrieveStripeSubscription(this.config, statusEvent.subscriptionId);
@@ -374,5 +381,12 @@ function referralCodeFromWebhook(rawBody: string): string | undefined {
     const value = JSON.parse(rawBody) as { data?: { object?: { metadata?: { referral_code?: unknown } } } };
     const code = value.data?.object?.metadata?.referral_code;
     return typeof code === 'string' && /^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$/.test(code) ? code : undefined;
+  } catch { return undefined; }
+}
+
+function refundedInvoiceFromWebhook(rawBody: string): string | undefined {
+  try {
+    const value = JSON.parse(rawBody) as { type?: string; data?: { object?: { invoice?: unknown } } };
+    return value.type === 'charge.refunded' && typeof value.data?.object?.invoice === 'string' ? value.data.object.invoice : undefined;
   } catch { return undefined; }
 }

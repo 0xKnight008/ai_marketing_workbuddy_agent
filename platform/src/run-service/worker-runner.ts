@@ -43,6 +43,7 @@ export interface RunWorkerOptions {
   aiRuntime: RunWorkerAiRuntime;
   zernio?: RunWorkerZernio;
   secretEncryptionKeyBase64?: string;
+  stripeSecretKey?: string;
 }
 
 /**
@@ -60,6 +61,8 @@ export class RunWorker {
       if (job.kind === 'prepare_ai_run') await this.executePrepare(job);
       else if (job.kind === 'reconcile_ai_run') await this.reconcileAiRun(job);
       else if (job.kind === 'execute_approved_actions') await this.executeApprovedActions(job);
+      else if (job.kind === 'issue_referral_credit') await this.issueReferralCredit(job);
+      else if (job.kind === 'clawback_referral_credit') await this.clawbackReferralCredit(job);
       else throw new Error(`Unsupported job: ${job.kind}`);
     } catch (error) {
       await this.failJob(job, error);
@@ -232,6 +235,61 @@ export class RunWorker {
       await tx.query("UPDATE workflow_run SET status = 'succeeded', finished_at = now() WHERE id = $1 AND workspace_id = $2 AND status IN ('queued', 'running')", [job.runId, job.workspaceId]);
       await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
     });
+  }
+
+  private async issueReferralCredit(job: ClaimedJob): Promise<void> {
+    const invoiceId = job.payload.invoiceId;
+    if (typeof invoiceId !== 'string' || !invoiceId) throw new Error('Referral credit job is missing invoiceId');
+    const credit = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+      const result = await tx.query<{ amountMicros: string; currency: string; customerId: string | null }>(`
+        SELECT l.amount_micros::text AS "amountMicros", l.currency, b.stripe_customer_id AS "customerId"
+          FROM referral_credit_ledger l
+          JOIN workspace_billing b ON b.workspace_id = l.workspace_id
+         WHERE l.workspace_id = current_setting('app.workspace_id')::uuid
+           AND l.stripe_invoice_id = $1 AND l.status = 'pending' AND l.available_at <= now()`, [invoiceId]);
+      return result.rows[0];
+    });
+    if (!credit?.customerId) {
+      await this.options.database.withWorkspace(job.workspaceId, (tx) => tx.query(
+        "UPDATE job SET status = 'queued', attempt = GREATEST(attempt - 1, 0), available_at = now() + interval '1 day', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2",
+        [job.id, job.workspaceId],
+      ));
+      return;
+    }
+    if (!this.options.stripeSecretKey) throw new Error('Stripe is not configured for referral credit issuance');
+    const cents = Math.floor(Number(credit.amountMicros) / 10_000);
+    if (!Number.isSafeInteger(cents) || cents <= 0) throw new Error('Referral credit amount is invalid');
+    const response = await fetch(`https://api.stripe.com/v1/customers/${encodeURIComponent(credit.customerId)}/balance_transactions`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${this.options.stripeSecretKey}`, 'content-type': 'application/x-www-form-urlencoded', 'idempotency-key': `referral-credit:${invoiceId}` },
+      body: new URLSearchParams({ amount: String(-cents), currency: credit.currency, description: `Piggybot referral credit for ${invoiceId}`, 'metadata[referral_invoice_id]': invoiceId }),
+    });
+    const body = await response.json().catch(() => ({})) as { id?: unknown };
+    if (!response.ok || typeof body.id !== 'string') throw new Error('Stripe customer balance credit failed');
+    await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+      await tx.query("UPDATE referral_credit_ledger SET status = 'available', stripe_balance_txn = $2 WHERE workspace_id = current_setting('app.workspace_id')::uuid AND stripe_invoice_id = $1 AND status = 'pending'", [invoiceId, body.id]);
+      await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
+    });
+  }
+
+  private async clawbackReferralCredit(job: ClaimedJob): Promise<void> {
+    const invoiceId = job.payload.invoiceId;
+    if (typeof invoiceId !== 'string' || !invoiceId || !this.options.stripeSecretKey) throw new Error('Referral clawback is not configured');
+    const credit = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+      const result = await tx.query<{ amountMicros: string; currency: string; customerId: string | null }>(`
+        SELECT l.amount_micros::text AS "amountMicros", l.currency, b.stripe_customer_id AS "customerId"
+          FROM referral_credit_ledger l JOIN workspace_billing b ON b.workspace_id = l.workspace_id
+         WHERE l.workspace_id = current_setting('app.workspace_id')::uuid AND l.stripe_invoice_id = $1 AND l.status = 'clawed_back'`, [invoiceId]);
+      return result.rows[0];
+    });
+    if (!credit?.customerId) throw new Error('Referral clawback customer is unavailable');
+    const cents = Math.floor(Number(credit.amountMicros) / 10_000);
+    const response = await fetch(`https://api.stripe.com/v1/customers/${encodeURIComponent(credit.customerId)}/balance_transactions`, {
+      method: 'POST', headers: { authorization: `Bearer ${this.options.stripeSecretKey}`, 'content-type': 'application/x-www-form-urlencoded', 'idempotency-key': `referral-clawback:${invoiceId}` },
+      body: new URLSearchParams({ amount: String(cents), currency: credit.currency, description: `Piggybot referral reversal for ${invoiceId}` }),
+    });
+    if (!response.ok) throw new Error('Stripe referral clawback failed');
+    await this.options.database.withWorkspace(job.workspaceId, (tx) => tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]));
   }
 
   private async pauseForBilling(tx: TenantTransaction, job: ClaimedJob, guardrail: UsageSnapshot, stage: 'ai_run' | 'publish'): Promise<void> {
