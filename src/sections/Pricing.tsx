@@ -28,7 +28,7 @@ function Lantern({ className = "", style, delay = 0 }: { className?: string; sty
 export function Pricing() {
   const { lang, t } = useT();
   const p = t.pricing;
-  const activationBase = lang === 'zh' ? '/activate' : `/${lang}/activate`;
+  const activationBase = `/${lang}/activate`;
 
   return (
     <section id="pricing" className="relative py-20 sm:py-28 bg-gradient-to-b from-paper via-[#FBF0D9] to-paper overflow-hidden">
