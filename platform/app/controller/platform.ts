@@ -61,6 +61,8 @@ export default class PlatformController extends Controller {
 
   async taskEvents(): Promise<void> { this.ctx.body = await this.app.platform.service.taskEvents(this.actor()); }
   async billingUsage(): Promise<void> { this.ctx.body = await this.app.platform.service.billingUsage(this.actor()); }
+  async referralLink(): Promise<void> { this.ctx.body = await this.app.platform.service.referralLink(this.actor()); }
+  async referralSummary(): Promise<void> { this.ctx.body = await this.app.platform.service.referralSummary(this.actor()); }
   async updateBillingEntitlements(): Promise<void> {
     this.ctx.body = await this.app.platform.service.updateBillingEntitlements(
       this.actor(),

@@ -43,6 +43,7 @@ export const workerConfigSchema = databaseConfigSchema.extend({
   WORKER_NAME: z.string().min(1).default('run-worker-1'),
   WORKER_IDLE_MS: z.coerce.number().int().min(100).max(60_000).default(1_000),
   WORKER_BATCH_SIZE: z.coerce.number().int().min(1).max(1_000).default(100),
+  STRIPE_SECRET_KEY: z.string().min(1).optional(),
 });
 
 export type GatewayConfig = z.infer<typeof gatewayConfigSchema>;

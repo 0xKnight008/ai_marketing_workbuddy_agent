@@ -21,6 +21,8 @@ export default function PlatformDashboard() {
   const [feedbackCategory, setFeedbackCategory] = useState('other');
   const [feedbackMessage, setFeedbackMessage] = useState('');
   const [feedbackStatus, setFeedbackStatus] = useState('');
+  const [referralUrl, setReferralUrl] = useState('');
+  const [referralStatus, setReferralStatus] = useState('');
 
   function headers(): HeadersInit { return { authorization: `Bearer ${token}` }; }
 
@@ -71,6 +73,13 @@ export default function PlatformDashboard() {
     setFeedbackStatus(`Thanks — ticket ${result.ticketId} was sent to support.`);
   }
 
+  async function createReferralLink() {
+    const response = await fetch(`${gatewayUrl}/api/referral/link`, { method: 'POST', headers: headers() });
+    const result = await response.json().catch(() => ({})) as { url?: string };
+    if (!response.ok || !result.url) { setReferralStatus('A workspace owner or admin session is required.'); return; }
+    setReferralUrl(result.url); setReferralStatus('Share this link and earn 20% credit on eligible first-year payments.');
+  }
+
   return (
     <main className="paper-grain min-h-screen bg-paper text-ink p-6 md:p-10">
       <header className="mx-auto max-w-6xl flex flex-col gap-4 border-b-2 border-ink/30 pb-6 md:flex-row md:items-end md:justify-between">
@@ -107,6 +116,13 @@ export default function PlatformDashboard() {
           <button disabled={!token || !feedbackMessage.trim()} onClick={() => void sendFeedback()} className="h-fit rounded-md bg-sky-deep px-5 py-3 font-medium text-white disabled:cursor-not-allowed disabled:opacity-50">Send to support</button>
         </div>
         {feedbackStatus && <p className="mt-3 text-sm text-sky-deep" role="status">{feedbackStatus}</p>}
+      </section>
+
+      <section className="mx-auto max-w-6xl rounded-xl border border-ink/20 bg-paper-card p-5">
+        <h2 className="text-lg font-semibold">Refer & earn 20%</h2>
+        <p className="mt-1 text-sm text-ink-soft">Earn account credit after your referral’s paid subscription clears its 30-day refund window.</p>
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row"><input readOnly value={referralUrl} className="flex-1 rounded-md border border-ink/20 bg-paper p-3 text-sm" placeholder="Generate your personal referral link" /><button onClick={() => void createReferralLink()} disabled={!token} className="rounded-md bg-sunset px-5 py-3 font-medium text-white disabled:opacity-50">Generate link</button>{referralUrl && <button onClick={() => void navigator.clipboard.writeText(referralUrl)} className="rounded-md border border-ink/30 px-5 py-3 font-medium">Copy</button>}</div>
+        {referralStatus && <p className="mt-3 text-sm text-sky-deep" role="status">{referralStatus}</p>}
       </section>
 
       <section className="mx-auto max-w-6xl rounded-xl border border-ink/20 bg-paper-card p-5">
