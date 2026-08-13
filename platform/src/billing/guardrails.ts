@@ -9,6 +9,10 @@ const MICROS_PER_CENT = 10_000;
  * per-customer retail tiers.
  */
 export const ZERNIO_AGGREGATE_COST_PER_ACCOUNT_MICROS = 150_000;
+const X_READ_MICROS = 5_000;
+const X_POST_MICROS = 15_000;
+const X_POST_WITH_URL_MICROS = 200_000;
+const X_DM_MICROS = 15_000;
 
 export type GuardrailStatus = 'normal' | 'approval_required' | 'paused';
 
@@ -125,9 +129,17 @@ export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: s
   return { band, credits, supplierCostMicros: policy.supplierCostMicros, guardrail: projected };
 }
 
-export async function recordSuccessfulAction(tx: TenantTransaction, input: { runId: string; stepRunId: string; actionType: string; isX: boolean }): Promise<UsageSnapshot> {
-  const taskUnits = input.isX ? 3 : 1;
-  const supplierCostMicros = input.isX ? 10_000 : 0;
+export function supplierActionCostMicros(input: { actionType: string; platform: string; payload?: Record<string, unknown> }): number {
+  if (input.platform !== 'x') return 0;
+  if (input.actionType.includes('read') || input.actionType.includes('analytics') || input.actionType.includes('comment')) return X_READ_MICROS;
+  if (input.actionType.includes('dm')) return X_DM_MICROS;
+  const content = typeof input.payload?.content === 'string' ? input.payload.content : '';
+  return /https?:\/\//i.test(content) ? X_POST_WITH_URL_MICROS : X_POST_MICROS;
+}
+
+export async function recordSuccessfulAction(tx: TenantTransaction, input: { runId: string; stepRunId: string; actionType: string; platform: string; payload?: Record<string, unknown> }): Promise<UsageSnapshot> {
+  const taskUnits = input.platform === 'x' ? 3 : 1;
+  const supplierCostMicros = supplierActionCostMicros(input);
   const current = await usageSnapshot(tx);
   const projected = { ...current, taskUsed: current.taskUsed + taskUnits, supplierSpendMicros: current.supplierSpendMicros + supplierCostMicros };
   projected.status = guardrailStatus(projected.taskUsed, projected.taskQuota, projected.supplierSpendMicros, projected.supplierSpendLimitMicros);

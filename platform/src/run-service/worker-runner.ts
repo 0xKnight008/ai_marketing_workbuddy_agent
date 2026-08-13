@@ -6,6 +6,7 @@ import { assertExecutableAction, type ConnectedAccountView } from '../connector-
 import type { TenantTransaction } from '../foundation/database';
 import { decryptSecret } from '../foundation/secrets';
 import { ingestAiRuntimeEvent } from './repository';
+import { SupplierUnavailableError } from '../zernio/client';
 
 export interface ClaimedJob {
   id: string;
@@ -34,7 +35,7 @@ export interface RunWorkerAiRuntime {
 }
 
 export interface RunWorkerZernio {
-  executeAction(accessToken: string, idempotencyKey: string, action: ActionPlan['actions'][number]): Promise<unknown>;
+  executeAction(accessToken: string, idempotencyKey: string, action: ActionPlan['actions'][number], workspaceId?: string): Promise<unknown>;
 }
 
 export interface RunWorkerOptions {
@@ -65,7 +66,8 @@ export class RunWorker {
       else if (job.kind === 'clawback_referral_credit') await this.clawbackReferralCredit(job);
       else throw new Error(`Unsupported job: ${job.kind}`);
     } catch (error) {
-      await this.failJob(job, error);
+      if (error instanceof SupplierUnavailableError) await this.deferForSupplier(job, error);
+      else await this.failJob(job, error);
     }
     return true;
   }
@@ -225,10 +227,10 @@ export class RunWorker {
       assertExecutableAction({ workspaceId: job.workspaceId, runId: job.runId, stepId: operation.stepRunId, attempt: 1, account, type: operation.action.type, payload: operation.action });
       const decrypted = decryptSecret({ ciphertext, iv, authTag }, secretEncryptionKeyBase64);
       const credential = parseZernioCredential(decrypted);
-      const result = await zernio.executeAction(credential.accessToken, operation.action.idempotencyKey, operation.action);
+      const result = await zernio.executeAction(credential.accessToken, operation.action.idempotencyKey, operation.action, job.workspaceId);
       await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
         await tx.query("UPDATE step_run SET status = 'succeeded', output = $2, finished_at = now() WHERE id = $1 AND workspace_id = $3", [operation.stepRunId, result, job.workspaceId]);
-        await recordSuccessfulAction(tx, { runId: job.runId!, stepRunId: operation.stepRunId, actionType: operation.action.type, isX: operation.action.platform === 'x' });
+        await recordSuccessfulAction(tx, { runId: job.runId!, stepRunId: operation.stepRunId, actionType: operation.action.type, platform: operation.action.platform, payload: operation.action });
       });
     }
     await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
@@ -315,6 +317,13 @@ export class RunWorker {
         await tx.query('INSERT INTO run_event (workspace_id, run_id, event_key, event_type, payload) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (run_id, event_key) DO NOTHING', [job.workspaceId, job.runId, `job:${job.id}:dead_lettered`, 'run.dead_lettered', { error: message }]);
       }
     });
+  }
+
+  private async deferForSupplier(job: ClaimedJob, error: SupplierUnavailableError): Promise<void> {
+    await this.options.database.withWorkspace(job.workspaceId, (tx) => tx.query(
+      "UPDATE job SET status = 'queued', attempt = GREATEST(attempt - 1, 0), available_at = now() + interval '30 seconds', locked_at = NULL, locked_by = NULL, last_error = $3, updated_at = now() WHERE id = $1 AND workspace_id = $2",
+      [job.id, job.workspaceId, error.message],
+    ));
   }
 }
 
