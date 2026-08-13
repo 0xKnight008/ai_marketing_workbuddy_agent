@@ -65,7 +65,7 @@ test('semantic compliance output cannot remove the approval gate', () => {
       priorApprovedExamples: [],
       runPolicy: {
         approvalRequiredForPublish: false,
-        modelBand: 'eco',
+        modelBand: 'eco', llmProvider: 'primary',
         maxInputTokens: 8_000,
         maxOutputTokens: 1_500,
         maxTargets: 5,

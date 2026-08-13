@@ -19,3 +19,8 @@ test('prices X supplier spend by action and detects links in posts', () => {
   assert.equal(supplierActionCostMicros({ platform: 'x', actionType: 'social.get_analytics' }), 5_000);
   assert.equal(supplierActionCostMicros({ platform: 'linkedin', actionType: 'social.create_post' }), 0);
 });
+
+test('degrades on exhausted task quota but pauses on exhausted supplier spend', () => {
+  assert.equal(guardrailStatus(100, 100, 0, 1_000_000), 'degraded');
+  assert.equal(guardrailStatus(0, 100, 1_000_000, 1_000_000), 'paused');
+});

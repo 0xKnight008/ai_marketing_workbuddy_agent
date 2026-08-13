@@ -92,6 +92,10 @@ export class RunWorker {
         await this.pauseForBilling(tx, job, reservation.guardrail, 'ai_run');
         return undefined;
       }
+      if (reservation.guardrail.status === 'degraded') {
+        await tx.query('INSERT INTO run_event (workspace_id, run_id, event_key, event_type, payload) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (run_id, event_key) DO NOTHING', [job.workspaceId, found.id, `billing:${found.id}:degraded`, 'billing.degraded', { provider: reservation.provider, modelBand: reservation.band }]);
+        await tx.query('INSERT INTO audit_event (workspace_id, run_id, event_type, payload) VALUES ($1, $2, $3, $4)', [job.workspaceId, found.id, 'billing.degraded', { provider: reservation.provider, modelBand: reservation.band }]);
+      }
       await tx.query("UPDATE workflow_run SET status = 'running', started_at = COALESCE(started_at, now()) WHERE id = $1 AND workspace_id = $2 AND status IN ('pending', 'queued')", [found.id, job.workspaceId]);
       if (reservation.guardrail.status === 'approval_required') await this.recordApprovalRequirement(tx, found.id, reservation.guardrail, 'ai_run');
       return { run: found, reservation };
@@ -353,6 +357,7 @@ function toAiExecutionContext(context: BrandContextSnapshot, reservation: AiRese
     runPolicy: {
       approvalRequiredForPublish: reservation.guardrail.status === 'approval_required' || context.approvalPolicy !== 'none',
       modelBand: reservation.band,
+      llmProvider: reservation.provider,
       maxInputTokens: policy.maxInputTokens,
       maxOutputTokens: policy.maxOutputTokens,
       maxTargets: policy.maxTargets,

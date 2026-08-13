@@ -53,11 +53,13 @@ export const brandProfileSchema = z.object({
 export type BrandProfile = z.infer<typeof brandProfileSchema>;
 
 export const modelBandSchema = z.enum(['eco', 'standard', 'flagship']);
+export const llmProviderSchema = z.enum(['primary', 'fallback']);
 export type ModelBand = z.infer<typeof modelBandSchema>;
 
 export const runPolicySchema = z.object({
   approvalRequiredForPublish: z.boolean().default(true),
   modelBand: modelBandSchema.default('eco'),
+  llmProvider: llmProviderSchema.default('primary'),
   maxInputTokens: z.number().int().positive().max(32_000).default(8_000),
   maxOutputTokens: z.number().int().positive().max(4_000).default(1_500),
   maxTargets: z.number().int().positive().max(20).default(5),

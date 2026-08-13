@@ -14,7 +14,7 @@ const X_POST_MICROS = 15_000;
 const X_POST_WITH_URL_MICROS = 200_000;
 const X_DM_MICROS = 15_000;
 
-export type GuardrailStatus = 'normal' | 'approval_required' | 'paused';
+export type GuardrailStatus = 'normal' | 'approval_required' | 'degraded' | 'paused';
 
 export interface UsageSnapshot {
   plan: PlanKey;
@@ -49,7 +49,8 @@ export function monthlyZernioMicros(accountCount: number): number {
 }
 
 export function guardrailStatus(taskUsed: number, taskQuota: number, supplierSpendMicros: number, supplierSpendLimitMicros: number): GuardrailStatus {
-  if (taskUsed >= taskQuota || supplierSpendMicros >= supplierSpendLimitMicros) return 'paused';
+  if (supplierSpendMicros >= supplierSpendLimitMicros) return 'paused';
+  if (taskUsed >= taskQuota) return 'degraded';
   if (taskUsed >= taskQuota * WARNING_RATIO || supplierSpendMicros >= supplierSpendLimitMicros * WARNING_RATIO) return 'approval_required';
   return 'normal';
 }
@@ -108,6 +109,7 @@ export async function usageSnapshot(tx: TenantTransaction): Promise<UsageSnapsho
 
 export interface AiReservation {
   band: ModelBand;
+  provider: 'primary' | 'fallback';
   credits: number;
   supplierCostMicros: number;
   guardrail: UsageSnapshot;
@@ -123,10 +125,13 @@ export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: s
   const credits = current.aiCreditsAvailable >= policy.credits ? policy.credits : 0;
   const projectedSpend = current.supplierSpendMicros + policy.supplierCostMicros;
   const projected = { ...current, supplierSpendMicros: projectedSpend, status: guardrailStatus(current.taskUsed, current.taskQuota, projectedSpend, current.supplierSpendLimitMicros) };
-  if (projected.status === 'paused') return { band, credits, supplierCostMicros: policy.supplierCostMicros, guardrail: projected };
-  await tx.query(`INSERT INTO task_event (workspace_id, run_id, action_type, billable_units, ai_credits, supplier_cost_micros, status)
-    VALUES (current_setting('app.workspace_id')::uuid, $1, $2, 0, $3, $4, 'succeeded') ON CONFLICT DO NOTHING`, [runId, `ai.${band}`, credits, policy.supplierCostMicros]);
-  return { band, credits, supplierCostMicros: policy.supplierCostMicros, guardrail: projected };
+  const effectiveBand = projected.status === 'degraded' ? 'eco' : band;
+  const effectivePolicy = MODEL_BAND_POLICIES[effectiveBand];
+  const provider = projected.status === 'degraded' ? 'fallback' as const : 'primary' as const;
+  if (projected.status === 'paused') return { band: effectiveBand, provider, credits, supplierCostMicros: effectivePolicy.supplierCostMicros, guardrail: projected };
+  await tx.query(`INSERT INTO task_event (workspace_id, run_id, action_type, billable_units, ai_credits, supplier_cost_micros, supplier, status)
+    VALUES (current_setting('app.workspace_id')::uuid, $1, $2, 0, $3, $4, $5, 'succeeded') ON CONFLICT DO NOTHING`, [runId, `ai.${effectiveBand}.${provider}`, credits, effectivePolicy.supplierCostMicros, provider]);
+  return { band: effectiveBand, provider, credits, supplierCostMicros: effectivePolicy.supplierCostMicros, guardrail: projected };
 }
 
 export function supplierActionCostMicros(input: { actionType: string; platform: string; payload?: Record<string, unknown> }): number {
