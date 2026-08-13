@@ -49,6 +49,11 @@ export const config = {
     standard: process.env.AI_MODEL_STANDARD ?? 'openai/gpt-4o',
     flagship: process.env.AI_MODEL_FLAGSHIP ?? 'openai/o3',
   },
+  fallbackModels: {
+    eco: process.env.AI_MODEL_ECO_FALLBACK,
+    standard: process.env.AI_MODEL_STANDARD_FALLBACK,
+    flagship: process.env.AI_MODEL_FLAGSHIP_FALLBACK,
+  },
 
   internalApiToken: process.env.INTERNAL_API_TOKEN ?? '',
 

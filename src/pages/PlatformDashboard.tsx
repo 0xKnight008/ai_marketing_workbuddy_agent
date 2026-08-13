@@ -6,6 +6,7 @@ interface RunView { id: string; status: string; workflowId: string; createdAt: s
 interface ApprovalView { id: string; runId: string; requestedAction: { summary?: string }; requestedAt: string; }
 interface TaskEventView { id: string; runId: string; actionType: string; billableUnits: string; status: string; createdAt: string; }
 interface AuditEventView { id: string; runId?: string; eventType: string; createdAt: string; }
+interface UsageView { status: string; taskUsed: number; taskQuota: number; }
 const templates = [{ id: 'repurpose', name: 'Repurpose and schedule' }, { id: 'weekly_report', name: 'Weekly growth report' }, { id: 'comment_lead', name: 'Comment-to-lead review' }] as const;
 
 export default function PlatformDashboard() {
@@ -17,6 +18,7 @@ export default function PlatformDashboard() {
   const [approvals, setApprovals] = useState<ApprovalView[]>([]);
   const [taskEvents, setTaskEvents] = useState<TaskEventView[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEventView[]>([]);
+  const [usage, setUsage] = useState<UsageView | null>(null);
   const [message, setMessage] = useState('');
   const [feedbackCategory, setFeedbackCategory] = useState('other');
   const [feedbackMessage, setFeedbackMessage] = useState('');
@@ -41,7 +43,7 @@ export default function PlatformDashboard() {
       fetch(`${gatewayUrl}/api/audit-events`, { headers: headers() }),
     ]);
     if (approvalsResponse.ok) setApprovals(await approvalsResponse.json() as ApprovalView[]);
-    if (usageResponse.ok) setTaskEvents(await usageResponse.json() as TaskEventView[]);
+    if (usageResponse.ok) setUsage(await usageResponse.json() as UsageView);
     if (auditResponse.ok) setAuditEvents(await auditResponse.json() as AuditEventView[]);
     if (!approvalsResponse.ok && !usageResponse.ok && !auditResponse.ok) setMessage('The workspace data could not be loaded. Check your session permissions.');
   }
@@ -117,6 +119,8 @@ export default function PlatformDashboard() {
         </div>
         {feedbackStatus && <p className="mt-3 text-sm text-sky-deep" role="status">{feedbackStatus}</p>}
       </section>
+
+      {usage?.status === 'degraded' && <section className="mx-auto max-w-6xl rounded-xl border border-sun/50 bg-sun/20 p-5 text-sm text-ink"><b>Energy-saving mode is on.</b> This month’s task quota is used, so new AI runs use the Eco model until your next billing period. Publishing and existing work remain available.</section>}
 
       <section className="mx-auto max-w-6xl rounded-xl border border-ink/20 bg-paper-card p-5">
         <h2 className="text-lg font-semibold">Refer & earn 20%</h2>
