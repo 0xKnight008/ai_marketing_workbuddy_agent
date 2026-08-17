@@ -15,7 +15,8 @@ import { prepareAnnouncementWorkflow } from '../workflows/prepare-announcement-w
  * 部署注意（§10）：
  * - 生产环境必须把 storage 换成共享 adapter（Postgres / Upstash），
  *   本地 LibSQL file 仅限开发。
- * - Mastra Studio 只指向 staging（§12.5），通过 MASTRA_STUDIO_ENABLED 控制。
+ * - Production builds omit Mastra Studio; staging enables it explicitly with
+ *   `mastra build --studio`.
  */
 export const mastra = new Mastra({
   agents: {},

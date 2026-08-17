@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { MessageCircle, Send, X } from 'lucide-react';
 
+import { gatewayApiUrl } from '../config';
 import type { Lang } from '../i18n/content';
 
 type SupportState = 'idle' | 'sending' | 'success' | 'error';
@@ -25,7 +26,7 @@ export function ContactSupport({ lang, embedded = false }: { lang: Lang; embedde
     const form = new FormData(event.currentTarget);
     setState('sending');
     try {
-      const response = await fetch('/api/feedback', {
+      const response = await fetch(gatewayApiUrl('/api/feedback'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: form.get('email'), name: form.get('name'), category: form.get('category'), message: form.get('message'), website: form.get('website'),

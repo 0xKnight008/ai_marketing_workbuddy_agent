@@ -64,7 +64,6 @@ export const config = {
   eventCallbackTimeoutMs: positiveInteger('EVENT_CALLBACK_TIMEOUT_MS', 5000),
 
   port: port('PORT', 4111),
-  studioEnabled: process.env.MASTRA_STUDIO_ENABLED === 'true',
 
   storageUrl,
   storageAuthToken: process.env.MASTRA_STORAGE_AUTH_TOKEN,

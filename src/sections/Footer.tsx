@@ -3,7 +3,7 @@ import { Piggy, SpritePuff } from "../components/ghibli/Piggy";
 import { Moon, NightHills, Fireflies, TwinkleStar } from "../components/ghibli/Scenery";
 import { Reveal } from "../components/Reveal";
 import { useT } from "../i18n/LangContext";
-import { GOOGLE_FORM_EMBED_URL, GOOGLE_FORM_EMAIL_ENTRY } from "../config";
+import { GOOGLE_FORM_EMBED_URL, GOOGLE_FORM_EMAIL_ENTRY, gatewayApiUrl } from "../config";
 
 const STARS = [
   { left: "6%", top: "10%" }, { left: "14%", top: "26%" }, { left: "23%", top: "8%" },
@@ -33,7 +33,7 @@ function SubscribeForm() {
 
     setState("sending");
     try {
-      const response = await fetch('/api/subscribe', {
+      const response = await fetch(gatewayApiUrl('/api/subscribe'), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: value }),
