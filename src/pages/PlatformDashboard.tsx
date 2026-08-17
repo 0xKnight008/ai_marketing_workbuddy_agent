@@ -16,7 +16,7 @@ export default function PlatformDashboard() {
   const [runId, setRunId] = useState('');
   const [run, setRun] = useState<RunView | null>(null);
   const [approvals, setApprovals] = useState<ApprovalView[]>([]);
-  const [taskEvents, setTaskEvents] = useState<TaskEventView[]>([]);
+  const [taskEvents] = useState<TaskEventView[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEventView[]>([]);
   const [usage, setUsage] = useState<UsageView | null>(null);
   const [message, setMessage] = useState('');

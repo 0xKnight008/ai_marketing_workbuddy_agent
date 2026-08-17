@@ -106,6 +106,6 @@ curl -X POST http://localhost:4111/internal/ai-runs/prepare-announcement \
 - 生产环境必须将 `MASTRA_STORAGE_URL` 配置为共享 LibSQL endpoint（例如 Turso）；本地 `file:` storage 会在启动时被拒绝。
 - 事件只投递到 `RUN_SERVICE_CALLBACK_URL`，不接受请求里的 callback URL，避免 SSRF。
 - 内部 API 仅暴露给可信服务；`INTERNAL_API_TOKEN` 必须配置，否则内部路由拒绝服务。
-- Mastra Studio 只指向 staging（`MASTRA_STUDIO_ENABLED`）。
+- Production is built with `mastra build` and started from `.mastra/output/index.mjs`; that build does not include Mastra Studio. Build staging Studio explicitly with `mastra build --studio` and use the command printed by Mastra to start it.
 - 事件 callback 失败只重试不中断 workflow，run-service 可用轮询接口兜底；配置了 `EVENT_CALLBACK_SIGNING_SECRET` 时请求带 `x-ai-runtime-signature`（HMAC-SHA256）。
 - run 注册表持久化在配置的 LibSQL storage 中，支持跨实例轮询与进程重启恢复；run-service 的 `AIRuntimeRunMapping` 仍是长期 source of truth。
