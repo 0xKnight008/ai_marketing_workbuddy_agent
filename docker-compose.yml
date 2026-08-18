@@ -8,7 +8,8 @@ services:
     networks:
       - ss_prod
     ports:
-      - "8001:80"
+      # Nginx is the only public ingress in production.
+      - "127.0.0.1:8001:80"
     environment:
       - APP_ENV=production
     deploy:
@@ -24,15 +25,11 @@ services:
     restart: unless-stopped
     networks:
       - ss_prod
+    env_file:
+      - ${PUBLIC_API_ENV_FILE:-/etc/piggybot/public-api.env}
     environment:
       NODE_ENV: production
       PORT: "3001"
-      GOOGLE_FORM_ID: ${GOOGLE_FORM_ID:-1FAIpQLSf0snTCY6aXd-eREWUYHvfHUPsdAxRLiCW2KxJanUQomT0ncA}
-      GOOGLE_FORM_EMAIL_ENTRY: ${GOOGLE_FORM_EMAIL_ENTRY:-1237653730}
-      DATABASE_URL: ${DATABASE_URL:-}
-      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
-      DISCORD_FEEDBACK_CHANNEL_ID: ${DISCORD_FEEDBACK_CHANNEL_ID:-}
-      TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
 
 networks:
   ss_prod:
