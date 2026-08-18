@@ -122,16 +122,18 @@ export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: s
   const useFallbackEco = requested !== 'eco' && current.aiCreditsAvailable < requestedPolicy.credits;
   const band = useFallbackEco ? 'eco' : requested;
   const policy = MODEL_BAND_POLICIES[band];
-  const credits = current.aiCreditsAvailable >= policy.credits ? policy.credits : 0;
   const projectedSpend = current.supplierSpendMicros + policy.supplierCostMicros;
   const projected = { ...current, supplierSpendMicros: projectedSpend, status: guardrailStatus(current.taskUsed, current.taskQuota, projectedSpend, current.supplierSpendLimitMicros) };
   const effectiveBand = projected.status === 'degraded' ? 'eco' : band;
   const effectivePolicy = MODEL_BAND_POLICIES[effectiveBand];
+  const credits = current.aiCreditsAvailable >= effectivePolicy.credits ? effectivePolicy.credits : 0;
   const provider = projected.status === 'degraded' ? 'fallback' as const : 'primary' as const;
+  const effectiveSpend = current.supplierSpendMicros + effectivePolicy.supplierCostMicros;
+  const effectiveGuardrail = { ...projected, supplierSpendMicros: effectiveSpend, status: guardrailStatus(current.taskUsed, current.taskQuota, effectiveSpend, current.supplierSpendLimitMicros) };
   if (projected.status === 'paused') return { band: effectiveBand, provider, credits, supplierCostMicros: effectivePolicy.supplierCostMicros, guardrail: projected };
   await tx.query(`INSERT INTO task_event (workspace_id, run_id, action_type, billable_units, ai_credits, supplier_cost_micros, supplier, status)
     VALUES (current_setting('app.workspace_id')::uuid, $1, $2, 0, $3, $4, $5, 'succeeded') ON CONFLICT DO NOTHING`, [runId, `ai.${effectiveBand}.${provider}`, credits, effectivePolicy.supplierCostMicros, provider]);
-  return { band: effectiveBand, provider, credits, supplierCostMicros: effectivePolicy.supplierCostMicros, guardrail: projected };
+  return { band: effectiveBand, provider, credits, supplierCostMicros: effectivePolicy.supplierCostMicros, guardrail: effectiveGuardrail };
 }
 
 export function supplierActionCostMicros(input: { actionType: string; platform: string; payload?: Record<string, unknown> }): number {
@@ -153,10 +155,10 @@ export async function recordSuccessfulAction(tx: TenantTransaction, input: { run
   return projected;
 }
 
-export async function projectedActionUsage(tx: TenantTransaction, isX: boolean): Promise<UsageSnapshot> {
+export async function projectedActionUsage(tx: TenantTransaction, input: { actionType: string; platform: string; payload?: Record<string, unknown> }): Promise<UsageSnapshot> {
   const current = await usageSnapshot(tx);
-  const taskUnits = isX ? 3 : 1;
-  const supplierCostMicros = isX ? 10_000 : 0;
+  const taskUnits = input.platform === 'x' ? 3 : 1;
+  const supplierCostMicros = supplierActionCostMicros(input);
   const projected = {
     ...current,
     taskUsed: current.taskUsed + taskUnits,

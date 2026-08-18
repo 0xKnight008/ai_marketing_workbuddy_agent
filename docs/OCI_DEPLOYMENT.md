@@ -87,6 +87,8 @@ Fill them from `platform/.env.example`, `ai-runtime/.env.example`, and `server/.
 - `EGG_SERVER_ENV=prod`, `EGG_SERVER_PORT=4100`, and two or more long random comma-separated `EGG_COOKIE_KEYS`
 - `TRUST_PROXY=true` because Nginx is the trusted TLS-terminating reverse proxy
 - shared production `MASTRA_STORAGE_URL`—do not use `file:` storage in production.
+- `DISCORD_BOT_TOKEN`, `DISCORD_FEEDBACK_CHANNEL_ID`, `RESEND_API_KEY`, and
+  `FEEDBACK_FROM_EMAIL` together to relay support-thread replies to customers.
 
 Migrate before the worker starts, after taking a database backup:
 
