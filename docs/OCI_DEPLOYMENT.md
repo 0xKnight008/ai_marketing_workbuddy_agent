@@ -75,9 +75,10 @@ Create the protected environment files, owned by `root:piggybot` with mode `0640
 ```bash
 sudo install -m 0640 -o root -g piggybot /dev/null /etc/piggybot/platform.env
 sudo install -m 0640 -o root -g piggybot /dev/null /etc/piggybot/ai-runtime.env
+sudo install -m 0640 -o root -g piggybot /dev/null /etc/piggybot/public-api.env
 ```
 
-Fill them from `platform/.env.example` and `ai-runtime/.env.example`. Production values must include:
+Fill them from `platform/.env.example`, `ai-runtime/.env.example`, and `server/.env.example`. Production values must include:
 
 - `DATABASE_URL`, `AUTH_TOKEN_SECRET`, `INTERNAL_SERVICE_TOKEN`, `SECRET_ENCRYPTION_KEY_BASE64`
 - `AI_RUNTIME_EVENT_SIGNING_SECRET`, `OPENAI_API_KEY`, and all three `AI_MODEL_*` values
@@ -126,6 +127,14 @@ location /api/ {
   proxy_set_header Host $host;
   proxy_set_header X-Forwarded-Proto $scheme;
 }
+location = /webhooks/stripe {
+  proxy_pass http://127.0.0.1:4100;
+  proxy_set_header Host $host;
+  proxy_set_header X-Forwarded-Proto $scheme;
+}
+location ^~ /internal/ {
+  return 404;
+}
 location / {
   proxy_pass http://127.0.0.1:8001;
   proxy_set_header Host $host;
@@ -140,11 +149,9 @@ sudo systemctl enable --now certbot.timer
 
 Confirm that HTTP redirects to HTTPS and that `https://app.example.com/internal/ai-runtime-events` is not exposed.
 
-## 6. Stripe activation (only after Egg integration)
+## 6. Stripe activation
 
-The current Egg production router does not yet expose the Stripe Checkout or `/webhooks/stripe` routes. Do **not** register a production Stripe endpoint or add an Nginx webhook location until the Stripe activation module is merged into the Egg runtime and its routes are covered by tests.
-
-After that integration lands, create Stripe recurring Prices for Creator ($19), Growth ($59), and Agency ($169). Put these only in `/etc/piggybot/platform.env`:
+The Egg production router exposes `POST /api/billing/checkout-session` and `POST /webhooks/stripe`. Create Stripe recurring Prices for Creator ($19), Growth ($59), and Agency ($169). Put these only in `/etc/piggybot/platform.env`:
 
 ```text
 STRIPE_SECRET_KEY=sk_live_...
@@ -153,9 +160,11 @@ STRIPE_PRICE_CREATOR=price_...
 STRIPE_PRICE_GROWTH=price_...
 STRIPE_PRICE_AGENCY=price_...
 STRIPE_TRIAL_DAYS=7
+STRIPE_PAYMENT_GRACE_DAYS=7
+STRIPE_WEBHOOK_TOLERANCE_SECONDS=300
 ```
 
-Then add an exact Nginx location for `/webhooks/stripe` that proxies to `127.0.0.1:4100`, register `https://app.example.com/webhooks/stripe`, and subscribe to `checkout.session.completed`. The Egg route must verify Stripe's signed raw request, record event IDs idempotently, then activate the workspace. Never put `STRIPE_SECRET_KEY` or `BILLING_ADMIN_TOKEN` in browser code, Git, Docker images, or shell history. Follow Stripe's [Checkout subscription](https://docs.stripe.com/payments/checkout/build-subscriptions) and [webhook-signature](https://docs.stripe.com/webhooks/signature) setup guides.
+Add an exact Nginx location for `/webhooks/stripe` that proxies to `127.0.0.1:4100`. Register `https://app.example.com/webhooks/stripe` and subscribe to `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, and `invoice.payment_failed`. The Egg route verifies Stripe's signed raw request and records event IDs idempotently. Never put `STRIPE_SECRET_KEY` or `BILLING_ADMIN_TOKEN` in browser code, Git, Docker images, or shell history. Follow Stripe's [Checkout subscription](https://docs.stripe.com/payments/checkout/build-subscriptions) and [webhook-signature](https://docs.stripe.com/webhooks/signature) setup guides.
 
 Test in Stripe test mode: a test Checkout should produce webhook HTTP 200, one `billing_webhook_event` record, and a workspace transition from `inactive` to `trialing`.
 
@@ -187,7 +196,7 @@ Daily: inspect Egg platform and AI-runtime journals, PostgreSQL health, disk spa
 | Site unavailable | OCI instance health, Nginx status, website container, certificate expiry |
 | API errors | Egg platform journal, PostgreSQL connection, environment file, `EGG_COOKIE_KEYS` |
 | Jobs stalled | Egg platform status, job table, AI runtime health, internal token |
-| Stripe paid but no activation | After Stripe Egg integration: Stripe delivery log, webhook URL/TLS, `STRIPE_WEBHOOK_SECRET`, platform log, `billing_webhook_event` |
+| Stripe paid but no activation | Stripe delivery log, webhook URL/TLS, `STRIPE_WEBHOOK_SECRET`, platform log, `billing_webhook_event` |
 | AI failure | Runtime log, provider key/model, shared storage, callback signing secret |
 
 Never include full tokens, webhook payloads, customer data, or environment files in tickets or chat.

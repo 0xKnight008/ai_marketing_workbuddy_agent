@@ -151,3 +151,22 @@ test('feedback rejects oversized payloads and tolerates Discord failures', async
     assert.equal(accepted.status, 201);
   }, feedbackStore, { DISCORD_BOT_TOKEN: 'test-token', DISCORD_FEEDBACK_CHANNEL_ID: 'feedback-channel' });
 });
+
+test('feedback verifies a configured Turnstile token before storing', async () => {
+  let stored = 0;
+  let verificationBody;
+  const feedbackStore = { async create(feedback) { stored += 1; return { ...feedback, ticketId: 'FB-TURNSTILE' }; }, async setDiscordThread() {} };
+  await withServer(async (url, options) => {
+    assert.equal(url, 'https://challenges.cloudflare.com/turnstile/v0/siteverify');
+    verificationBody = options.body;
+    return Response.json({ success: true });
+  }, async (baseUrl) => {
+    const missing = await fetch(`${baseUrl}/api/feedback`, { body: JSON.stringify({ email: 'support@example.com', message: 'hello' }), headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '198.51.100.1' }, method: 'POST' });
+    assert.equal(missing.status, 403);
+    const accepted = await fetch(`${baseUrl}/api/feedback`, { body: JSON.stringify({ email: 'support@example.com', message: 'hello', turnstileToken: 'verified-token' }), headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '198.51.100.2' }, method: 'POST' });
+    assert.equal(accepted.status, 201);
+  }, feedbackStore, { TURNSTILE_SECRET: 'server-secret' });
+  assert.equal(verificationBody.get('secret'), 'server-secret');
+  assert.equal(verificationBody.get('response'), 'verified-token');
+  assert.equal(stored, 1);
+});
