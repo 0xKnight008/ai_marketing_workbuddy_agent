@@ -181,7 +181,7 @@ export class RunWorker {
       const operation = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
         const run = await tx.query<{ status: string }>('SELECT status FROM workflow_run WHERE id = $1 AND workspace_id = $2', [job.runId, job.workspaceId]);
         if (!run.rows[0] || !['queued', 'running'].includes(run.rows[0].status)) throw new Error('Run is not ready for action execution');
-        const guardrail = await projectedActionUsage(tx, action.platform === 'x');
+        const guardrail = await projectedActionUsage(tx, { actionType: action.type, platform: action.platform, payload: action });
         if (guardrail.status === 'paused') {
           await this.pauseForBilling(tx, job, guardrail, 'publish');
           return { halted: true };
