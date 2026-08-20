@@ -4,6 +4,8 @@ import Activation from "./pages/Activation";
 import Contact from "./pages/Contact";
 import type { Lang } from "./i18n/content";
 
+const REFERRAL_CODE = /^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$/;
+
 /** 从 URL 路径段检测语言；根路径保留英文，所有本地化静态页使用显式目录。 */
 function detectLang(): Lang {
   const segs = window.location.pathname.split("/").filter(Boolean);
@@ -13,9 +15,23 @@ function detectLang(): Lang {
   return "en";
 }
 
+/** Resolve the public referral short-link to the checkout route. */
+function referralDestination(path: string): string | undefined {
+  const match = path.match(/^\/r\/([^/]+)\/?$/);
+  if (!match) return undefined;
+
+  const code = match[1].toUpperCase();
+  return REFERRAL_CODE.test(code) ? `/activate?ref=${encodeURIComponent(code)}` : undefined;
+}
+
 export default function App() {
   if (window.location.pathname.startsWith('/app')) return <PlatformDashboard />;
   const localPath = window.location.pathname.replace(/^\/(zh|en|es)(?=\/|$)/, '');
+  const referralUrl = referralDestination(localPath);
+  if (referralUrl) {
+    window.location.replace(referralUrl);
+    return null;
+  }
   if (localPath.startsWith('/contact')) return <Contact lang={detectLang()} />;
   if (localPath.startsWith('/activate')) return <Activation lang={detectLang()} />;
   return <Home lang={detectLang()} />;
