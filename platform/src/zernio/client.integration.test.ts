@@ -4,11 +4,12 @@ import test from 'node:test';
 import { ZernioClient } from './client';
 
 const baseUrl = process.env.ZERNIO_BASE_URL;
-const accessToken = process.env.ZERNIO_ACCESS_TOKEN;
+const apiKey = process.env.ZERNIO_API_KEY;
+const profileId = process.env.ZERNIO_PROFILE_ID;
 
-test('Zernio configured environment exposes a normalized account contract', { skip: !baseUrl || !accessToken }, async () => {
-  const client = new ZernioClient({ baseUrl: baseUrl!, oauthClientId: 'contract-test', oauthRedirectUri: 'https://localhost/ignored', oauthStateSecret: 'x'.repeat(32) });
-  const accounts = await client.listAccounts(accessToken!);
+test('Zernio configured environment exposes a profile-scoped normalized account contract', { skip: !baseUrl || !apiKey || !profileId }, async () => {
+  const client = new ZernioClient({ baseUrl: baseUrl!, apiKey: apiKey!, oauthRedirectUri: 'https://localhost/ignored', oauthStateSecret: 'x'.repeat(32) });
+  const accounts = await client.listAccounts(profileId!);
   for (const account of accounts) {
     assert.ok(account.externalId);
     assert.ok(account.displayName);

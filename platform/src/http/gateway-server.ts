@@ -11,13 +11,13 @@ import { createStripeCheckoutSession, retrieveStripeSubscription, stripeActivati
 import type { ActorContext } from '../contracts/domain';
 import { Database } from '../foundation/database';
 import { loadGatewayConfig } from '../foundation/platform-config';
+import type { PlatformOrm } from '../foundation/sequelize';
 import { requirePermission } from '../foundation/rbac';
-import { decryptSecret, encryptSecret } from '../foundation/secrets';
+import { PlatformService } from '../egg/platform-service';
 import { createPublishedTemplate } from '../gateway/templates';
 import { verifyAccessToken } from '../identity/token';
 import { createWorkflowRun } from '../gateway/run-request';
 import { createDurableRun, decideApproval, ingestAiRuntimeEvent } from '../run-service/repository';
-import { ZernioClient, type ZernioAccount } from '../zernio/client';
 import { HttpError, publicError } from './errors';
 
 async function main(): Promise<void> {
@@ -25,6 +25,7 @@ async function main(): Promise<void> {
 const config = loadGatewayConfig();
 
 const database = new Database(config.DATABASE_URL);
+const platformService = new PlatformService(config, database, {} as PlatformOrm);
 const app = Fastify({ logger: true });
 const rawBodies = new WeakMap<FastifyRequest, string>();
 
@@ -37,6 +38,9 @@ app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, bo
   } catch {
     done(new HttpError(400, 'invalid_json'));
   }
+});
+app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_request, body, done) => {
+  done(null, Object.fromEntries(new URLSearchParams(String(body))));
 });
 
 await app.register(cors, {
@@ -70,58 +74,6 @@ function verifyAiRuntimeSignature(request: FastifyRequest): void {
   if (actualBytes.length !== expectedBytes.length || !timingSafeEqual(actualBytes, expectedBytes)) {
     throw new HttpError(401, 'unauthorized');
   }
-}
-
-function zernioClient(): ZernioClient {
-  if (!config.ZERNIO_BASE_URL || !config.ZERNIO_OAUTH_CLIENT_ID || !config.ZERNIO_OAUTH_REDIRECT_URI || !config.ZERNIO_OAUTH_STATE_SECRET) {
-    throw new HttpError(503, 'provider_not_configured');
-  }
-  return new ZernioClient({
-    baseUrl: config.ZERNIO_BASE_URL,
-    oauthClientId: config.ZERNIO_OAUTH_CLIENT_ID,
-    oauthRedirectUri: config.ZERNIO_OAUTH_REDIRECT_URI,
-    oauthStateSecret: config.ZERNIO_OAUTH_STATE_SECRET,
-  });
-}
-
-async function storeZernioAccounts(workspaceId: string, credential: { accessToken: string; refreshToken?: string }, accounts: ZernioAccount[]): Promise<void> {
-  if (!config.SECRET_ENCRYPTION_KEY_BASE64) throw new HttpError(503, 'provider_not_configured');
-  const encrypted = encryptSecret(JSON.stringify(credential), config.SECRET_ENCRYPTION_KEY_BASE64);
-  await database.withWorkspace(workspaceId, async (tx) => {
-    const stored = await tx.query<{ id: string }>(
-      `INSERT INTO secret (workspace_id, purpose, ciphertext, iv, auth_tag, rotated_at)
-       VALUES ($1, 'zernio.oauth', $2, $3, $4, now())
-       ON CONFLICT (workspace_id, purpose) DO UPDATE
-         SET ciphertext = EXCLUDED.ciphertext, iv = EXCLUDED.iv, auth_tag = EXCLUDED.auth_tag, rotated_at = now()
-       RETURNING id`,
-      [workspaceId, encrypted.ciphertext, encrypted.iv, encrypted.authTag],
-    );
-    const secretId = stored.rows[0]?.id;
-    if (!secretId) throw new Error('Zernio credential was not stored');
-    for (const account of accounts) {
-      await tx.query(
-        `INSERT INTO connected_account (workspace_id, provider, external_account_id, display_name, secret_id, capabilities, status, last_synced_at)
-         VALUES ($1, 'zernio', $2, $3, $4, $5, 'connected', now())
-         ON CONFLICT (workspace_id, provider, external_account_id) DO UPDATE
-           SET display_name = EXCLUDED.display_name, secret_id = EXCLUDED.secret_id, capabilities = EXCLUDED.capabilities,
-               status = 'connected', last_synced_at = now()`,
-        [workspaceId, account.externalId, account.displayName, secretId, account.capabilities],
-      );
-    }
-  });
-}
-
-async function zernioCredential(workspaceId: string): Promise<{ accessToken: string; refreshToken?: string }> {
-  if (!config.SECRET_ENCRYPTION_KEY_BASE64) throw new HttpError(503, 'provider_not_configured');
-  const stored = await database.withWorkspace(workspaceId, (tx) => tx.query<{ ciphertext: string; iv: string; authTag: string }>(
-    "SELECT ciphertext, iv, auth_tag AS \"authTag\" FROM secret WHERE workspace_id = $1 AND purpose = 'zernio.oauth'",
-    [workspaceId],
-  ));
-  const value = stored.rows[0];
-  if (!value) throw new HttpError(404, 'connection_not_found');
-  const parsed = JSON.parse(decryptSecret(value, config.SECRET_ENCRYPTION_KEY_BASE64)) as { accessToken?: unknown; refreshToken?: unknown };
-  if (typeof parsed.accessToken !== 'string' || !parsed.accessToken) throw new Error('Stored Zernio credential is invalid');
-  return { accessToken: parsed.accessToken, refreshToken: typeof parsed.refreshToken === 'string' ? parsed.refreshToken : undefined };
 }
 
 app.get('/internal/health', async () => ({ ok: true, service: 'gateway' }));
@@ -208,27 +160,26 @@ app.post('/api/workflow-templates/:templateId/publish', async (request, reply) =
 
 app.get('/api/zernio/connect', async (request) => {
   const actor = actorFrom(request);
-  requirePermission(actor.role, 'connection:manage');
-  return { url: zernioClient().connectUrl(actor.workspaceId) };
+  const query = z.object({ platform: z.string() }).parse(request.query);
+  return { url: await platformService.connectUrl(actor, query.platform) };
 });
 
 app.get('/api/zernio/callback', async (request, reply) => {
-  const query = z.object({ code: z.string().min(1), state: z.string().min(1) }).parse(request.query);
-  const provider = zernioClient();
-  const { workspaceId } = provider.verifyState(query.state);
-  const token = await provider.exchangeCode(query.code);
-  const accounts = await provider.listAccounts(token.accessToken);
-  await storeZernioAccounts(workspaceId, token, accounts);
-  return reply.code(200).type('text/html').send('<!doctype html><title>Piggybot</title><p>Zernio account connected. You may close this window.</p>');
+  const result = await platformService.completeZernioOAuth(request.query as Record<string, unknown>);
+  return reply.code(200).header('cache-control', 'no-store').header('referrer-policy', 'no-referrer').type('text/html').send(
+    result.kind === 'selection' ? legacySelectionPage(result.platform, result.choices) : legacySuccessPage(),
+  );
+});
+
+app.post('/api/zernio/select', async (request, reply) => {
+  const body = z.object({ selection: z.string().min(1) }).parse(request.body);
+  await platformService.selectZernioAccount(body.selection);
+  return reply.code(200).header('cache-control', 'no-store').header('referrer-policy', 'no-referrer').type('text/html').send(legacySuccessPage());
 });
 
 app.post('/api/zernio/sync', async (request) => {
   const actor = actorFrom(request);
-  requirePermission(actor.role, 'connection:manage');
-  const credential = await zernioCredential(actor.workspaceId);
-  const accounts = await zernioClient().listAccounts(credential.accessToken);
-  await storeZernioAccounts(actor.workspaceId, credential, accounts);
-  return { synced: accounts.length };
+  return platformService.syncZernio(actor);
 });
 
 app.get('/api/approval-requests', async (request) => {
@@ -318,3 +269,16 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 }
 
 void main();
+
+function legacySuccessPage(): string {
+  return '<!doctype html><meta charset="utf-8"><title>Piggybot</title><main><h1>Account connected</h1><p>Your social account is ready in Piggybot. You may close this window.</p></main>';
+}
+
+function legacySelectionPage(platform: string, choices: Array<{ label: string; detail?: string; token: string }>): string {
+  const options = choices.map((choice, index) => `<label><input type="radio" name="selection" value="${choice.token}" ${index === 0 ? 'checked' : ''} required> ${escapeLegacyHtml(choice.label)}${choice.detail ? ` — ${escapeLegacyHtml(choice.detail)}` : ''}</label><br>`).join('');
+  return `<!doctype html><meta charset="utf-8"><title>Choose ${escapeLegacyHtml(platform)} · Piggybot</title><main><h1>Choose your ${escapeLegacyHtml(platform)} account</h1><form method="post" action="/api/zernio/select">${options}<button type="submit">Connect selected account</button></form></main>`;
+}
+
+function escapeLegacyHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] ?? character);
+}

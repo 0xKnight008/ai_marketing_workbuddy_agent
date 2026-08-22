@@ -8,15 +8,15 @@ async function main(): Promise<void> {
 const config = loadWorkerConfig();
 const database = new Database(config.DATABASE_URL);
 const aiRuntime = new AiRuntimeClient({ baseUrl: config.AI_RUNTIME_URL, internalToken: config.INTERNAL_SERVICE_TOKEN });
-const zernio = config.ZERNIO_BASE_URL
-  ? new ZernioClient({ baseUrl: config.ZERNIO_BASE_URL, oauthClientId: 'worker', oauthRedirectUri: 'http://localhost/unused', oauthStateSecret: 'worker-not-used' })
+const zernio = config.ZERNIO_BASE_URL && config.ZERNIO_API_KEY
+  ? new ZernioClient({ baseUrl: config.ZERNIO_BASE_URL, apiKey: config.ZERNIO_API_KEY, oauthRedirectUri: 'http://localhost/unused', oauthStateSecret: 'worker-not-used' })
   : undefined;
 const worker = new RunWorker({
   workerName: config.WORKER_NAME,
   database,
   aiRuntime,
   zernio,
-  secretEncryptionKeyBase64: config.SECRET_ENCRYPTION_KEY_BASE64,
+  stripeSecretKey: config.STRIPE_SECRET_KEY,
 });
 
 let stopping = false;
