@@ -84,6 +84,10 @@ Fill them from `platform/.env.example`, `ai-runtime/.env.example`, and `server/.
 - `AI_RUNTIME_EVENT_SIGNING_SECRET`, `OPENAI_API_KEY`, and all three `AI_MODEL_*` values
 - `CORS_ORIGINS=https://app.example.com`, `PUBLIC_SITE_URL=https://app.example.com`
 - `RUN_SERVICE_CALLBACK_URL=http://127.0.0.1:4100/internal/ai-runtime-events`
+- `ZERNIO_BASE_URL=https://zernio.com/api`, the team-level `ZERNIO_API_KEY`,
+  `ZERNIO_OAUTH_REDIRECT_URI=https://app.example.com/api/zernio/callback`, and a
+  random `ZERNIO_OAUTH_STATE_SECRET` of at least 32 characters. Register that
+  exact HTTPS callback in Zernio; never create one API key per customer.
 - `EGG_SERVER_ENV=prod`, `EGG_SERVER_PORT=4100`, and two or more long random comma-separated `EGG_COOKIE_KEYS`
 - `TRUST_PROXY=true` because Nginx is the trusted TLS-terminating reverse proxy
 - shared production `MASTRA_STORAGE_URL`—do not use `file:` storage in production.

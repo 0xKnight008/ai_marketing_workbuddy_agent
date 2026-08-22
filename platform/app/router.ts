@@ -10,6 +10,7 @@ export default (app: Application) => {
   router.post('/api/workflow-templates/:templateId/publish', controller.platform.publishTemplate);
   router.get('/api/zernio/connect', controller.platform.connectZernio);
   router.get('/api/zernio/callback', controller.platform.zernioCallback);
+  router.post('/api/zernio/select', controller.platform.selectZernio);
   router.post('/api/zernio/sync', controller.platform.syncZernio);
   router.get('/api/approval-requests', controller.platform.approvals);
   router.get('/api/runs/:runId', controller.platform.run);

@@ -8,6 +8,11 @@ interface TaskEventView { id: string; runId: string; actionType: string; billabl
 interface AuditEventView { id: string; runId?: string; eventType: string; createdAt: string; }
 interface UsageView { status: string; taskUsed: number; taskQuota: number; }
 const templates = [{ id: 'repurpose', name: 'Repurpose and schedule' }, { id: 'weekly_report', name: 'Weekly growth report' }, { id: 'comment_lead', name: 'Comment-to-lead review' }] as const;
+const socialPlatforms = [
+  ['facebook', 'Facebook'], ['instagram', 'Instagram'], ['linkedin', 'LinkedIn'],
+  ['pinterest', 'Pinterest'], ['googlebusiness', 'Google Business'], ['snapchat', 'Snapchat'],
+  ['whatsapp', 'WhatsApp'], ['tiktok', 'TikTok'], ['youtube', 'YouTube'], ['twitter', 'X / Twitter'],
+] as const;
 
 export default function PlatformDashboard() {
   // Keep a pasted operator token only in memory. Production sign-in should use
@@ -20,6 +25,7 @@ export default function PlatformDashboard() {
   const [auditEvents, setAuditEvents] = useState<AuditEventView[]>([]);
   const [usage, setUsage] = useState<UsageView | null>(null);
   const [message, setMessage] = useState('');
+  const [connecting, setConnecting] = useState('');
   const [feedbackCategory, setFeedbackCategory] = useState('other');
   const [feedbackMessage, setFeedbackMessage] = useState('');
   const [feedbackStatus, setFeedbackStatus] = useState('');
@@ -55,6 +61,15 @@ export default function PlatformDashboard() {
     const workflow = await response.json() as { workflowId: string; name: string };
     setMessage(`${workflow.name} is published. Create a run with workflow ${workflow.workflowId}.`);
     await loadWorkspace();
+  }
+
+  async function connectSocial(platform: typeof socialPlatforms[number][0]) {
+    setMessage(''); setConnecting(platform);
+    const response = await fetch(`${gatewayUrl}/api/zernio/connect?platform=${encodeURIComponent(platform)}`, { headers: headers() });
+    const result = await response.json().catch(() => ({})) as { url?: string };
+    setConnecting('');
+    if (!response.ok || !result.url) { setMessage('The connection could not be started. Check your session and connector configuration.'); return; }
+    window.open(result.url, 'piggybot-zernio-connect', 'popup,width=720,height=820');
   }
 
   async function decideApproval(approvalId: string, decision: 'approved' | 'rejected') {
@@ -106,6 +121,14 @@ export default function PlatformDashboard() {
           <label className="mt-4 block text-sm text-ink-soft">Access token</label>
           <textarea value={token} onChange={(event) => setToken(event.target.value)} className="mt-2 h-28 w-full rounded-md border border-ink/20 bg-paper p-2 text-xs" placeholder="Paste a short-lived workspace token" />
           <button onClick={() => void loadWorkspace()} className="mt-3 w-full rounded-md bg-sky-deep px-4 py-2 text-sm font-medium text-white">Load workspace</button>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-6xl rounded-xl border border-ink/20 bg-paper-card p-5">
+        <h2 className="text-lg font-semibold">Connected social accounts</h2>
+        <p className="mt-1 text-sm text-ink-soft">Connect inside Piggybot. If a network offers several pages, organizations, boards, locations, profiles, or phone numbers, you will choose one in a Piggybot window.</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {socialPlatforms.map(([id, label]) => <button key={id} disabled={!token || Boolean(connecting)} onClick={() => void connectSocial(id)} className="rounded-md border border-ink/30 bg-paper px-4 py-2 text-sm font-medium hover:bg-sky-pale disabled:cursor-not-allowed disabled:opacity-50">{connecting === id ? 'Opening…' : `Connect ${label}`}</button>)}
         </div>
       </section>
 

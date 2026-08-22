@@ -21,8 +21,8 @@ export default class AppBootHook {
 
     const database = new Database(gatewayConfig.DATABASE_URL);
     const orm = new PlatformOrm(gatewayConfig.DATABASE_URL);
-    const zernio = workerConfig.ZERNIO_BASE_URL
-      ? new ZernioClient({ baseUrl: workerConfig.ZERNIO_BASE_URL, oauthClientId: 'worker', oauthRedirectUri: 'http://localhost/unused', oauthStateSecret: 'worker-not-used' })
+    const zernio = workerConfig.ZERNIO_BASE_URL && workerConfig.ZERNIO_API_KEY
+      ? new ZernioClient({ baseUrl: workerConfig.ZERNIO_BASE_URL, apiKey: workerConfig.ZERNIO_API_KEY, oauthRedirectUri: 'http://localhost/unused', oauthStateSecret: 'worker-not-used' })
       : undefined;
     this.app.platform = {
       database,
@@ -33,7 +33,6 @@ export default class AppBootHook {
         database,
         aiRuntime: new AiRuntimeClient({ baseUrl: workerConfig.AI_RUNTIME_URL, internalToken: workerConfig.INTERNAL_SERVICE_TOKEN }),
         zernio,
-        secretEncryptionKeyBase64: workerConfig.SECRET_ENCRYPTION_KEY_BASE64,
         stripeSecretKey: workerConfig.STRIPE_SECRET_KEY,
       }),
       workerBatchSize: workerConfig.WORKER_BATCH_SIZE,

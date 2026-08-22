@@ -4,7 +4,6 @@ import { MODEL_BAND_POLICIES } from '../billing/plans';
 import { projectedActionUsage, recordSuccessfulAction, reserveAiRun, type AiReservation, type UsageSnapshot } from '../billing/guardrails';
 import { assertExecutableAction, type ConnectedAccountView } from '../connector-service/actions';
 import type { TenantTransaction } from '../foundation/database';
-import { decryptSecret } from '../foundation/secrets';
 import { ingestAiRuntimeEvent } from './repository';
 import { SupplierUnavailableError } from '../zernio/client';
 
@@ -35,7 +34,7 @@ export interface RunWorkerAiRuntime {
 }
 
 export interface RunWorkerZernio {
-  executeAction(accessToken: string, idempotencyKey: string, action: ActionPlan['actions'][number], workspaceId?: string): Promise<unknown>;
+  executeAction(idempotencyKey: string, action: ActionPlan['actions'][number], workspaceId?: string): Promise<unknown>;
 }
 
 export interface RunWorkerOptions {
@@ -43,7 +42,6 @@ export interface RunWorkerOptions {
   database: RunWorkerDatabase;
   aiRuntime: RunWorkerAiRuntime;
   zernio?: RunWorkerZernio;
-  secretEncryptionKeyBase64?: string;
   stripeSecretKey?: string;
 }
 
@@ -204,24 +202,21 @@ export class RunWorker {
         if (!stepRun) throw new Error('Action step was not created');
         if (stepRun.status === 'succeeded') return undefined;
 
-        const account = await tx.query<{ id: string; workspaceId: string; status: ConnectedAccountView['status']; capabilities: string[]; ciphertext: string | null; iv: string | null; authTag: string | null }>(
-          `SELECT a.id, a.workspace_id AS "workspaceId", a.status, a.capabilities,
-                  s.ciphertext, s.iv, s.auth_tag AS "authTag"
+        const account = await tx.query<{ id: string; workspaceId: string; status: ConnectedAccountView['status']; capabilities: string[] }>(
+          `SELECT a.id, a.workspace_id AS "workspaceId", a.status, a.capabilities
              FROM connected_account a
-             LEFT JOIN secret s ON s.id = a.secret_id
+             JOIN zernio_tenant t ON t.workspace_id = a.workspace_id AND t.profile_id = a.zernio_profile_id
             WHERE a.workspace_id = $1 AND a.provider = 'zernio' AND a.external_account_id = $2`,
           [job.workspaceId, action.accountId],
         );
         const connected = account.rows[0];
-        if (!connected || !connected.ciphertext || !connected.iv || !connected.authTag) throw new Error('Connected Zernio account has no usable credential');
+        if (!connected) throw new Error('Connected Zernio account was not found in this workspace');
         return { stepRunId: stepRun.id, connected, action };
       });
       if (!operation) continue;
       if ('halted' in operation) return;
-      const { zernio, secretEncryptionKeyBase64 } = this.options;
-      if (!zernio || !secretEncryptionKeyBase64) throw new Error('Zernio action execution is not configured');
-      const { ciphertext, iv, authTag } = operation.connected;
-      if (!ciphertext || !iv || !authTag) throw new Error('Connected Zernio account has no usable credential');
+      const { zernio } = this.options;
+      if (!zernio) throw new Error('Zernio action execution is not configured');
       const account: ConnectedAccountView = {
         id: operation.connected.id,
         workspaceId: operation.connected.workspaceId,
@@ -229,9 +224,7 @@ export class RunWorker {
         capabilities: operation.connected.capabilities,
       };
       assertExecutableAction({ workspaceId: job.workspaceId, runId: job.runId, stepId: operation.stepRunId, attempt: 1, account, type: operation.action.type, payload: operation.action });
-      const decrypted = decryptSecret({ ciphertext, iv, authTag }, secretEncryptionKeyBase64);
-      const credential = parseZernioCredential(decrypted);
-      const result = await zernio.executeAction(credential.accessToken, operation.action.idempotencyKey, operation.action, job.workspaceId);
+      const result = await zernio.executeAction(operation.action.idempotencyKey, operation.action, job.workspaceId);
       await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
         await tx.query("UPDATE step_run SET status = 'succeeded', output = $2, finished_at = now() WHERE id = $1 AND workspace_id = $3", [operation.stepRunId, result, job.workspaceId]);
         await recordSuccessfulAction(tx, { runId: job.runId!, stepRunId: operation.stepRunId, actionType: operation.action.type, platform: operation.action.platform, payload: operation.action });
@@ -329,17 +322,6 @@ export class RunWorker {
       [job.id, job.workspaceId, error.message],
     ));
   }
-}
-
-export function parseZernioCredential(value: string): { accessToken: string } {
-  try {
-    const parsed = JSON.parse(value) as { accessToken?: unknown };
-    if (typeof parsed.accessToken === 'string' && parsed.accessToken) return { accessToken: parsed.accessToken };
-  } catch {
-    // Accept the legacy single-token secret format during migration.
-  }
-  if (value) return { accessToken: value };
-  throw new Error('Connected Zernio account credential is invalid');
 }
 
 function toAiExecutionContext(context: BrandContextSnapshot, reservation: AiReservation) {

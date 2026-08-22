@@ -14,6 +14,6 @@
     "isolatedModules": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "app/**/*.ts", "config/**/*.ts", "typings/**/*.d.ts", "test/**/*.ts"],
+  "include": ["app.ts", "src/**/*.ts", "app/**/*.ts", "config/**/*.ts", "typings/**/*.d.ts", "test/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
