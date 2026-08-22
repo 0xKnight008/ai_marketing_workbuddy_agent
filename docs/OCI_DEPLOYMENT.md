@@ -81,7 +81,11 @@ sudo install -m 0640 -o root -g piggybot /dev/null /etc/piggybot/public-api.env
 Fill them from `platform/.env.example`, `ai-runtime/.env.example`, and `server/.env.example`. Production values must include:
 
 - `DATABASE_URL`, `AUTH_TOKEN_SECRET`, `INTERNAL_SERVICE_TOKEN`, `SECRET_ENCRYPTION_KEY_BASE64`
-- `AI_RUNTIME_EVENT_SIGNING_SECRET`, `OPENAI_API_KEY`, and all three `AI_MODEL_*` values
+- `AI_RUNTIME_EVENT_SIGNING_SECRET` and the complete routing-proxy configuration:
+  `AI_MODEL_ROUTING_MODE=proxy`, a proxy-issued `OPENAI_API_KEY`, an
+  `OPENAI_BASE_URL` ending in `/v1`, and all six primary/fallback `AI_MODEL_*`
+  aliases. Follow [`LLM_ROUTING_PROXY.md`](./LLM_ROUTING_PROXY.md); do not put
+  1token.ai or Kimi credentials in the ai-runtime environment.
 - `CORS_ORIGINS=https://app.example.com`, `PUBLIC_SITE_URL=https://app.example.com`
 - `RUN_SERVICE_CALLBACK_URL=http://127.0.0.1:4100/internal/ai-runtime-events`
 - `ZERNIO_BASE_URL=https://zernio.com/api`, the team-level `ZERNIO_API_KEY`,

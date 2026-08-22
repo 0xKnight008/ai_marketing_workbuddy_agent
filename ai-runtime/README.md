@@ -63,7 +63,7 @@ content-planning        planner agent 产出 ContentPlan（每平台角度/要�
 
 ```bash
 node --version # requires v22.13.0 or newer
-cp .env.example .env   # 配置 AI_MODEL / OPENAI_API_KEY / INTERNAL_API_TOKEN
+cp .env.example .env   # 配置 model routing / OPENAI_API_KEY / INTERNAL_API_TOKEN
 corepack enable
 pnpm install --frozen-lockfile
 pnpm run dev           # mastra dev，默认 :4111
@@ -103,6 +103,12 @@ curl -X POST http://localhost:4111/internal/ai-runs/prepare-announcement \
 
 ## 部署注意（§10 / §12）
 
+- 生产环境必须通过一个 OpenAI-compatible routing proxy 访问 LLM：设置
+  `AI_MODEL_ROUTING_MODE=proxy`，并让 `OPENAI_BASE_URL` 指向 proxy 的 `/v1`
+  API。1token.ai 与 Kimi 的上游凭证只保存在 proxy；详见
+  [`../docs/LLM_ROUTING_PROXY.md`](../docs/LLM_ROUTING_PROXY.md)。
+- Proxy 模式要求每个 model band 都有不同的 primary/fallback alias。若
+  run-service 选择 fallback 而 alias 缺失，runtime 会明确失败，不再静默调用 primary。
 - 生产环境必须将 `MASTRA_STORAGE_URL` 配置为共享 LibSQL endpoint（例如 Turso）；本地 `file:` storage 会在启动时被拒绝。
 - 事件只投递到 `RUN_SERVICE_CALLBACK_URL`，不接受请求里的 callback URL，避免 SSRF。
 - 内部 API 仅暴露给可信服务；`INTERNAL_API_TOKEN` 必须配置，否则内部路由拒绝服务。
