@@ -57,6 +57,10 @@ jobs:
 
       # 4. 构建项目（含 TypeScript 检查）
       - name: Build project
+        env:
+          VITE_GATEWAY_URL: ${{ vars.PRODUCTION_GATEWAY_URL }}
+          VITE_PUBLIC_CHECKOUT_ENABLED: ${{ vars.PUBLIC_CHECKOUT_ENABLED || 'false' }}
+          VITE_TURNSTILE_SITE_KEY: ${{ vars.TURNSTILE_SITE_KEY }}
         run: npm run build
       
       # 5. 准备部署文件包
@@ -74,55 +78,8 @@ jobs:
           cp nginx.conf deploy-package/
           cp docker-compose.yml deploy-package/
           cp -r server deploy-package/
-          
-          # 创建部署脚本
-          cat > deploy-package/deploy.sh << 'EOF'
-          #!/bin/bash
-          set -e
-          
-          echo "=========================================="
-          echo "🚀 Starting deployment..."
-          echo "=========================================="
-          
-          # 删除旧镜像（释放空间）
-          # echo "🗑️  Removing old image..."
-          # sudo docker rmi ai-marketing-agent:latest 2>/dev/null || echo "No old image to remove"
-          
-          # 构建新镜像
-          echo "🔨 Building new Docker image..."
-          sudo docker build -f Dockerfile.fixed -t ai-marketing-agent:latest .
-
-          echo "🔨 Building subscription API image..."
-          sudo docker compose build newsletter-api
-
-          # 停止并删除旧容器
-          echo "📦 Stopping old container..."
-          cd /opt/ai-marketing-agent/ && sudo docker compose down ai-markting-front || true
-          
-          # 启动服务
-          echo "🚀 Starting services with docker-compose..."
-          cd /opt/ai-marketing-agent/ && sudo docker compose up -d
-          
-          # 等待容器启动
-          sleep 3
-          
-          # 检查容器状态
-          echo "✅ Checking container status..."
-          sudo docker compose ps
-          
-          # 显示日志
-          echo "📄 Container logs (last 20 lines):"
-          sudo docker logs --tail 20 ai-markting-front || true
-          
-          # 清理悬空镜像
-          echo "🧹 Cleaning up dangling images..."
-          sudo docker image prune -f || true
-          
-          echo "=========================================="
-          echo "✨ Deployment completed successfully!"
-          echo "=========================================="
-          EOF
-          
+          cp -r platform ai-runtime deploy-package/
+          cp scripts/deploy-production.sh deploy-package/deploy.sh
           chmod +x deploy-package/deploy.sh
           
           # 打包所有文件
@@ -170,4 +127,4 @@ jobs:
             
             # 执行部署脚本
             echo "🚀 Running deployment script..."
-            bash deploy.sh
+            DEPLOY_DIR="$DEPLOY_DIR" bash deploy.sh

@@ -1,5 +1,12 @@
 # React + TypeScript + Vite
 
+## Deployment configuration
+
+The public signup and support forms are served by the platform gateway, not by
+the static Vite application. Set `VITE_GATEWAY_URL` from `.env.example` when
+the gateway is hosted on another origin. Leave it unset only when the web
+server reverse-proxies `/api/subscribe` and `/api/feedback` to the gateway.
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:

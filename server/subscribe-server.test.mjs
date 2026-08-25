@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import test from 'node:test';
 
-import { createSubscriptionServer } from './subscribe-server.mjs';
+import { createSubscriptionServer, deliverDiscordReplies } from './subscribe-server.mjs';
 
 const env = {
   GOOGLE_FORM_EMAIL_ENTRY: '1237653730',
@@ -150,4 +150,54 @@ test('feedback rejects oversized payloads and tolerates Discord failures', async
     const accepted = await fetch(`${baseUrl}/api/feedback`, { body: JSON.stringify({ email: 'support@example.com', message: 'Hello' }), headers: { 'Content-Type': 'application/json' }, method: 'POST' });
     assert.equal(accepted.status, 201);
   }, feedbackStore, { DISCORD_BOT_TOKEN: 'test-token', DISCORD_FEEDBACK_CHANNEL_ID: 'feedback-channel' });
+});
+
+test('feedback verifies a configured Turnstile token before storing', async () => {
+  let stored = 0;
+  let verificationBody;
+  const feedbackStore = { async create(feedback) { stored += 1; return { ...feedback, ticketId: 'FB-TURNSTILE' }; }, async setDiscordThread() {} };
+  await withServer(async (url, options) => {
+    assert.equal(url, 'https://challenges.cloudflare.com/turnstile/v0/siteverify');
+    verificationBody = options.body;
+    return Response.json({ success: true });
+  }, async (baseUrl) => {
+    const missing = await fetch(`${baseUrl}/api/feedback`, { body: JSON.stringify({ email: 'support@example.com', message: 'hello' }), headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '198.51.100.1' }, method: 'POST' });
+    assert.equal(missing.status, 403);
+    const accepted = await fetch(`${baseUrl}/api/feedback`, { body: JSON.stringify({ email: 'support@example.com', message: 'hello', turnstileToken: 'verified-token' }), headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '198.51.100.2' }, method: 'POST' });
+    assert.equal(accepted.status, 201);
+  }, feedbackStore, { TURNSTILE_SECRET: 'server-secret' });
+  assert.equal(verificationBody.get('secret'), 'server-secret');
+  assert.equal(verificationBody.get('response'), 'verified-token');
+  assert.equal(stored, 1);
+});
+
+test('relays human Discord thread replies through Resend and closes the loop', async () => {
+  const calls = [];
+  const finished = [];
+  const feedbackStore = {
+    async pendingDiscordThreads() { return [{ ticketId: 'FB-1234', email: 'customer@example.com', threadId: 'thread-1' }]; },
+    async claimDiscordReply(reply) { calls.push(['claim', reply]); return true; },
+    async finishDiscordReply(reply) { finished.push(reply); },
+    async failDiscordReply() { assert.fail('delivery should not fail'); },
+  };
+  await deliverDiscordReplies({
+    env: { DISCORD_BOT_TOKEN: 'discord-token', DISCORD_FEEDBACK_CHANNEL_ID: 'feedback-channel', RESEND_API_KEY: 'resend-token', FEEDBACK_FROM_EMAIL: 'support@example.com' },
+    feedbackStore,
+    fetchImpl: async (url, options) => {
+      calls.push([url, options]);
+      if (url.includes('/messages?')) return Response.json([
+        { id: 'bot-message', author: { bot: true }, content: 'ignored' },
+        { id: 'reply-1', author: { id: 'agent-1', username: 'Ada' }, content: ' We have fixed your workflow. ' },
+      ]);
+      assert.equal(url, 'https://api.resend.com/emails');
+      const payload = JSON.parse(options.body);
+      assert.deepEqual(payload.to, ['customer@example.com']);
+      assert.match(payload.subject, /FB-1234/);
+      assert.match(payload.text, /fixed your workflow/);
+      return Response.json({ id: 'email-1' });
+    },
+  });
+  assert.equal(finished.length, 1);
+  assert.equal(finished[0].messageId, 'reply-1');
+  assert.equal(calls.filter(([kind]) => kind === 'claim').length, 1);
 });

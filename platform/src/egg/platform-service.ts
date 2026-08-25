@@ -16,7 +16,14 @@ import { createWorkflowRun } from '../gateway/run-request';
 import { createPublishedTemplate } from '../gateway/templates';
 import { verifyAccessToken } from '../identity/token';
 import { createDurableRun, decideApproval, ingestAiRuntimeEvent } from '../run-service/repository';
-import { ZernioClient, type ZernioAccount } from '../zernio/client';
+import {
+  ZERNIO_PLATFORMS,
+  ZernioClient,
+  type ZernioAccount,
+  type ZernioPlatform,
+  type ZernioSelectionContext,
+  type ZernioSelectionOption,
+} from '../zernio/client';
 import { HttpError } from '../http/errors';
 import { activeReferralLink, referralSummary } from '../referral/service';
 
@@ -194,24 +201,59 @@ export class PlatformService {
     return this.database.withWorkspace(actor.workspaceId, (tx) => createPublishedTemplate(tx, actor, parsed));
   }
 
-  connectUrl(actor: ActorContext): string {
+  async connectUrl(actor: ActorContext, requestedPlatform: unknown): Promise<string> {
     requirePermission(actor.role, 'connection:manage');
-    return this.zernioClient().connectUrl(actor.workspaceId);
+    const platform = z.enum(ZERNIO_PLATFORMS).parse(requestedPlatform) as ZernioPlatform;
+    const profileId = await this.ensureZernioProfile(actor.workspaceId);
+    return this.zernioClient().connectUrl(actor.workspaceId, profileId, platform);
   }
 
-  async completeZernioOAuth(code: string, state: string): Promise<void> {
+  async completeZernioOAuth(query: Record<string, unknown>): Promise<
+    | { kind: 'connected' }
+    | { kind: 'selection'; platform: ZernioPlatform; choices: Array<{ label: string; detail?: string; token: string }> }
+  > {
+    if (typeof query.error === 'string') throw new HttpError(400, 'zernio_connection_denied');
     const provider = this.zernioClient();
-    const { workspaceId } = provider.verifyState(state);
-    const token = await provider.exchangeCode(code);
-    const accounts = await provider.listAccounts(token.accessToken);
-    await this.storeZernioAccounts(workspaceId, token, accounts);
+    if (typeof query.state !== 'string') throw new HttpError(400, 'invalid_request');
+    const state = provider.verifyState(query.state);
+    const mappedProfileId = await this.zernioProfile(state.workspaceId);
+    if (mappedProfileId !== state.profileId) throw new HttpError(403, 'zernio_tenant_mismatch');
+    const callback = provider.parseHeadlessCallback(query);
+    if (callback) {
+      if (callback.profileId !== state.profileId || callback.platform !== state.platform) throw new HttpError(403, 'zernio_tenant_mismatch');
+      const context: ZernioSelectionContext = { ...callback, workspaceId: state.workspaceId, expiresAt: Math.floor(Date.now() / 1000) + 600 };
+      const selection = await provider.listSelections(context);
+      if (!selection.options.length) throw new HttpError(409, 'zernio_no_eligible_accounts');
+      return {
+        kind: 'selection',
+        platform: state.platform,
+        choices: selection.options.map((option) => ({
+          label: option.label,
+          detail: option.detail,
+          token: this.sealZernioSelection(selection.context, option),
+        })),
+      };
+    }
+    if (typeof query.profileId === 'string' && query.profileId !== state.profileId) throw new HttpError(403, 'zernio_tenant_mismatch');
+    const accounts = await provider.listAccounts(state.profileId, state.workspaceId);
+    await this.storeZernioAccounts(state.workspaceId, state.profileId, accounts);
+    return { kind: 'connected' };
+  }
+
+  async selectZernioAccount(token: unknown): Promise<void> {
+    const { context, option } = this.openZernioSelection(z.string().min(1).parse(token));
+    const mappedProfileId = await this.zernioProfile(context.workspaceId);
+    if (mappedProfileId !== context.profileId) throw new HttpError(403, 'zernio_tenant_mismatch');
+    await this.zernioClient().select(context, option);
+    const accounts = await this.zernioClient().listAccounts(context.profileId, context.workspaceId);
+    await this.storeZernioAccounts(context.workspaceId, context.profileId, accounts);
   }
 
   async syncZernio(actor: ActorContext): Promise<{ synced: number }> {
     requirePermission(actor.role, 'connection:manage');
-    const credential = await this.zernioCredential(actor.workspaceId);
-    const accounts = await this.zernioClient().listAccounts(credential.accessToken);
-    await this.storeZernioAccounts(actor.workspaceId, credential, accounts);
+    const profileId = await this.zernioProfile(actor.workspaceId);
+    const accounts = await this.zernioClient().listAccounts(profileId, actor.workspaceId);
+    await this.storeZernioAccounts(actor.workspaceId, profileId, accounts);
     return { synced: accounts.length };
   }
 
@@ -300,12 +342,12 @@ export class PlatformService {
   }
 
   private zernioClient(): ZernioClient {
-    if (!this.config.ZERNIO_BASE_URL || !this.config.ZERNIO_OAUTH_CLIENT_ID || !this.config.ZERNIO_OAUTH_REDIRECT_URI || !this.config.ZERNIO_OAUTH_STATE_SECRET) {
+    if (!this.config.ZERNIO_BASE_URL || !this.config.ZERNIO_API_KEY || !this.config.ZERNIO_OAUTH_REDIRECT_URI || !this.config.ZERNIO_OAUTH_STATE_SECRET) {
       throw new HttpError(503, 'provider_not_configured');
     }
     return new ZernioClient({
       baseUrl: this.config.ZERNIO_BASE_URL,
-      oauthClientId: this.config.ZERNIO_OAUTH_CLIENT_ID,
+      apiKey: this.config.ZERNIO_API_KEY,
       oauthRedirectUri: this.config.ZERNIO_OAUTH_REDIRECT_URI,
       oauthStateSecret: this.config.ZERNIO_OAUTH_STATE_SECRET,
       globalRequestsPerMinute: this.config.ZERNIO_CLIENT_RPM,
@@ -332,44 +374,70 @@ export class PlatformService {
     await thread.json();
   }
 
-  private async storeZernioAccounts(workspaceId: string, credential: { accessToken: string; refreshToken?: string }, accounts: ZernioAccount[]): Promise<void> {
-    if (!this.config.SECRET_ENCRYPTION_KEY_BASE64) throw new HttpError(503, 'provider_not_configured');
-    const encrypted = encryptSecret(JSON.stringify(credential), this.config.SECRET_ENCRYPTION_KEY_BASE64);
-    await this.database.withWorkspace(workspaceId, async (tx) => {
-      const stored = await tx.query<{ id: string }>(
-        `INSERT INTO secret (workspace_id, purpose, ciphertext, iv, auth_tag, rotated_at)
-         VALUES ($1, 'zernio.oauth', $2, $3, $4, now())
-         ON CONFLICT (workspace_id, purpose) DO UPDATE
-           SET ciphertext = EXCLUDED.ciphertext, iv = EXCLUDED.iv, auth_tag = EXCLUDED.auth_tag, rotated_at = now()
-         RETURNING id`,
-        [workspaceId, encrypted.ciphertext, encrypted.iv, encrypted.authTag],
-      );
-      const secretId = stored.rows[0]?.id;
-      if (!secretId) throw new Error('Zernio credential was not stored');
-      for (const account of accounts) {
-        await tx.query(
-          `INSERT INTO connected_account (workspace_id, provider, external_account_id, display_name, secret_id, capabilities, status, last_synced_at)
-           VALUES ($1, 'zernio', $2, $3, $4, $5, 'connected', now())
-           ON CONFLICT (workspace_id, provider, external_account_id) DO UPDATE
-             SET display_name = EXCLUDED.display_name, secret_id = EXCLUDED.secret_id, capabilities = EXCLUDED.capabilities,
-                 status = 'connected', last_synced_at = now()`,
-          [workspaceId, account.externalId, account.displayName, secretId, account.capabilities],
-        );
-      }
-    });
+  private async ensureZernioProfile(workspaceId: string): Promise<string> {
+    const existing = await this.database.withWorkspace(workspaceId, (tx) => tx.query<{ profileId: string }>(
+      'SELECT profile_id AS "profileId" FROM zernio_tenant WHERE workspace_id = $1', [workspaceId],
+    ));
+    if (existing.rows[0]?.profileId) return existing.rows[0].profileId;
+    const profileId = await this.zernioClient().createProfile(workspaceId);
+    const stored = await this.database.withWorkspace(workspaceId, (tx) => tx.query<{ profileId: string }>(
+      `INSERT INTO zernio_tenant (workspace_id, profile_id)
+       VALUES ($1, $2)
+       ON CONFLICT (workspace_id) DO UPDATE SET updated_at = now()
+       RETURNING profile_id AS "profileId"`,
+      [workspaceId, profileId],
+    ));
+    const persisted = stored.rows[0]?.profileId;
+    if (!persisted || persisted !== profileId) throw new Error('Zernio tenant profile was not stored');
+    return persisted;
   }
 
-  private async zernioCredential(workspaceId: string): Promise<{ accessToken: string; refreshToken?: string }> {
-    if (!this.config.SECRET_ENCRYPTION_KEY_BASE64) throw new HttpError(503, 'provider_not_configured');
-    const stored = await this.database.withWorkspace(workspaceId, (tx) => tx.query<{ ciphertext: string; iv: string; authTag: string }>(
-      "SELECT ciphertext, iv, auth_tag AS \"authTag\" FROM secret WHERE workspace_id = $1 AND purpose = 'zernio.oauth'",
-      [workspaceId],
+  private async zernioProfile(workspaceId: string): Promise<string> {
+    const result = await this.database.withWorkspace(workspaceId, (tx) => tx.query<{ profileId: string }>(
+      'SELECT profile_id AS "profileId" FROM zernio_tenant WHERE workspace_id = $1', [workspaceId],
     ));
-    const value = stored.rows[0];
-    if (!value) throw new HttpError(404, 'connection_not_found');
-    const parsed = JSON.parse(decryptSecret(value, this.config.SECRET_ENCRYPTION_KEY_BASE64)) as { accessToken?: unknown; refreshToken?: unknown };
-    if (typeof parsed.accessToken !== 'string' || !parsed.accessToken) throw new Error('Stored Zernio credential is invalid');
-    return { accessToken: parsed.accessToken, refreshToken: typeof parsed.refreshToken === 'string' ? parsed.refreshToken : undefined };
+    const profileId = result.rows[0]?.profileId;
+    if (!profileId) throw new HttpError(404, 'connection_not_found');
+    return profileId;
+  }
+
+  private sealZernioSelection(context: ZernioSelectionContext, option: ZernioSelectionOption): string {
+    if (!this.config.SECRET_ENCRYPTION_KEY_BASE64) throw new HttpError(503, 'provider_not_configured');
+    const encrypted = encryptSecret(JSON.stringify({ context, option }), this.config.SECRET_ENCRYPTION_KEY_BASE64);
+    return Buffer.from(JSON.stringify(encrypted)).toString('base64url');
+  }
+
+  private openZernioSelection(token: string): { context: ZernioSelectionContext; option: ZernioSelectionOption } {
+    if (!this.config.SECRET_ENCRYPTION_KEY_BASE64) throw new HttpError(503, 'provider_not_configured');
+    try {
+      const encrypted = JSON.parse(Buffer.from(token, 'base64url').toString('utf8')) as { ciphertext: string; iv: string; authTag: string };
+      const value = JSON.parse(decryptSecret(encrypted, this.config.SECRET_ENCRYPTION_KEY_BASE64)) as { context: ZernioSelectionContext; option: ZernioSelectionOption };
+      if (!value.context || !value.option || value.context.expiresAt <= Math.floor(Date.now() / 1000)) throw new Error('expired');
+      return value;
+    } catch {
+      throw new HttpError(400, 'invalid_or_expired_zernio_selection');
+    }
+  }
+
+  private async storeZernioAccounts(workspaceId: string, profileId: string, accounts: ZernioAccount[]): Promise<void> {
+    await this.database.withWorkspace(workspaceId, async (tx) => {
+      for (const account of accounts) {
+        await tx.query(
+          `INSERT INTO connected_account (workspace_id, provider, external_account_id, display_name, capabilities, status, last_synced_at, zernio_profile_id)
+           VALUES ($1, 'zernio', $2, $3, $4, 'connected', now(), $5)
+           ON CONFLICT (workspace_id, provider, external_account_id) DO UPDATE
+             SET display_name = EXCLUDED.display_name, capabilities = EXCLUDED.capabilities,
+                 status = 'connected', last_synced_at = now(), zernio_profile_id = EXCLUDED.zernio_profile_id`,
+          [workspaceId, account.externalId, account.displayName, account.capabilities, profileId],
+        );
+      }
+      await tx.query(
+        `UPDATE connected_account SET status = 'disconnected', last_synced_at = now()
+          WHERE workspace_id = $1 AND provider = 'zernio' AND zernio_profile_id = $2
+            AND NOT (external_account_id = ANY($3::text[]))`,
+        [workspaceId, profileId, accounts.map((account) => account.externalId)],
+      );
+    });
   }
 }
 

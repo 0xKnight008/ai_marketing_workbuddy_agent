@@ -18,7 +18,7 @@ export const gatewayConfigSchema = databaseConfigSchema.extend({
   ),
   SECRET_ENCRYPTION_KEY_BASE64: z.string().min(1).optional(),
   ZERNIO_BASE_URL: z.string().url().optional(),
-  ZERNIO_OAUTH_CLIENT_ID: z.string().min(1).optional(),
+  ZERNIO_API_KEY: z.string().min(1).optional(),
   ZERNIO_OAUTH_REDIRECT_URI: z.string().url().optional(),
   ZERNIO_OAUTH_STATE_SECRET: z.string().min(32).optional(),
   ZERNIO_CLIENT_RPM: zernioClientRpmSchema,

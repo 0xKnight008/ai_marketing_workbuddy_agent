@@ -33,7 +33,6 @@ export default class AppBootHook {
         database,
         aiRuntime: new AiRuntimeClient({ baseUrl: workerConfig.AI_RUNTIME_URL, internalToken: workerConfig.INTERNAL_SERVICE_TOKEN }),
         zernio,
-        secretEncryptionKeyBase64: workerConfig.SECRET_ENCRYPTION_KEY_BASE64,
         stripeSecretKey: workerConfig.STRIPE_SECRET_KEY,
       }),
       workerBatchSize: workerConfig.WORKER_BATCH_SIZE,

@@ -16,7 +16,7 @@ const worker = new RunWorker({
   database,
   aiRuntime,
   zernio,
-  secretEncryptionKeyBase64: config.SECRET_ENCRYPTION_KEY_BASE64,
+  stripeSecretKey: config.STRIPE_SECRET_KEY,
 });
 
 let stopping = false;

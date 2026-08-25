@@ -1,9 +1,34 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { MessageCircle, Send, X } from 'lucide-react';
 
+import { gatewayApiUrl } from '../config';
 import type { Lang } from '../i18n/content';
 
 type SupportState = 'idle' | 'sending' | 'success' | 'error';
+const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim();
+
+type TurnstileApi = {
+  render(container: HTMLElement, options: { sitekey: string; callback(token: string): void; 'expired-callback'(): void; 'error-callback'(): void }): string;
+  reset(widgetId: string): void;
+};
+
+declare global { interface Window { turnstile?: TurnstileApi } }
+
+let turnstileScript: Promise<TurnstileApi> | undefined;
+function loadTurnstile(): Promise<TurnstileApi> {
+  if (window.turnstile) return Promise.resolve(window.turnstile);
+  if (turnstileScript) return turnstileScript;
+  turnstileScript = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => window.turnstile ? resolve(window.turnstile) : reject(new Error('turnstile_unavailable'));
+    script.onerror = () => reject(new Error('turnstile_unavailable'));
+    document.head.appendChild(script);
+  });
+  return turnstileScript;
+}
 
 const COPY: Record<Lang, {
   button: string; title: string; subtitle: string; email: string; name: string; optional: string; category: string; message: string;
@@ -19,17 +44,35 @@ export function ContactSupport({ lang, embedded = false }: { lang: Lang; embedde
   const [open, setOpen] = useState(embedded);
   const [state, setState] = useState<SupportState>('idle');
   const [ticketId, setTicketId] = useState('');
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const turnstileContainer = useRef<HTMLDivElement>(null);
+  const turnstileWidget = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!open || !turnstileSiteKey || !turnstileContainer.current || turnstileWidget.current) return;
+    let cancelled = false;
+    void loadTurnstile().then((api) => {
+      if (cancelled || !turnstileContainer.current) return;
+      turnstileWidget.current = api.render(turnstileContainer.current, {
+        sitekey: turnstileSiteKey,
+        callback: setTurnstileToken,
+        'expired-callback': () => setTurnstileToken(''),
+        'error-callback': () => setTurnstileToken(''),
+      });
+    }).catch(() => setState('error'));
+    return () => { cancelled = true; };
+  }, [open]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     setState('sending');
     try {
-      const response = await fetch('/api/feedback', {
+      const response = await fetch(gatewayApiUrl('/api/feedback'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: form.get('email'), name: form.get('name'), category: form.get('category'), message: form.get('message'), website: form.get('website'),
-          locale: lang, pageUrl: window.location.href,
+          locale: lang, pageUrl: window.location.href, turnstileToken,
         }),
       });
       const result = await response.json().catch(() => ({})) as { ticketId?: string };
@@ -38,10 +81,12 @@ export function ContactSupport({ lang, embedded = false }: { lang: Lang; embedde
       setState('success');
     } catch {
       setState('error');
+      setTurnstileToken('');
+      if (turnstileWidget.current && window.turnstile) window.turnstile.reset(turnstileWidget.current);
     }
   }
 
-  function resetAndClose() { setOpen(false); setState('idle'); setTicketId(''); }
+  function resetAndClose() { setOpen(false); setState('idle'); setTicketId(''); setTurnstileToken(''); }
 
   return (
     <>
@@ -60,8 +105,9 @@ export function ContactSupport({ lang, embedded = false }: { lang: Lang; embedde
             <label className="block text-sm font-medium">{copy.category}<select name="category" defaultValue="other" className="mt-1.5 w-full rounded-lg border border-ink/20 bg-paper px-3 py-2.5 outline-none focus:ring-2 focus:ring-sky"><option value="billing">{copy.billing}</option><option value="bug">{copy.bug}</option><option value="feature">{copy.feature}</option><option value="other">{copy.other}</option></select></label>
             <label className="block text-sm font-medium">{copy.message}<textarea required name="message" maxLength={2000} rows={5} className="mt-1.5 w-full resize-y rounded-lg border border-ink/20 bg-paper px-3 py-2.5 outline-none focus:ring-2 focus:ring-sky" /></label>
             <label className="sr-only" aria-hidden="true">Website<input name="website" tabIndex={-1} autoComplete="off" /></label>
+            {turnstileSiteKey && <div ref={turnstileContainer} className="min-h-[65px]" aria-label="Human verification" />}
             {state === 'error' && <p className="text-sm font-medium text-red-700" role="alert">{copy.error}</p>}
-            <button disabled={state === 'sending'} className="flex w-full items-center justify-center gap-2 rounded-lg bg-sky-deep px-4 py-3 font-medium text-white transition hover:bg-sky-deep/90 disabled:opacity-60"><Send size={17} />{state === 'sending' ? copy.sending : copy.send}</button>
+            <button disabled={state === 'sending' || Boolean(turnstileSiteKey && !turnstileToken)} className="flex w-full items-center justify-center gap-2 rounded-lg bg-sky-deep px-4 py-3 font-medium text-white transition hover:bg-sky-deep/90 disabled:opacity-60"><Send size={17} />{state === 'sending' ? copy.sending : copy.send}</button>
           </form>}
         </section>
       </div>}
