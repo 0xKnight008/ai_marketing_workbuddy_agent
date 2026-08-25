@@ -81,6 +81,7 @@ function zernioClient(): ZernioClient {
     oauthClientId: config.ZERNIO_OAUTH_CLIENT_ID,
     oauthRedirectUri: config.ZERNIO_OAUTH_REDIRECT_URI,
     oauthStateSecret: config.ZERNIO_OAUTH_STATE_SECRET,
+    globalRequestsPerMinute: config.ZERNIO_CLIENT_RPM,
   });
 }
 

@@ -8,6 +8,7 @@ import { z } from 'zod';
 const databaseConfigSchema = z.object({
   DATABASE_URL: z.string().url(),
 });
+const zernioClientRpmSchema = z.coerce.number().int().min(1).max(100_000).default(480);
 
 export const gatewayConfigSchema = databaseConfigSchema.extend({
   AUTH_TOKEN_SECRET: z.string().min(32),
@@ -20,6 +21,7 @@ export const gatewayConfigSchema = databaseConfigSchema.extend({
   ZERNIO_OAUTH_CLIENT_ID: z.string().min(1).optional(),
   ZERNIO_OAUTH_REDIRECT_URI: z.string().url().optional(),
   ZERNIO_OAUTH_STATE_SECRET: z.string().min(32).optional(),
+  ZERNIO_CLIENT_RPM: zernioClientRpmSchema,
   PUBLIC_SITE_URL: z.string().url().default('http://localhost:5173'),
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
@@ -40,6 +42,7 @@ export const workerConfigSchema = databaseConfigSchema.extend({
   INTERNAL_SERVICE_TOKEN: z.string().min(1),
   SECRET_ENCRYPTION_KEY_BASE64: z.string().min(1).optional(),
   ZERNIO_BASE_URL: z.string().url().optional(),
+  ZERNIO_CLIENT_RPM: zernioClientRpmSchema,
   WORKER_NAME: z.string().min(1).default('run-worker-1'),
   WORKER_IDLE_MS: z.coerce.number().int().min(100).max(60_000).default(1_000),
   WORKER_BATCH_SIZE: z.coerce.number().int().min(1).max(1_000).default(100),

@@ -22,7 +22,7 @@ export default class AppBootHook {
     const database = new Database(gatewayConfig.DATABASE_URL);
     const orm = new PlatformOrm(gatewayConfig.DATABASE_URL);
     const zernio = workerConfig.ZERNIO_BASE_URL
-      ? new ZernioClient({ baseUrl: workerConfig.ZERNIO_BASE_URL, oauthClientId: 'worker', oauthRedirectUri: 'http://localhost/unused', oauthStateSecret: 'worker-not-used' })
+      ? new ZernioClient({ baseUrl: workerConfig.ZERNIO_BASE_URL, oauthClientId: 'worker', oauthRedirectUri: 'http://localhost/unused', oauthStateSecret: 'worker-not-used', globalRequestsPerMinute: workerConfig.ZERNIO_CLIENT_RPM })
       : undefined;
     this.app.platform = {
       database,
