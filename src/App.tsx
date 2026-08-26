@@ -2,6 +2,7 @@ import Home from "./pages/Home";
 import PlatformDashboard from "./pages/PlatformDashboard";
 import Activation from "./pages/Activation";
 import Contact from "./pages/Contact";
+import Legal from "./pages/Legal";
 import type { Lang } from "./i18n/content";
 
 const REFERRAL_CODE = /^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$/;
@@ -34,5 +35,7 @@ export default function App() {
   }
   if (localPath.startsWith('/contact')) return <Contact lang={detectLang()} />;
   if (localPath.startsWith('/activate')) return <Activation lang={detectLang()} />;
+  if (localPath.startsWith('/privacy')) return <Legal lang={detectLang()} kind="privacy" />;
+  if (localPath.startsWith('/terms')) return <Legal lang={detectLang()} kind="terms" />;
   return <Home lang={detectLang()} />;
 }
