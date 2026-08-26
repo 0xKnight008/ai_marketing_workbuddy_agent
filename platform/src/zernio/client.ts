@@ -1,58 +1,19 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-export const ZERNIO_PLATFORMS = [
-  'facebook', 'instagram', 'linkedin', 'pinterest', 'googlebusiness', 'snapchat',
-  'whatsapp', 'tiktok', 'youtube', 'twitter', 'threads', 'bluesky', 'reddit',
-] as const;
-
-export type ZernioPlatform = typeof ZERNIO_PLATFORMS[number];
-export type ZernioSelectionStep =
-  | 'select_page'
-  | 'select_organization'
-  | 'select_board'
-  | 'select_location'
-  | 'select_public_profile'
-  | 'select_account'
-  | 'select_phone_number';
-
-export interface ZernioAccount {
-  externalId: string;
-  displayName: string;
-  capabilities: string[];
-  platform?: string;
-}
-
-export interface ZernioSelectionContext {
-  workspaceId: string;
-  profileId: string;
-  platform: ZernioPlatform;
-  step: ZernioSelectionStep;
-  tempToken?: string;
-  pendingDataToken?: string;
-  connectToken?: string;
-  userProfile?: Record<string, unknown>;
-  refreshToken?: string;
-  expiresIn?: number;
-  expiresAt: number;
-}
-
-export interface ZernioSelectionOption {
-  id: string;
-  label: string;
-  detail?: string;
-  value: Record<string, unknown>;
-}
-
+export interface ZernioAccount { externalId: string; displayName: string; capabilities: string[]; }
+export interface ZernioToken { accessToken: string; refreshToken?: string; expiresIn?: number; }
 export interface ZernioClientOptions {
   baseUrl: string;
-  apiKey: string;
+  oauthClientId: string;
   oauthRedirectUri: string;
   oauthStateSecret: string;
+  /** Shared Zernio capacity reserved by this process (recommend 80% of plan RPM). */
+  globalRequestsPerMinute?: number;
   fetchImpl?: typeof fetch;
   now?: () => number;
 }
 
-const GLOBAL_REQUESTS_PER_MINUTE = 480;
+export const DEFAULT_ZERNIO_CLIENT_RPM = 480;
 const WORKSPACE_IN_FLIGHT_LIMIT = 10;
 
 export class SupplierUnavailableError extends Error {
@@ -105,6 +66,7 @@ function string(value: unknown): string | undefined {
 export class ZernioClient {
   private readonly fetchImpl: typeof fetch;
   private readonly now: () => number;
+  private readonly globalRequestsPerMinute: number;
   private readonly requestTimes: number[] = [];
   private readonly inFlight = new Map<string, number>();
   private circuitOpenUntil = 0;
@@ -113,10 +75,7 @@ export class ZernioClient {
   constructor(private readonly options: ZernioClientOptions) {
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.now = options.now ?? Date.now;
-  }
-
-  private url(path: string): URL {
-    return new URL(`${this.options.baseUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`);
+    this.globalRequestsPerMinute = options.globalRequestsPerMinute ?? DEFAULT_ZERNIO_CLIENT_RPM;
   }
 
   private async acquire(workspaceId?: string): Promise<() => void> {
@@ -129,7 +88,7 @@ export class ZernioClient {
     }
     const windowStart = current - 60_000;
     while (this.requestTimes.length && (this.requestTimes[0] ?? current) <= windowStart) this.requestTimes.shift();
-    if (this.requestTimes.length >= GLOBAL_REQUESTS_PER_MINUTE) {
+    if (this.requestTimes.length >= this.globalRequestsPerMinute) {
       if (workspaceId) this.inFlight.set(workspaceId, (this.inFlight.get(workspaceId) ?? 1) - 1);
       throw new SupplierUnavailableError('Zernio shared request capacity is temporarily full');
     }

@@ -350,6 +350,7 @@ export class PlatformService {
       apiKey: this.config.ZERNIO_API_KEY,
       oauthRedirectUri: this.config.ZERNIO_OAUTH_REDIRECT_URI,
       oauthStateSecret: this.config.ZERNIO_OAUTH_STATE_SECRET,
+      globalRequestsPerMinute: this.config.ZERNIO_CLIENT_RPM,
     });
   }
 

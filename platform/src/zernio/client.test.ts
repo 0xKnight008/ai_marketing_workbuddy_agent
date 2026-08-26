@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-
-import { ZernioClient } from './client';
+import { DEFAULT_ZERNIO_CLIENT_RPM, SupplierUnavailableError, ZernioClient } from './client';
 
 function client(fetchImpl: typeof fetch = fetch) {
   return new ZernioClient({
@@ -75,4 +74,14 @@ test('WhatsApp headless selection keeps the connect token server-side and posts 
   assert.equal(new Headers(calls[0]?.init?.headers).get('x-connect-token'), 'connect-secret');
   const body = JSON.parse(String(calls[1]?.init?.body)) as Record<string, unknown>;
   assert.deepEqual({ profileId: body.profileId, phoneNumberId: body.phoneNumberId, wabaId: body.wabaId }, { profileId: 'profile-a', phoneNumberId: 'phone-a', wabaId: 'waba-a' });
+});
+
+test('uses a caller-configured shared request limit instead of a fixed plan tier', async () => {
+  const client = new ZernioClient({
+    baseUrl: 'https://zernio.example', oauthClientId: 'client', oauthRedirectUri: 'https://app.example/callback', oauthStateSecret: 'x'.repeat(32),
+    globalRequestsPerMinute: 1, now: () => 1_000, fetchImpl: async () => new Response(JSON.stringify({ accounts: [] }), { status: 200 }),
+  });
+  await client.listAccounts('token');
+  await assert.rejects(() => client.listAccounts('token'), SupplierUnavailableError);
+  assert.equal(DEFAULT_ZERNIO_CLIENT_RPM, 480);
 });
