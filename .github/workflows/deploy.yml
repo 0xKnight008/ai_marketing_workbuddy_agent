@@ -1,12 +1,15 @@
-name: Build and Deploy to Server
+name: Validate and Deploy
 
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:  # 支持手动触发
 
 jobs:
-  build-and-deploy:
+  validate:
+    name: Validate release candidate
     runs-on: ubuntu-latest
     
     steps:
@@ -22,11 +25,17 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
+            server/package-lock.json
             platform/package-lock.json
             ai-runtime/package-lock.json
 
+      - name: Install public API dependencies
+        working-directory: server
+        run: npm ci
+
       - name: Test subscription endpoint
-        run: node --test server/subscribe-server.test.mjs
+        working-directory: server
+        run: node --test subscribe-server.test.mjs
       
       - name: Install website dependencies
         run: npm ci
@@ -65,6 +74,7 @@ jobs:
       
       # 5. 准备部署文件包
       - name: Prepare deployment package
+        if: github.event_name != 'pull_request'
         run: |
           # 创建部署目录
           mkdir -p deploy-package
@@ -87,12 +97,25 @@ jobs:
       
       # 6. 上传构建产物（用于调试）
       - name: Upload artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: build-artifact
           path: deploy.tar.gz
           retention-days: 7
-      
+
+  deploy:
+    name: Deploy to production
+    needs: validate
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download deployment package
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifact
+
       # 7. 复制部署包到服务器
       - name: Copy deployment package to server
         uses: appleboy/scp-action@v0.1.7

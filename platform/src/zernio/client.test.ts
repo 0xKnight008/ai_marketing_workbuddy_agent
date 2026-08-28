@@ -78,7 +78,7 @@ test('WhatsApp headless selection keeps the connect token server-side and posts 
 
 test('uses a caller-configured shared request limit instead of a fixed plan tier', async () => {
   const client = new ZernioClient({
-    baseUrl: 'https://zernio.example', oauthClientId: 'client', oauthRedirectUri: 'https://app.example/callback', oauthStateSecret: 'x'.repeat(32),
+    baseUrl: 'https://zernio.example', apiKey: 'team-api-key', oauthRedirectUri: 'https://app.example/callback', oauthStateSecret: 'x'.repeat(32),
     globalRequestsPerMinute: 1, now: () => 1_000, fetchImpl: async () => new Response(JSON.stringify({ accounts: [] }), { status: 200 }),
   });
   await client.listAccounts('token');

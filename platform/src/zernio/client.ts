@@ -1,10 +1,51 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-export interface ZernioAccount { externalId: string; displayName: string; capabilities: string[]; }
-export interface ZernioToken { accessToken: string; refreshToken?: string; expiresIn?: number; }
+export const ZERNIO_PLATFORMS = [
+  'facebook', 'instagram', 'linkedin', 'pinterest', 'googlebusiness', 'snapchat',
+  'whatsapp', 'tiktok', 'youtube', 'twitter', 'threads', 'bluesky', 'reddit',
+] as const;
+
+export type ZernioPlatform = typeof ZERNIO_PLATFORMS[number];
+export type ZernioSelectionStep =
+  | 'select_page'
+  | 'select_organization'
+  | 'select_board'
+  | 'select_location'
+  | 'select_public_profile'
+  | 'select_account'
+  | 'select_phone_number';
+
+export interface ZernioAccount {
+  externalId: string;
+  displayName: string;
+  capabilities: string[];
+  platform?: string;
+}
+
+export interface ZernioSelectionContext {
+  workspaceId: string;
+  profileId: string;
+  platform: ZernioPlatform;
+  step: ZernioSelectionStep;
+  tempToken?: string;
+  pendingDataToken?: string;
+  connectToken?: string;
+  userProfile?: Record<string, unknown>;
+  refreshToken?: string;
+  expiresIn?: number;
+  expiresAt: number;
+}
+
+export interface ZernioSelectionOption {
+  id: string;
+  label: string;
+  detail?: string;
+  value: Record<string, unknown>;
+}
+
 export interface ZernioClientOptions {
   baseUrl: string;
-  oauthClientId: string;
+  apiKey: string;
   oauthRedirectUri: string;
   oauthStateSecret: string;
   /** Shared Zernio capacity reserved by this process (recommend 80% of plan RPM). */
@@ -76,6 +117,10 @@ export class ZernioClient {
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.now = options.now ?? Date.now;
     this.globalRequestsPerMinute = options.globalRequestsPerMinute ?? DEFAULT_ZERNIO_CLIENT_RPM;
+  }
+
+  private url(path: string): URL {
+    return new URL(`${this.options.baseUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`);
   }
 
   private async acquire(workspaceId?: string): Promise<() => void> {
