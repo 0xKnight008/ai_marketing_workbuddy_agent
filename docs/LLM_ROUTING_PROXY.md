@@ -32,9 +32,9 @@ Kimi models. The upstream model names remain a proxy concern.
 | `openai/primary-eco` | `primary-eco` | 1token.ai |
 | `openai/primary-standard` | `primary-standard` | 1token.ai |
 | `openai/primary-flagship` | `primary-flagship` | 1token.ai |
-| `openai/fallback-eco` | `fallback-eco` | Kimi |
-| `openai/fallback-standard` | `fallback-standard` | Kimi |
-| `openai/fallback-flagship` | `fallback-flagship` | Kimi |
+| `openai/fallback-eco` | `fallback-eco` | 1token.ai |
+| `openai/fallback-standard` | `fallback-standard` | 1token.ai |
+| `openai/fallback-flagship` | `fallback-flagship` | 1token.ai |
 
 Every routed model must support the OpenAI chat-completions features used by
 the agents, including structured output. Confirm rate limits, context windows,
