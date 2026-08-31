@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:ci": "vite build",
+    "check:lockfile-registries": "node scripts/check-lockfile-registries.mjs",
     "test:subscribe": "node --test server/subscribe-server.test.mjs",
     "lint": "eslint .",
     "preview": "vite preview"
