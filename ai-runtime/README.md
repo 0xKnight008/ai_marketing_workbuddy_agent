@@ -64,19 +64,18 @@ content-planning        planner agent 产出 ContentPlan（每平台角度/要�
 ```bash
 node --version # requires v22.13.0 or newer
 cp .env.example .env   # 配置 model routing / OPENAI_API_KEY / INTERNAL_API_TOKEN
-corepack enable
-pnpm install --frozen-lockfile
-pnpm run dev           # mastra dev，默认 :4111
+npm ci
+npm run dev            # mastra dev，默认 :4111
 ```
 
 质量检查：
 
 ```bash
-pnpm run typecheck
-pnpm test
+npm run typecheck
+npm test
 ```
 
-依赖版本被固定到本实现使用的 Mastra 1.4 API；升级 Mastra 时应先升级并通过以上检查，
+依赖版本被固定到 Mastra CLI 1.4 对应的 Core 1.23 兼容图；升级 Mastra 时应先升级并通过以上检查，
 再更新版本号与 lockfile，避免包管理器在全新安装时静默选中不兼容的 API 版本。
 
 冒烟测试：

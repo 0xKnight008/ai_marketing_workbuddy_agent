@@ -29,6 +29,9 @@ jobs:
             platform/package-lock.json
             ai-runtime/package-lock.json
 
+      - name: Verify public npm registries
+        run: npm run check:lockfile-registries
+
       - name: Install public API dependencies
         working-directory: server
         run: npm ci
@@ -63,6 +66,10 @@ jobs:
       - name: Test AI runtime
         working-directory: ai-runtime
         run: npm test
+
+      - name: Build AI runtime
+        working-directory: ai-runtime
+        run: npm run build
 
       # 4. 构建项目（含 TypeScript 检查）
       - name: Build project
