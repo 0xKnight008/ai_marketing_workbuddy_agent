@@ -28,6 +28,28 @@ export class Database {
     }
   }
 
+  /**
+   * Runs an explicitly global back-office transaction. This does not bypass
+   * RLS and must only be used for tables that are intentionally global (for
+   * example the workspace directory and support inbox). Tenant-owned records
+   * must still be accessed through withWorkspace.
+   */
+  async withAdmin<T>(operation: (tx: TenantTransaction) => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const tx: TenantTransaction = { query: (sql, values) => query(client, sql, values) };
+      const result = await operation(tx);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async close(): Promise<void> { await this.pool.end(); }
 
   async claimNextJob(workerName: string): Promise<{ id: string; workspaceId: string; runId: string | null; kind: string; payload: Record<string, unknown>; attempt: number } | undefined> {

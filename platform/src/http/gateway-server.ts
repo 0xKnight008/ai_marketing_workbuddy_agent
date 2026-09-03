@@ -5,8 +5,7 @@ import Fastify, { type FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import { aiRuntimeEventSchema } from '../contracts/ai-runtime-event';
-import { PLAN_KEYS } from '../billing/plans';
-import { resumeBillingPausedRuns, updateEntitlement, usageSnapshot } from '../billing/guardrails';
+import { usageSnapshot } from '../billing/guardrails';
 import type { ActorContext } from '../contracts/domain';
 import { Database } from '../foundation/database';
 import { loadGatewayConfig } from '../foundation/platform-config';
@@ -61,6 +60,11 @@ function actorFrom(request: FastifyRequest): ActorContext {
   } catch {
     throw new HttpError(401, 'unauthorized');
   }
+}
+
+function adminTokenFrom(request: FastifyRequest): string | undefined {
+  const value = request.headers['x-billing-admin-token'];
+  return typeof value === 'string' ? value : undefined;
 }
 
 function verifyAiRuntimeSignature(request: FastifyRequest): void {
@@ -186,23 +190,53 @@ app.post('/api/billing/checkout-session', async (request) => {
 
 // This endpoint is intended to be called by the verified payment webhook or
 // an owner-only admin console. It never accepts payment details itself.
-app.post('/api/billing/entitlements', async (request) => {
-  if (!config.BILLING_ADMIN_TOKEN || request.headers['x-billing-admin-token'] !== config.BILLING_ADMIN_TOKEN) {
-    throw new HttpError(403, 'billing_admin_required');
-  }
-  const actor = actorFrom(request);
-  const body = z.object({
-    plan: z.enum(PLAN_KEYS).optional(),
-    additionalAiCredits: z.number().int().nonnegative().refine((value) => value % 1_000 === 0, 'additionalAiCredits must be a multiple of 1000').default(0),
-  }).parse(request.body ?? {});
-  if (!body.plan && body.additionalAiCredits === 0) throw new HttpError(400, 'entitlement_change_required');
-  return database.withWorkspace(actor.workspaceId, async (tx) => {
-    const current = await usageSnapshot(tx);
-    const usage = await updateEntitlement(tx, body.plan ?? current.plan, body.additionalAiCredits);
-    const resumedRuns = usage.status === 'paused' ? 0 : await resumeBillingPausedRuns(tx);
-    await tx.query('INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)', [actor.workspaceId, actor.actorId, 'billing.entitlement_updated', { plan: usage.plan, additionalAiCredits: body.additionalAiCredits, resumedRuns }]);
-    return { usage, resumedRuns };
-  });
+app.post('/api/billing/entitlements', async (request, reply) => {
+  reply.header('cache-control', 'no-store');
+  return platformService.updateBillingEntitlements(actorFrom(request), adminTokenFrom(request), request.body);
+});
+
+app.get('/api/admin/workspaces', async (request, reply) => {
+  reply.header('cache-control', 'no-store');
+  return platformService.adminWorkspaces(actorFrom(request), adminTokenFrom(request), request.query);
+});
+
+app.post('/api/admin/workspaces/:workspaceId/entitlements', async (request, reply) => {
+  reply.header('cache-control', 'no-store');
+  const { workspaceId } = z.object({ workspaceId: z.string().uuid() }).parse(request.params);
+  return platformService.adminUpdateEntitlements(actorFrom(request), adminTokenFrom(request), workspaceId, request.body);
+});
+
+app.get('/api/admin/feedback', async (request, reply) => {
+  reply.header('cache-control', 'no-store');
+  return platformService.adminFeedback(actorFrom(request), adminTokenFrom(request), request.query);
+});
+
+app.patch('/api/admin/feedback/:ticketNo', async (request, reply) => {
+  reply.header('cache-control', 'no-store');
+  const { ticketNo } = z.object({ ticketNo: z.string() }).parse(request.params);
+  return platformService.adminUpdateFeedback(actorFrom(request), adminTokenFrom(request), ticketNo, request.body);
+});
+
+app.get('/api/admin/jobs', async (request, reply) => {
+  reply.header('cache-control', 'no-store');
+  return platformService.adminDeadLetterJobs(actorFrom(request), adminTokenFrom(request), request.query);
+});
+
+app.post('/api/admin/jobs/:jobId/replay', async (request, reply) => {
+  reply.header('cache-control', 'no-store');
+  const { jobId } = z.object({ jobId: z.string().uuid() }).parse(request.params);
+  return platformService.adminReplayJob(actorFrom(request), adminTokenFrom(request), jobId, request.body);
+});
+
+app.get('/api/admin/referrals', async (request, reply) => {
+  reply.header('cache-control', 'no-store');
+  return platformService.adminReferrals(actorFrom(request), adminTokenFrom(request), request.query);
+});
+
+app.post('/api/admin/referrals/:ledgerId/void', async (request, reply) => {
+  reply.header('cache-control', 'no-store');
+  const { ledgerId } = z.object({ ledgerId: z.string().uuid() }).parse(request.params);
+  return platformService.adminVoidReferral(actorFrom(request), adminTokenFrom(request), ledgerId, request.body);
 });
 
 app.get('/api/audit-events', async (request) => {

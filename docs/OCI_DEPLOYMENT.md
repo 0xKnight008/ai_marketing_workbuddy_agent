@@ -176,11 +176,14 @@ RESEND_API_KEY=re_...
 RESEND_FROM_EMAIL=activation@example.com
 ACTIVATION_TICKET_TTL_SECONDS=1800
 ACTIVATION_SESSION_TTL_SECONDS=14400
+BILLING_ADMIN_TOKEN=<at-least-32-random-characters>
 ```
 
 Add an exact Nginx location for `/webhooks/stripe` that proxies to `127.0.0.1:4100`. Register `https://app.example.com/webhooks/stripe` and subscribe to `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, and `invoice.payment_failed`. The Egg route verifies Stripe's signed raw request and records event IDs idempotently. Never put Stripe, Resend, or admin secrets in browser code, Git, Docker images, or shell history.
 
 Test in Stripe test mode: a test Checkout should produce webhook HTTP 200, one `billing_webhook_event` record, one `activation_ticket` record, an activation email, and a workspace transition from `inactive` to `trialing`. Open the email link once and confirm it redirects to `/app`; opening it again must fail as already consumed.
+
+After applying migration `0012_admin_console.sql`, open `/app/admin` over HTTPS. Enter a short-lived owner/admin session and `BILLING_ADMIN_TOKEN`; the secret is intentionally kept only in page memory. Confirm the four tabs load and that every response has `Cache-Control: no-store`. In test data, change a workspace plan, transition a support ticket, replay a dead-letter job, and void a pending referral credit. Confirm corresponding `admin.*` rows exist in each affected workspace's `audit_event` table. An already-issued referral credit uses the existing Stripe clawback job and should be tested in Stripe test mode before production use.
 
 ## 7. Release, backups, and incidents
 

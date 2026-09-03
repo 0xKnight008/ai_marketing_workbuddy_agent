@@ -4,7 +4,9 @@ import { defineConfig } from "vite"
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: './',
+  // The site is deployed at the origin root. Absolute assets keep nested SPA
+  // routes such as /app/admin from resolving bundles under /app/assets.
+  base: '/',
   build: {
     rollupOptions: {
       input: {

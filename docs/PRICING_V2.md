@@ -35,7 +35,7 @@ Usage is recorded in `task_event`, with AI credits and supplier costs stored bes
 
 ## Operations
 
-Apply `platform/migrations/0004_pricing_v2_guardrails.sql`, `platform/migrations/0005_billing_subscription_lifecycle.sql`, and `platform/migrations/0011_activation_delivery.sql` before deploying the platform services. Configure all three model environment variables in the AI runtime. The `GET /api/billing/usage` endpoint returns the current plan, quota usage, credits, supplier spend, and guardrail status; `GET /api/billing/task-events` returns its detailed ledger.
+Apply `platform/migrations/0004_pricing_v2_guardrails.sql`, `platform/migrations/0005_billing_subscription_lifecycle.sql`, `platform/migrations/0011_activation_delivery.sql`, and `platform/migrations/0012_admin_console.sql` before deploying the platform services. Configure all three model environment variables in the AI runtime. The `GET /api/billing/usage` endpoint returns the current plan, quota usage, credits, supplier spend, and guardrail status; `GET /api/billing/task-events` returns its detailed ledger.
 
 ## Stripe account activation
 
@@ -60,4 +60,4 @@ After activation, the gateway creates a 30-minute, single-use ticket and sends i
 
 Build the public website with `VITE_GATEWAY_URL=https://<gateway-host>` and set `CORS_ORIGINS` to the public site origin. The gateway and the webhook endpoint must be reachable over HTTPS in production.
 
-New workspaces begin `inactive` and cannot start billable AI or publish work until Stripe activates them. The existing entitlement mutation endpoint is retained only for controlled back-office recovery and now also requires the private `BILLING_ADMIN_TOKEN`; do not expose that token to the browser.
+New workspaces begin `inactive` and cannot start billable AI or publish work until Stripe activates them. The existing entitlement mutation endpoint is retained only for controlled back-office recovery. `/app/admin` adds a cross-workspace entitlement view; both routes require a signed owner/admin session and the private `BILLING_ADMIN_TOKEN`. The operator may enter that secret into the admin page over HTTPS, but it must never be compiled into the frontend, persisted in browser storage, or included in a URL.

@@ -21,6 +21,14 @@ export default (app: Application) => {
   router.post('/api/referral/link', controller.platform.referralLink);
   router.get('/api/referral/summary', controller.platform.referralSummary);
   router.post('/api/billing/entitlements', controller.platform.updateBillingEntitlements);
+  router.get('/api/admin/workspaces', controller.platform.adminWorkspaces);
+  router.post('/api/admin/workspaces/:workspaceId/entitlements', controller.platform.adminUpdateEntitlements);
+  router.get('/api/admin/feedback', controller.platform.adminFeedback);
+  router.patch('/api/admin/feedback/:ticketNo', controller.platform.adminUpdateFeedback);
+  router.get('/api/admin/jobs', controller.platform.adminJobs);
+  router.post('/api/admin/jobs/:jobId/replay', controller.platform.adminReplayJob);
+  router.get('/api/admin/referrals', controller.platform.adminReferrals);
+  router.post('/api/admin/referrals/:ledgerId/void', controller.platform.adminVoidReferral);
   router.post('/api/feedback', controller.platform.feedback);
   router.get('/api/audit-events', controller.platform.auditEvents);
 };
