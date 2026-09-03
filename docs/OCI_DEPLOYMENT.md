@@ -159,9 +159,9 @@ sudo systemctl enable --now certbot.timer
 
 Confirm that HTTP redirects to HTTPS and that `https://app.example.com/internal/ai-runtime-events` is not exposed.
 
-## 6. Stripe activation
+## 6. Stripe activation and access delivery
 
-The Egg production router exposes `POST /api/billing/checkout-session` and `POST /webhooks/stripe`. Create Stripe recurring Prices for Creator ($19), Growth ($59), and Agency ($169). Put these only in `/etc/piggybot/platform.env`:
+The Egg production router exposes Stripe Checkout, the signed webhook, and single-use activation exchange. Create Stripe recurring Prices for Creator ($19), Growth ($59), and Agency ($169), verify an email-sending domain in Resend, and put these values only in `/etc/piggybot/platform.env`:
 
 ```text
 STRIPE_SECRET_KEY=sk_live_...
@@ -172,11 +172,15 @@ STRIPE_PRICE_AGENCY=price_...
 STRIPE_TRIAL_DAYS=7
 STRIPE_PAYMENT_GRACE_DAYS=7
 STRIPE_WEBHOOK_TOLERANCE_SECONDS=300
+RESEND_API_KEY=re_...
+RESEND_FROM_EMAIL=activation@example.com
+ACTIVATION_TICKET_TTL_SECONDS=1800
+ACTIVATION_SESSION_TTL_SECONDS=14400
 ```
 
-Add an exact Nginx location for `/webhooks/stripe` that proxies to `127.0.0.1:4100`. Register `https://app.example.com/webhooks/stripe` and subscribe to `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, and `invoice.payment_failed`. The Egg route verifies Stripe's signed raw request and records event IDs idempotently. Never put `STRIPE_SECRET_KEY` or `BILLING_ADMIN_TOKEN` in browser code, Git, Docker images, or shell history. Follow Stripe's [Checkout subscription](https://docs.stripe.com/payments/checkout/build-subscriptions) and [webhook-signature](https://docs.stripe.com/webhooks/signature) setup guides.
+Add an exact Nginx location for `/webhooks/stripe` that proxies to `127.0.0.1:4100`. Register `https://app.example.com/webhooks/stripe` and subscribe to `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, and `invoice.payment_failed`. The Egg route verifies Stripe's signed raw request and records event IDs idempotently. Never put Stripe, Resend, or admin secrets in browser code, Git, Docker images, or shell history.
 
-Test in Stripe test mode: a test Checkout should produce webhook HTTP 200, one `billing_webhook_event` record, and a workspace transition from `inactive` to `trialing`.
+Test in Stripe test mode: a test Checkout should produce webhook HTTP 200, one `billing_webhook_event` record, one `activation_ticket` record, an activation email, and a workspace transition from `inactive` to `trialing`. Open the email link once and confirm it redirects to `/app`; opening it again must fail as already consumed.
 
 ## 7. Release, backups, and incidents
 

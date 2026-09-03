@@ -14,6 +14,11 @@ export default class PlatformController extends Controller {
     this.ctx.body = { accepted: true };
   }
 
+  async exchangeActivationTicket(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.exchangeActivationTicket(this.ctx.request.body);
+  }
+
   async createRun(): Promise<void> {
     const created = await this.app.platform.service.createWorkflowRun(this.actor(), this.ctx.request.body);
     this.ctx.status = 202;

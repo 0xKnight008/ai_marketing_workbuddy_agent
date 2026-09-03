@@ -7,7 +7,7 @@ export interface SiteContent {
   docTitle: string;
   metaDescription: string;
   ogDescription: string;
-  nav: { links: { label: string; href: string }[]; cta: string };
+  nav: { links: { label: string; href: string }[]; console: string; cta: string };
   hero: {
     badge: string;
     l1: string;
@@ -144,6 +144,7 @@ const zh: SiteContent = {
       { label: "精灵集市", href: "#integrations" },
       { label: "价目灯笼", href: "#pricing" },
     ],
+    console: "控制台",
     cta: "免费召唤",
   },
   hero: {
@@ -491,6 +492,7 @@ const en: SiteContent = {
       { label: "Integrations", href: "#integrations" },
       { label: "Pricing", href: "#pricing" },
     ],
+    console: "Console",
     cta: "Start Free",
   },
   hero: {
@@ -838,6 +840,7 @@ const es: SiteContent = {
       { label: "Integraciones", href: "#integrations" },
       { label: "Precios", href: "#pricing" },
     ],
+    console: "Consola",
     cta: "Empezar gratis",
   },
   hero: {

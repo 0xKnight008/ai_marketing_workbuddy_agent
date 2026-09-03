@@ -6,8 +6,7 @@ import { z } from 'zod';
 
 import { aiRuntimeEventSchema } from '../contracts/ai-runtime-event';
 import { PLAN_KEYS } from '../billing/plans';
-import { activateStripeSubscription, resumeBillingPausedRuns, updateEntitlement, updateStripeSubscriptionStatus, usageSnapshot } from '../billing/guardrails';
-import { createStripeCheckoutSession, retrieveStripeSubscription, stripeActivationFromWebhook, stripeSubscriptionStatusFromWebhook, verifyStripeWebhookSignature } from '../billing/stripe';
+import { resumeBillingPausedRuns, updateEntitlement, usageSnapshot } from '../billing/guardrails';
 import type { ActorContext } from '../contracts/domain';
 import { Database } from '../foundation/database';
 import { loadGatewayConfig } from '../foundation/platform-config';
@@ -97,59 +96,15 @@ app.post('/api/workflow-runs', async (request, reply) => {
 });
 
 app.post('/webhooks/stripe', async (request, reply) => {
-  if (!config.STRIPE_WEBHOOK_SECRET) throw new HttpError(503, 'stripe_not_configured');
   const raw = rawBodies.get(request);
   const signature = request.headers['stripe-signature'];
   if (!raw || typeof signature !== 'string') throw new HttpError(401, 'stripe_signature_missing');
-  verifyStripeWebhookSignature(raw, signature, config.STRIPE_WEBHOOK_SECRET, config.STRIPE_WEBHOOK_TOLERANCE_SECONDS);
-  const activation = stripeActivationFromWebhook(raw);
-  if (activation) {
-    const subscription = activation.subscriptionId ? await retrieveStripeSubscription(config, activation.subscriptionId) : undefined;
-    if (subscription?.workspaceId && subscription.workspaceId !== activation.workspaceId) throw new HttpError(400, 'stripe_workspace_mismatch');
-    const hydrated = {
-      ...activation,
-      customerId: subscription?.customerId ?? activation.customerId,
-      subscriptionId: subscription?.id ?? activation.subscriptionId,
-      priceId: subscription?.priceId ?? activation.priceId,
-      subscriptionStatus: subscription?.status ?? activation.subscriptionStatus,
-      trialEndsAt: subscription?.trialEndsAt,
-    };
-    const result = await database.withWorkspace(hydrated.workspaceId, async (tx) => {
-      const applied = await activateStripeSubscription(tx, hydrated);
-      if (applied.applied) {
-        await tx.query('INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)', [hydrated.workspaceId, 'billing.stripe_activated', {
-          plan: hydrated.plan,
-          stripeEventId: hydrated.eventId,
-          stripeSubscriptionId: hydrated.subscriptionId,
-        }]);
-      }
-      return applied;
-    });
-    return reply.code(200).send({ received: true, activated: result.applied });
-  }
+  return reply.code(200).send(await platformService.ingestStripeWebhook(raw, signature));
+});
 
-  const statusEvent = stripeSubscriptionStatusFromWebhook(raw, config.STRIPE_PAYMENT_GRACE_DAYS);
-  if (!statusEvent) return reply.code(202).send({ received: true, activated: false });
-  const subscription = statusEvent.workspaceId ? undefined : await retrieveStripeSubscription(config, statusEvent.subscriptionId);
-  const workspaceId = statusEvent.workspaceId ?? subscription?.workspaceId;
-  if (!workspaceId) throw new HttpError(400, 'stripe_workspace_metadata_missing');
-  const result = await database.withWorkspace(workspaceId, async (tx) => {
-    const applied = await updateStripeSubscriptionStatus(tx, {
-      ...statusEvent,
-      customerId: subscription?.customerId ?? statusEvent.customerId,
-      subscriptionId: subscription?.id ?? statusEvent.subscriptionId,
-    });
-    if (applied.applied) {
-      await tx.query('INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)', [workspaceId, 'billing.stripe_subscription_status_changed', {
-        eventType: statusEvent.eventType,
-        stripeEventId: statusEvent.eventId,
-        stripeSubscriptionId: statusEvent.subscriptionId,
-        status: statusEvent.subscriptionStatus,
-      }]);
-    }
-    return applied;
-  });
-  return reply.code(200).send({ received: true, activated: result.applied });
+app.post('/api/activation/exchange', async (request, reply) => {
+  reply.header('Cache-Control', 'no-store');
+  return platformService.exchangeActivationTicket(request.body);
 });
 
 app.post('/api/workflow-templates/:templateId/publish', async (request, reply) => {
@@ -226,11 +181,7 @@ app.get('/api/billing/usage', async (request) => {
 
 app.post('/api/billing/checkout-session', async (request) => {
   const actor = actorFrom(request);
-  if (actor.role !== 'owner') throw new HttpError(403, 'owner_required');
-  const body = z.object({ plan: z.enum(PLAN_KEYS) }).parse(request.body);
-  const checkout = await createStripeCheckoutSession(config, { workspaceId: actor.workspaceId, actorId: actor.actorId, plan: body.plan });
-  await database.withWorkspace(actor.workspaceId, (tx) => tx.query('INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)', [actor.workspaceId, actor.actorId, 'billing.stripe_checkout_started', { plan: body.plan, stripeCheckoutSessionId: checkout.id }]));
-  return checkout;
+  return platformService.createStripeCheckout(actor, request.body);
 });
 
 // This endpoint is intended to be called by the verified payment webhook or

@@ -15,6 +15,7 @@ import { decryptSecret, encryptSecret } from '../foundation/secrets';
 import { createWorkflowRun } from '../gateway/run-request';
 import { createPublishedTemplate } from '../gateway/templates';
 import { verifyAccessToken } from '../identity/token';
+import { ActivationDeliveryService } from '../identity/activation';
 import { createDurableRun, decideApproval, ingestAiRuntimeEvent } from '../run-service/repository';
 import {
   ZERNIO_PLATFORMS,
@@ -29,11 +30,15 @@ import { activeReferralLink, referralSummary } from '../referral/service';
 
 /** Framework-neutral orchestration used by Egg controllers and scheduled work. */
 export class PlatformService {
+  private readonly activationDelivery: ActivationDeliveryService;
+
   constructor(
     private readonly config: GatewayConfig,
     private readonly database: Database,
     private readonly orm: PlatformOrm,
-  ) {}
+  ) {
+    this.activationDelivery = new ActivationDeliveryService(config, database);
+  }
 
   actorFrom(authorization: string | undefined): ActorContext {
     if (!authorization?.startsWith('Bearer ')) throw new HttpError(401, 'unauthorized');
@@ -54,6 +59,10 @@ export class PlatformService {
   async ingestAiRuntimeEvent(body: unknown): Promise<void> {
     const event = aiRuntimeEventSchema.parse(body);
     await this.database.withWorkspace(event.workspaceId, (tx) => ingestAiRuntimeEvent(tx, event));
+  }
+
+  async exchangeActivationTicket(body: unknown): Promise<unknown> {
+    return this.activationDelivery.exchangeTicket(body);
   }
 
   async createWorkflowRun(actor: ActorContext, body: unknown): Promise<{ runId: string; status: 'pending' }> {
@@ -115,6 +124,7 @@ export class PlatformService {
         }
         return applied;
       });
+      await this.activationDelivery.deliverCheckout(hydrated);
       return { received: true, activated: result.applied };
     }
 

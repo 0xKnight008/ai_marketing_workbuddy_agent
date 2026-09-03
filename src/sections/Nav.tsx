@@ -62,6 +62,12 @@ export function Nav() {
                 {l.label}
               </a>
             ))}
+            <a
+              href="/app"
+              className="px-3 py-2 text-[15px] font-bold text-ink-soft hover:text-ink hover:bg-paper-deep/70 rounded-full transition-colors whitespace-nowrap"
+            >
+              {t.nav.console}
+            </a>
           </nav>
 
           <div className="flex items-center gap-3">
@@ -110,6 +116,13 @@ export function Nav() {
                 {l.label}
               </a>
             ))}
+            <a
+              href="/app"
+              onClick={() => setOpen(false)}
+              className="px-3 py-2.5 font-bold text-ink-soft hover:text-ink hover:bg-paper-deep rounded-xl"
+            >
+              {t.nav.console}
+            </a>
             <div className="mt-2 flex items-center gap-2 px-3">
               {LANGS.map((l) => (
                 <a

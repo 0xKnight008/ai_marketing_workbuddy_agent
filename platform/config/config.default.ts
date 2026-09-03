@@ -21,8 +21,8 @@ export default (appInfo: EggAppInfo) => ({
     },
   },
   bodyParser: {
-    // The runtime event signature covers original bytes, so this one endpoint
-    // is parsed by runtimeRawBody before the standard JSON parser sees it.
+    // Signed runtime and Stripe events cover original bytes, so these endpoints
+    // are parsed by runtimeRawBody before the standard JSON parser sees them.
     ignore: (ctx: { path: string }) => ctx.path === '/internal/ai-runtime-events' || ctx.path === '/webhooks/stripe',
     jsonLimit: '1mb',
   },

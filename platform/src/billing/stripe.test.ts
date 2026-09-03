@@ -14,7 +14,11 @@ const checkoutEvent = JSON.stringify({
       payment_status: 'no_payment_required',
       customer: 'cus_123',
       subscription: 'sub_123',
-      metadata: { workspaceId: '00000000-0000-4000-8000-000000000001', plan: 'growth' },
+      metadata: {
+        workspaceId: '00000000-0000-4000-8000-000000000001',
+        actorId: '00000000-0000-4000-8000-000000000002',
+        plan: 'growth',
+      },
     },
   },
 });
@@ -30,12 +34,14 @@ test('turns only a paid or trial Checkout event with scoped metadata into an act
   assert.deepEqual({
     eventId: activation?.eventId,
     workspaceId: activation?.workspaceId,
+    actorId: activation?.actorId,
     plan: activation?.plan,
     subscriptionStatus: activation?.subscriptionStatus,
     customerId: activation?.customerId,
   }, {
     eventId: 'evt_checkout_1',
     workspaceId: '00000000-0000-4000-8000-000000000001',
+    actorId: '00000000-0000-4000-8000-000000000002',
     plan: 'growth',
     subscriptionStatus: 'active',
     customerId: 'cus_123',
