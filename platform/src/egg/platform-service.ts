@@ -2,9 +2,10 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import { z } from 'zod';
 
+import { AdminService } from '../admin/service';
 import { aiRuntimeEventSchema } from '../contracts/ai-runtime-event';
 import { PLAN_KEYS } from '../billing/plans';
-import { activateStripeSubscription, resumeBillingPausedRuns, updateEntitlement, updateStripeSubscriptionStatus, usageSnapshot } from '../billing/guardrails';
+import { activateStripeSubscription, updateStripeSubscriptionStatus, usageSnapshot } from '../billing/guardrails';
 import { createStripeCheckoutSession, retrieveStripeSubscription, stripeActivationFromWebhook, stripeInvoicePaidFromWebhook, stripeSubscriptionStatusFromWebhook, verifyStripeWebhookSignature } from '../billing/stripe';
 import type { ActorContext } from '../contracts/domain';
 import { Database } from '../foundation/database';
@@ -31,6 +32,7 @@ import { activeReferralLink, referralSummary } from '../referral/service';
 /** Framework-neutral orchestration used by Egg controllers and scheduled work. */
 export class PlatformService {
   private readonly activationDelivery: ActivationDeliveryService;
+  private readonly admin: AdminService;
 
   constructor(
     private readonly config: GatewayConfig,
@@ -38,6 +40,7 @@ export class PlatformService {
     private readonly orm: PlatformOrm,
   ) {
     this.activationDelivery = new ActivationDeliveryService(config, database);
+    this.admin = new AdminService(config, database);
   }
 
   actorFrom(authorization: string | undefined): ActorContext {
@@ -184,26 +187,39 @@ export class PlatformService {
   }
 
   async updateBillingEntitlements(actor: ActorContext, adminToken: string | undefined, body: unknown): Promise<unknown> {
-    if (!this.config.BILLING_ADMIN_TOKEN || adminToken !== this.config.BILLING_ADMIN_TOKEN) {
-      throw new HttpError(403, 'billing_admin_required');
-    }
-    const parsed = z.object({
-      plan: z.enum(PLAN_KEYS).optional(),
-      additionalAiCredits: z.number().int().nonnegative().refine((value) => value % 1_000 === 0, 'additionalAiCredits must be a multiple of 1000').default(0),
-    }).parse(body ?? {});
-    if (!parsed.plan && parsed.additionalAiCredits === 0) throw new HttpError(400, 'entitlement_change_required');
-    return this.database.withWorkspace(actor.workspaceId, async (tx) => {
-      const current = await usageSnapshot(tx);
-      const usage = await updateEntitlement(tx, parsed.plan ?? current.plan, parsed.additionalAiCredits);
-      const resumedRuns = usage.status === 'paused' ? 0 : await resumeBillingPausedRuns(tx);
-      await tx.query('INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)', [
-        actor.workspaceId,
-        actor.actorId,
-        'billing.entitlement_updated',
-        { plan: usage.plan, additionalAiCredits: parsed.additionalAiCredits, resumedRuns },
-      ]);
-      return { usage, resumedRuns };
-    });
+    return this.admin.updateEntitlements(actor, adminToken, actor.workspaceId, body);
+  }
+
+  async adminWorkspaces(actor: ActorContext, adminToken: string | undefined, query: unknown): Promise<unknown[]> {
+    return this.admin.workspaces(actor, adminToken, query);
+  }
+
+  async adminUpdateEntitlements(actor: ActorContext, adminToken: string | undefined, workspaceId: unknown, body: unknown): Promise<unknown> {
+    return this.admin.updateEntitlements(actor, adminToken, workspaceId, body);
+  }
+
+  async adminFeedback(actor: ActorContext, adminToken: string | undefined, query: unknown): Promise<unknown[]> {
+    return this.admin.feedback(actor, adminToken, query);
+  }
+
+  async adminUpdateFeedback(actor: ActorContext, adminToken: string | undefined, ticketNo: unknown, body: unknown): Promise<unknown> {
+    return this.admin.updateFeedback(actor, adminToken, ticketNo, body);
+  }
+
+  async adminDeadLetterJobs(actor: ActorContext, adminToken: string | undefined, query: unknown): Promise<unknown[]> {
+    return this.admin.deadLetterJobs(actor, adminToken, query);
+  }
+
+  async adminReplayJob(actor: ActorContext, adminToken: string | undefined, jobId: unknown, body: unknown): Promise<unknown> {
+    return this.admin.replayJob(actor, adminToken, jobId, body);
+  }
+
+  async adminReferrals(actor: ActorContext, adminToken: string | undefined, query: unknown): Promise<unknown[]> {
+    return this.admin.referrals(actor, adminToken, query);
+  }
+
+  async adminVoidReferral(actor: ActorContext, adminToken: string | undefined, ledgerId: unknown, body: unknown): Promise<unknown> {
+    return this.admin.voidReferral(actor, adminToken, ledgerId, body);
   }
 
   async publishTemplate(actor: ActorContext, templateId: string): Promise<unknown> {

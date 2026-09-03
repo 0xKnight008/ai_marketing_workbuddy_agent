@@ -103,7 +103,7 @@ export default function PlatformDashboard() {
     <main className="paper-grain min-h-screen bg-paper text-ink p-6 md:p-10">
       <header className="mx-auto max-w-6xl flex flex-col gap-4 border-b-2 border-ink/30 pb-6 md:flex-row md:items-end md:justify-between">
         <div><p className="font-hand text-xl text-sky-deep">Piggybot Platform</p><h1 className="font-display text-4xl">Workflow operations</h1></div>
-        <div className="flex gap-4 text-sm"><a className="text-ink-soft hover:text-ink" href="/contact">Help</a><a className="text-ink-soft hover:text-ink" href="/">Back to site</a></div>
+        <div className="flex gap-4 text-sm"><a className="text-ink-soft hover:text-ink" href="/app/admin">Admin</a><a className="text-ink-soft hover:text-ink" href="/contact">Help</a><a className="text-ink-soft hover:text-ink" href="/">Back to site</a></div>
       </header>
 
       <section className="mx-auto grid max-w-6xl gap-6 py-8 lg:grid-cols-3">

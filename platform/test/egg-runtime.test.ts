@@ -1,5 +1,7 @@
 import mm from 'egg-mock';
 
+import { issueAccessToken } from '../src/identity/token';
+
 describe('Egg production gateway', () => {
   Object.assign(process.env, {
     DATABASE_URL: 'postgres://piggybot:piggybot@127.0.0.1:5432/piggybot',
@@ -10,6 +12,12 @@ describe('Egg production gateway', () => {
     STRIPE_WEBHOOK_SECRET: 'whsec_test_secret',
   });
   const app = mm.app({ baseDir: process.cwd(), cache: false });
+  const ownerToken = issueAccessToken({
+    actorId: '11111111-1111-4111-8111-111111111111',
+    workspaceId: '22222222-2222-4222-8222-222222222222',
+    role: 'owner',
+    exp: Math.floor(Date.now() / 1000) + 300,
+  }, process.env.AUTH_TOKEN_SECRET!);
 
   before(async () => { await app.ready(); });
 
@@ -50,4 +58,31 @@ describe('Egg production gateway', () => {
     .expect('Cache-Control', 'no-store')
     .expect(401)
     .expect({ error: 'activation_ticket_invalid' }));
+
+  it('exposes the admin workspace inventory with no-store and requires both factors', () => app.httpRequest()
+    .get('/api/admin/workspaces')
+    .expect('Cache-Control', 'no-store')
+    .expect(401)
+    .expect({ error: 'unauthorized' }));
+
+  it('protects admin mutations before touching tenant data', () => app.httpRequest()
+    .post('/api/admin/jobs/44444444-4444-4444-8444-444444444444/replay')
+    .send({ workspaceId: '33333333-3333-4333-8333-333333333333' })
+    .expect('Cache-Control', 'no-store')
+    .expect(401)
+    .expect({ error: 'unauthorized' }));
+
+  it('rejects a valid owner session when the independent admin factor is missing', () => app.httpRequest()
+    .get('/api/admin/workspaces')
+    .set('Authorization', `Bearer ${ownerToken}`)
+    .expect('Cache-Control', 'no-store')
+    .expect(403)
+    .expect({ error: 'platform_admin_required' }));
+
+  it('allows the admin header and PATCH method in browser preflights', () => app.httpRequest()
+    .options('/api/admin/feedback/FB-A1B2C3D4')
+    .set('Origin', 'http://localhost:5173')
+    .expect('Access-Control-Allow-Headers', /X-Billing-Admin-Token/)
+    .expect('Access-Control-Allow-Methods', /PATCH/)
+    .expect(204));
 });

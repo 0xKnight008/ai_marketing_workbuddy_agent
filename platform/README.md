@@ -19,7 +19,7 @@ pnpm migrate
 pnpm test
 ```
 
-The migration creates a tenant-scoped Postgres schema. The application must set `app.workspace_id` inside every tenant transaction; direct, unscoped queries are intentionally not part of the repository API.
+The migration creates a tenant-scoped Postgres schema. The application must set `app.workspace_id` inside every tenant transaction. The one explicit exception is `Database.withAdmin`, which is limited to intentionally global directory/support tables and does not bypass RLS; admin access to jobs, billing, audit, and referral records still opens one `withWorkspace` transaction per tenant.
 
 `pnpm migrate` uses Sequelize and Umzug to apply the versioned schema files and
 record their state in `schema_migration`. It deliberately does not call
@@ -44,3 +44,23 @@ The legacy Fastify entrypoint is retained only as an explicit rollback adapter
 (`pnpm dev:legacy-gateway`); it is not used by the production scripts. See
 [`EGG_ADOPTION.md`](./EGG_ADOPTION.md) for the runtime boundaries and rollout
 requirements.
+
+## Platform admin console
+
+`/app/admin` is the back-office operations view. Every request requires two
+independent factors: a valid short-lived owner/admin Bearer token and the
+high-entropy `BILLING_ADMIN_TOKEN` header. The page keeps the admin secret only
+in component memory; never embed it in a Vite variable, checked-in file, URL,
+browser storage, or shared screenshot.
+
+The console provides:
+
+- workspace search with plan, current-month usage, guardrail, and subscription status;
+- audited plan changes and AI-credit grants;
+- support-ticket status transitions (`new`, `replied`, `closed`);
+- dead-letter job replay with attempt/lease reset and run revival;
+- referral attribution/credit review plus pending void or issued-credit reversal.
+
+Apply `migrations/0012_admin_console.sql` before using these views. Admin list
+and mutation responses set `Cache-Control: no-store`; all mutations also write
+an `admin.*` event to the affected workspace audit trail.

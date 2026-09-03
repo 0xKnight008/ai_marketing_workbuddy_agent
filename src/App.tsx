@@ -1,5 +1,6 @@
 import Home from "./pages/Home";
 import PlatformDashboard from "./pages/PlatformDashboard";
+import AdminDashboard from "./pages/AdminDashboard";
 import Activation from "./pages/Activation";
 import Contact from "./pages/Contact";
 import Legal from "./pages/Legal";
@@ -26,6 +27,7 @@ function referralDestination(path: string): string | undefined {
 }
 
 export default function App() {
+  if (window.location.pathname.startsWith('/app/admin')) return <AdminDashboard />;
   if (window.location.pathname.startsWith('/app')) return <PlatformDashboard />;
   const localPath = window.location.pathname.replace(/^\/(zh|en|es)(?=\/|$)/, '');
   const referralUrl = referralDestination(localPath);

@@ -6,8 +6,8 @@ export default (options: { origins?: string[] }) => async (ctx: Context, next: (
     ctx.set('Access-Control-Allow-Origin', origin);
     ctx.set('Vary', 'Origin');
     ctx.set('Access-Control-Allow-Credentials', 'true');
-    ctx.set('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-AI-Runtime-Signature');
-    ctx.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    ctx.set('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-AI-Runtime-Signature, X-Billing-Admin-Token');
+    ctx.set('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
   }
   if (ctx.method === 'OPTIONS') {
     ctx.status = 204;

@@ -82,10 +82,51 @@ export default class PlatformController extends Controller {
   async referralLink(): Promise<void> { this.ctx.body = await this.app.platform.service.referralLink(this.actor()); }
   async referralSummary(): Promise<void> { this.ctx.body = await this.app.platform.service.referralSummary(this.actor()); }
   async updateBillingEntitlements(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
     this.ctx.body = await this.app.platform.service.updateBillingEntitlements(
       this.actor(),
       this.ctx.get('x-billing-admin-token'),
       this.ctx.request.body,
+    );
+  }
+  async adminWorkspaces(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.adminWorkspaces(this.actor(), this.adminToken(), this.ctx.query);
+  }
+  async adminUpdateEntitlements(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.adminUpdateEntitlements(
+      this.actor(), this.adminToken(), this.ctx.params.workspaceId, this.ctx.request.body,
+    );
+  }
+  async adminFeedback(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.adminFeedback(this.actor(), this.adminToken(), this.ctx.query);
+  }
+  async adminUpdateFeedback(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.adminUpdateFeedback(
+      this.actor(), this.adminToken(), this.ctx.params.ticketNo, this.ctx.request.body,
+    );
+  }
+  async adminJobs(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.adminDeadLetterJobs(this.actor(), this.adminToken(), this.ctx.query);
+  }
+  async adminReplayJob(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.adminReplayJob(
+      this.actor(), this.adminToken(), this.ctx.params.jobId, this.ctx.request.body,
+    );
+  }
+  async adminReferrals(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.adminReferrals(this.actor(), this.adminToken(), this.ctx.query);
+  }
+  async adminVoidReferral(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.adminVoidReferral(
+      this.actor(), this.adminToken(), this.ctx.params.ledgerId, this.ctx.request.body,
     );
   }
   async auditEvents(): Promise<void> { this.ctx.body = await this.app.platform.service.auditEvents(this.actor()); }
@@ -95,6 +136,7 @@ export default class PlatformController extends Controller {
   }
 
   private actor() { return this.app.platform.service.actorFrom(this.ctx.get('authorization')); }
+  private adminToken() { return this.ctx.get('x-billing-admin-token'); }
 }
 
 function successPage(): string {
