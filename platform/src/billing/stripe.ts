@@ -23,6 +23,7 @@ export interface StripeActivationEvent {
   eventId: string;
   eventType: string;
   workspaceId: string;
+  actorId: string;
   plan: PlanKey;
   customerId?: string;
   subscriptionId?: string;
@@ -139,11 +140,12 @@ export function stripeActivationFromWebhook(rawBody: string): StripeActivationEv
   const session = event.data.object;
   if (session.payment_status !== 'paid' && session.payment_status !== 'no_payment_required') return undefined;
   const metadata = workspaceMetadata(session.metadata);
-  if (!metadata?.plan) return undefined;
+  if (!metadata?.plan || !metadata.actorId) return undefined;
   return {
     eventId: event.id,
     eventType: event.type,
     workspaceId: metadata.workspaceId,
+    actorId: metadata.actorId,
     plan: metadata.plan,
     customerId: stringValue(session.customer),
     subscriptionId: stringValue(session.subscription),
@@ -234,8 +236,12 @@ function stripeEventFromWebhook(rawBody: string): StripeEvent {
   }).parse(JSON.parse(rawBody)) as StripeEvent;
 }
 
-function workspaceMetadata(value: unknown): { workspaceId: string; plan?: PlanKey } | undefined {
-  const parsed = z.object({ workspaceId: z.string().uuid(), plan: planSchema.optional() }).safeParse(value);
+function workspaceMetadata(value: unknown): { workspaceId: string; actorId?: string; plan?: PlanKey } | undefined {
+  const parsed = z.object({
+    workspaceId: z.string().uuid(),
+    actorId: z.string().uuid().optional(),
+    plan: planSchema.optional(),
+  }).safeParse(value);
   return parsed.success ? parsed.data : undefined;
 }
 

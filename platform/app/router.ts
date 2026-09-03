@@ -5,6 +5,7 @@ export default (app: Application) => {
   router.get('/internal/health', controller.platform.health);
   router.post('/internal/ai-runtime-events', controller.platform.runtimeEvent);
   router.post('/webhooks/stripe', controller.platform.stripeWebhook);
+  router.post('/api/activation/exchange', controller.platform.exchangeActivationTicket);
   router.post('/api/workflow-runs', controller.platform.createRun);
   router.post('/api/billing/checkout-session', controller.platform.createStripeCheckout);
   router.post('/api/workflow-templates/:templateId/publish', controller.platform.publishTemplate);

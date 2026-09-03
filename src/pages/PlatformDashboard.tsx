@@ -1,5 +1,7 @@
 import { useState, type ReactNode } from 'react';
 
+import { clearSessionAccessToken, readSessionAccessToken } from '../lib/auth-session';
+
 const gatewayUrl = import.meta.env.VITE_GATEWAY_URL ?? 'http://localhost:4100';
 
 interface RunView { id: string; status: string; workflowId: string; createdAt: string; }
@@ -15,9 +17,9 @@ const socialPlatforms = [
 ] as const;
 
 export default function PlatformDashboard() {
-  // Keep a pasted operator token only in memory. Production sign-in should use
-  // an HttpOnly session cookie supplied by the identity provider.
-  const [token, setToken] = useState('');
+  // One-time activation links create a short-lived session token scoped to this tab.
+  // Manually pasted operator tokens remain in component memory only.
+  const [token, setToken] = useState(readSessionAccessToken);
   const [runId, setRunId] = useState('');
   const [run, setRun] = useState<RunView | null>(null);
   const [approvals, setApprovals] = useState<ApprovalView[]>([]);
@@ -119,8 +121,9 @@ export default function PlatformDashboard() {
         <div className="wobble sketch bg-paper-card p-5">
           <h2 className="text-lg font-semibold">Session</h2>
           <label className="mt-4 block text-sm text-ink-soft">Access token</label>
-          <textarea value={token} onChange={(event) => setToken(event.target.value)} className="mt-2 h-28 w-full rounded-md border border-ink/20 bg-paper p-2 text-xs" placeholder="Paste a short-lived workspace token" />
+          <input type="password" value={token} onChange={(event) => setToken(event.target.value)} className="mt-2 w-full rounded-md border border-ink/20 bg-paper p-2 text-xs" placeholder="Paste a short-lived workspace token" autoComplete="off" />
           <button onClick={() => void loadWorkspace()} className="mt-3 w-full rounded-md bg-sky-deep px-4 py-2 text-sm font-medium text-white">Load workspace</button>
+          {token && <button onClick={() => { clearSessionAccessToken(); setToken(''); }} className="mt-2 w-full rounded-md border border-ink/20 px-4 py-2 text-sm font-medium text-ink-soft">Clear session</button>}
         </div>
       </section>
 

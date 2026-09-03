@@ -34,6 +34,10 @@ export const gatewayConfigSchema = databaseConfigSchema.extend({
   STRIPE_WEBHOOK_TOLERANCE_SECONDS: z.coerce.number().int().min(1).max(3600).default(300),
   DISCORD_BOT_TOKEN: z.string().min(1).optional(),
   DISCORD_FEEDBACK_CHANNEL_ID: z.string().min(1).optional(),
+  RESEND_API_KEY: z.string().min(1).optional(),
+  RESEND_FROM_EMAIL: z.string().min(3).optional(),
+  ACTIVATION_TICKET_TTL_SECONDS: z.coerce.number().int().min(300).max(86_400).default(1_800),
+  ACTIVATION_SESSION_TTL_SECONDS: z.coerce.number().int().min(300).max(86_400).default(14_400),
   GATEWAY_PORT: z.coerce.number().int().min(1).max(65535).default(4100),
 });
 

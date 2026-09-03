@@ -35,11 +35,11 @@ Usage is recorded in `task_event`, with AI credits and supplier costs stored bes
 
 ## Operations
 
-Apply `platform/migrations/0004_pricing_v2_guardrails.sql` and `platform/migrations/0005_billing_subscription_lifecycle.sql` before deploying the platform services. Configure all three model environment variables in the AI runtime. The `GET /api/billing/usage` endpoint returns the current plan, quota usage, credits, supplier spend, and guardrail status; `GET /api/billing/task-events` returns its detailed ledger.
+Apply `platform/migrations/0004_pricing_v2_guardrails.sql`, `platform/migrations/0005_billing_subscription_lifecycle.sql`, and `platform/migrations/0011_activation_delivery.sql` before deploying the platform services. Configure all three model environment variables in the AI runtime. The `GET /api/billing/usage` endpoint returns the current plan, quota usage, credits, supplier spend, and guardrail status; `GET /api/billing/task-events` returns its detailed ledger.
 
 ## Stripe account activation
 
-The public pricing buttons lead to `/activate?plan=creator|growth|agency`. Until the production identity provider is connected, this page uses the existing short-lived **workspace owner** token; it keeps that token only in browser memory and sends it to the gateway over HTTPS to create a Checkout Session. Production sign-in can replace this input without changing the payment API.
+The public pricing buttons lead to `/activate?plan=creator|growth|agency`. The checkout page uses an existing short-lived **workspace owner** token to establish which workspace will be upgraded; it keeps a manually pasted token only in browser memory and sends it to the gateway over HTTPS to create a Checkout Session.
 
 Configure these gateway environment variables with recurring Stripe Price IDs for the three plans:
 
@@ -49,8 +49,14 @@ Configure these gateway environment variables with recurring Stripe Price IDs fo
 - `STRIPE_PRICE_CREATOR`, `STRIPE_PRICE_GROWTH`, `STRIPE_PRICE_AGENCY`
 - `STRIPE_TRIAL_DAYS=7`
 - `STRIPE_PAYMENT_GRACE_DAYS=7`
+- `RESEND_API_KEY`
+- `RESEND_FROM_EMAIL` (a sender on a Resend-verified domain)
+- `ACTIVATION_TICKET_TTL_SECONDS=1800`
+- `ACTIVATION_SESSION_TTL_SECONDS=14400`
 
-Register `POST https://<gateway-host>/webhooks/stripe` as a Stripe webhook. Subscribe it to `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, and `invoice.payment_failed`. The gateway verifies Stripe's timestamped `v1` signature against the exact raw request body before parsing it. Checkout activation reads the subscription's actual Stripe trial end; cancellation removes paid entitlement immediately; payment failure moves the workspace into a seven-day approval-only grace period before it pauses. Event IDs are stored in `billing_webhook_event`, so retries are idempotent.
+Register `POST https://<gateway-host>/webhooks/stripe` as a Stripe webhook. Subscribe it to `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, and `invoice.payment_failed`. The Egg gateway verifies Stripe's timestamped `v1` signature against the exact raw request body before parsing it. Checkout activation requires server-created workspace, owner, and plan metadata and reads the subscription's actual Stripe trial end; cancellation removes paid entitlement immediately; payment failure moves the workspace into a seven-day approval-only grace period before it pauses. Event IDs are stored in `billing_webhook_event`, so retries are idempotent.
+
+After activation, the gateway creates a 30-minute, single-use ticket and sends it to the workspace owner's account email through Resend. Only the ticket hash is stored. `POST /api/activation/exchange` consumes the ticket transactionally and returns a four-hour owner access token; the website stores it in `sessionStorage`, removes the ticket from browser history by replacing the page with `/app`, and never puts the Resend or Stripe secrets in the frontend bundle. A failed email delivery returns an error to Stripe so its normal webhook retry can deliver the same deterministic ticket without reapplying billing.
 
 Build the public website with `VITE_GATEWAY_URL=https://<gateway-host>` and set `CORS_ORIGINS` to the public site origin. The gateway and the webhook endpoint must be reachable over HTTPS in production.
 
