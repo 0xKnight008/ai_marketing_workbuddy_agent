@@ -15,6 +15,15 @@ import { requirePermission } from '../foundation/rbac';
 import { decryptSecret, encryptSecret } from '../foundation/secrets';
 import { createWorkflowRun } from '../gateway/run-request';
 import { createPublishedTemplate } from '../gateway/templates';
+import {
+  activatePipeline,
+  createPipelineDraft,
+  inspectPipelineReadiness,
+  listConnectedAccounts,
+  listPipelines,
+  listPipelineTemplates,
+  updatePipelineDraft,
+} from '../gateway/pipelines';
 import { verifyAccessToken } from '../identity/token';
 import { ActivationDeliveryService } from '../identity/activation';
 import { createDurableRun, decideApproval, ingestAiRuntimeEvent } from '../run-service/repository';
@@ -225,6 +234,35 @@ export class PlatformService {
   async publishTemplate(actor: ActorContext, templateId: string): Promise<unknown> {
     const parsed = z.enum(['repurpose', 'weekly_report', 'comment_lead']).parse(templateId);
     return this.database.withWorkspace(actor.workspaceId, (tx) => createPublishedTemplate(tx, actor, parsed));
+  }
+
+  pipelineTemplates(actor: ActorContext): unknown[] {
+    requirePermission(actor.role, 'workflow:run');
+    return listPipelineTemplates();
+  }
+
+  async pipelines(actor: ActorContext): Promise<unknown[]> {
+    return this.database.withWorkspace(actor.workspaceId, (tx) => listPipelines(tx, actor));
+  }
+
+  async createPipeline(actor: ActorContext, body: unknown): Promise<unknown> {
+    return this.database.withWorkspace(actor.workspaceId, (tx) => createPipelineDraft(tx, actor, body));
+  }
+
+  async updatePipeline(actor: ActorContext, pipelineId: string, body: unknown): Promise<unknown> {
+    return this.database.withWorkspace(actor.workspaceId, (tx) => updatePipelineDraft(tx, actor, pipelineId, body));
+  }
+
+  async testPipeline(actor: ActorContext, pipelineId: string): Promise<unknown> {
+    return this.database.withWorkspace(actor.workspaceId, (tx) => inspectPipelineReadiness(tx, actor, pipelineId));
+  }
+
+  async activatePipeline(actor: ActorContext, pipelineId: string): Promise<unknown> {
+    return this.database.withWorkspace(actor.workspaceId, (tx) => activatePipeline(tx, actor, pipelineId));
+  }
+
+  async connectedAccounts(actor: ActorContext): Promise<unknown[]> {
+    return this.database.withWorkspace(actor.workspaceId, (tx) => listConnectedAccounts(tx, actor));
   }
 
   async connectUrl(actor: ActorContext, requestedPlatform: unknown): Promise<string> {
@@ -449,12 +487,13 @@ export class PlatformService {
     await this.database.withWorkspace(workspaceId, async (tx) => {
       for (const account of accounts) {
         await tx.query(
-          `INSERT INTO connected_account (workspace_id, provider, external_account_id, display_name, capabilities, status, last_synced_at, zernio_profile_id)
-           VALUES ($1, 'zernio', $2, $3, $4, 'connected', now(), $5)
+          `INSERT INTO connected_account (workspace_id, provider, external_account_id, display_name, capabilities, status, last_synced_at, zernio_profile_id, platform)
+           VALUES ($1, 'zernio', $2, $3, $4, 'connected', now(), $5, $6)
            ON CONFLICT (workspace_id, provider, external_account_id) DO UPDATE
              SET display_name = EXCLUDED.display_name, capabilities = EXCLUDED.capabilities,
-                 status = 'connected', last_synced_at = now(), zernio_profile_id = EXCLUDED.zernio_profile_id`,
-          [workspaceId, account.externalId, account.displayName, account.capabilities, profileId],
+                 status = 'connected', last_synced_at = now(), zernio_profile_id = EXCLUDED.zernio_profile_id,
+                 platform = EXCLUDED.platform`,
+          [workspaceId, account.externalId, account.displayName, account.capabilities, profileId, account.platform ?? 'unknown'],
         );
       }
       await tx.query(
@@ -468,7 +507,7 @@ export class PlatformService {
 }
 
 function feedbackText(value: string, maxLength: number): string {
-  return value.normalize('NFKC').replace(/<[^>]*>/g, '').replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLength + 1);
+  return value.normalize('NFKC').replace(/<[^>]*>/g, '').replace(/\p{Cc}/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLength + 1);
 }
 
 function referralCodeFromWebhook(rawBody: string): string | undefined {

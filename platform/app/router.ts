@@ -9,10 +9,17 @@ export default (app: Application) => {
   router.post('/api/workflow-runs', controller.platform.createRun);
   router.post('/api/billing/checkout-session', controller.platform.createStripeCheckout);
   router.post('/api/workflow-templates/:templateId/publish', controller.platform.publishTemplate);
+  router.get('/api/pipeline-templates', controller.platform.pipelineTemplates);
+  router.get('/api/pipelines', controller.platform.pipelines);
+  router.post('/api/pipelines', controller.platform.createPipeline);
+  router.patch('/api/pipelines/:pipelineId', controller.platform.updatePipeline);
+  router.post('/api/pipelines/:pipelineId/test', controller.platform.testPipeline);
+  router.post('/api/pipelines/:pipelineId/activate', controller.platform.activatePipeline);
   router.get('/api/zernio/connect', controller.platform.connectZernio);
   router.get('/api/zernio/callback', controller.platform.zernioCallback);
   router.post('/api/zernio/select', controller.platform.selectZernio);
   router.post('/api/zernio/sync', controller.platform.syncZernio);
+  router.get('/api/zernio/accounts', controller.platform.connectedAccounts);
   router.get('/api/approval-requests', controller.platform.approvals);
   router.get('/api/runs/:runId', controller.platform.run);
   router.post('/api/approval-requests/:approvalId/:decision', controller.platform.decideApproval);

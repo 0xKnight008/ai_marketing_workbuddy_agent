@@ -45,6 +45,27 @@ The legacy Fastify entrypoint is retained only as an explicit rollback adapter
 [`EGG_ADOPTION.md`](./EGG_ADOPTION.md) for the runtime boundaries and rollout
 requirements.
 
+## Guided pipeline workspace
+
+`/app` uses the hybrid template-to-pipeline flow: an operator can start from a
+standard template or a written outcome, configure the draft, select connected
+Zernio accounts, review the approval guardrail, run a readiness check, and then
+activate it. Readiness checks never publish or perform an external action.
+
+The gateway exposes the tenant-scoped building blocks at:
+
+- `GET /api/pipeline-templates`
+- `GET|POST /api/pipelines`
+- `PATCH /api/pipelines/:pipelineId`
+- `POST /api/pipelines/:pipelineId/test`
+- `POST /api/pipelines/:pipelineId/activate`
+- `GET /api/zernio/accounts`
+
+Draft edits create immutable workflow versions, while existing published
+workflows remain visible in the pipeline shelf. Apply
+`migrations/0013_connected_account_platform.sql` before deploying this UI so
+connected accounts include their platform and can be selected in context.
+
 ## Platform admin console
 
 `/app/admin` is the back-office operations view. Every request requires two
