@@ -19,6 +19,27 @@ export default class PlatformController extends Controller {
     this.ctx.body = await this.app.platform.service.exchangeActivationTicket(this.ctx.request.body);
   }
 
+  async registerWithEmail(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.status = 201;
+    this.ctx.body = await this.app.platform.service.registerWithEmail(this.ctx.request.body, this.ctx.ip);
+  }
+
+  async loginWithEmail(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.loginWithEmail(this.ctx.request.body, this.ctx.ip);
+  }
+
+  async me(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.me(this.actor());
+  }
+
+  async setPassword(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.setPassword(this.actor(), this.ctx.request.body);
+  }
+
   async createRun(): Promise<void> {
     const created = await this.app.platform.service.createWorkflowRun(this.actor(), this.ctx.request.body);
     this.ctx.status = 202;
