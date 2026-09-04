@@ -2,7 +2,13 @@ import { useEffect, useState, type ReactNode } from 'react';
 
 import { clearSessionAccessToken, readSessionAccessToken, storeSessionAccessToken } from '../lib/auth-session';
 
-const gatewayUrl = import.meta.env.VITE_GATEWAY_URL ?? 'http://localhost:4100';
+const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
+
+/** Local paths only — never bounce to an external origin. */
+function safeNextPath(): string {
+  const next = new URLSearchParams(window.location.search).get('next') ?? '';
+  return next.startsWith('/') && !next.startsWith('//') ? next : '';
+}
 
 interface RunView { id: string; status: string; workflowId: string; createdAt: string; }
 interface ApprovalView { id: string; runId: string; requestedAction: { summary?: string }; requestedAt: string; }
@@ -143,7 +149,21 @@ export default function PlatformDashboard() {
     await loadMe(token);
   }
 
-  if (!token) return <EmailAuthScreen onSession={(session) => { storeSessionAccessToken(session); setToken(session); }} />;
+  if (!token) {
+    return <EmailAuthScreen onSession={(session) => {
+      storeSessionAccessToken(session);
+      const next = safeNextPath();
+      if (next) { window.location.assign(next); return; }
+      setToken(session);
+    }} />;
+  }
+
+  // Already signed in and arrived here only to bounce onwards (e.g. checkout).
+  const next = safeNextPath();
+  if (next && window.location.pathname.startsWith('/app') && !window.location.pathname.startsWith('/app/admin')) {
+    window.location.assign(next);
+    return null;
+  }
 
   const locked = me ? !ACTIVE_SUBSCRIPTIONS.has(me.subscriptionStatus) : false;
 
