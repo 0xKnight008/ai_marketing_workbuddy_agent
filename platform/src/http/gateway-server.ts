@@ -117,6 +117,29 @@ app.post('/api/workflow-templates/:templateId/publish', async (request, reply) =
   return reply.code(201).send(await database.withWorkspace(actor.workspaceId, (tx) => createPublishedTemplate(tx, actor, templateId)));
 });
 
+app.get('/api/pipeline-templates', async (request) => platformService.pipelineTemplates(actorFrom(request)));
+
+app.get('/api/pipelines', async (request) => platformService.pipelines(actorFrom(request)));
+
+app.post('/api/pipelines', async (request, reply) => {
+  return reply.code(201).send(await platformService.createPipeline(actorFrom(request), request.body));
+});
+
+app.patch('/api/pipelines/:pipelineId', async (request) => {
+  const { pipelineId } = z.object({ pipelineId: z.string().uuid() }).parse(request.params);
+  return platformService.updatePipeline(actorFrom(request), pipelineId, request.body);
+});
+
+app.post('/api/pipelines/:pipelineId/test', async (request) => {
+  const { pipelineId } = z.object({ pipelineId: z.string().uuid() }).parse(request.params);
+  return platformService.testPipeline(actorFrom(request), pipelineId);
+});
+
+app.post('/api/pipelines/:pipelineId/activate', async (request) => {
+  const { pipelineId } = z.object({ pipelineId: z.string().uuid() }).parse(request.params);
+  return platformService.activatePipeline(actorFrom(request), pipelineId);
+});
+
 app.get('/api/zernio/connect', async (request) => {
   const actor = actorFrom(request);
   const query = z.object({ platform: z.string() }).parse(request.query);
@@ -140,6 +163,8 @@ app.post('/api/zernio/sync', async (request) => {
   const actor = actorFrom(request);
   return platformService.syncZernio(actor);
 });
+
+app.get('/api/zernio/accounts', async (request) => platformService.connectedAccounts(actorFrom(request)));
 
 app.get('/api/approval-requests', async (request) => {
   const actor = actorFrom(request);
@@ -256,7 +281,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 void main();
 
 function legacySuccessPage(): string {
-  return '<!doctype html><meta charset="utf-8"><title>Piggybot</title><main><h1>Account connected</h1><p>Your social account is ready in Piggybot. You may close this window.</p></main>';
+  return '<!doctype html><meta charset="utf-8"><title>Piggybot</title><script>window.opener?.postMessage({type:"piggybot:zernio-connected"}, "*");</script><main><h1>Account connected</h1><p>Your social account is ready in Piggybot. You may close this window.</p></main>';
 }
 
 function legacySelectionPage(platform: string, choices: Array<{ label: string; detail?: string; token: string }>): string {
