@@ -38,6 +38,7 @@ export const gatewayConfigSchema = databaseConfigSchema.extend({
   RESEND_FROM_EMAIL: z.string().min(3).optional(),
   ACTIVATION_TICKET_TTL_SECONDS: z.coerce.number().int().min(300).max(86_400).default(1_800),
   ACTIVATION_SESSION_TTL_SECONDS: z.coerce.number().int().min(300).max(86_400).default(14_400),
+  AUTH_SESSION_TTL_SECONDS: z.coerce.number().int().min(300).max(604_800).default(43_200),
   GATEWAY_PORT: z.coerce.number().int().min(1).max(65535).default(4100),
 });
 

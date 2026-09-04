@@ -26,6 +26,7 @@ import {
 } from '../gateway/pipelines';
 import { verifyAccessToken } from '../identity/token';
 import { ActivationDeliveryService } from '../identity/activation';
+import { EmailAuthService } from '../identity/email-auth';
 import { createDurableRun, decideApproval, ingestAiRuntimeEvent } from '../run-service/repository';
 import {
   ZERNIO_PLATFORMS,
@@ -42,6 +43,7 @@ import { activeReferralLink, referralSummary } from '../referral/service';
 export class PlatformService {
   private readonly activationDelivery: ActivationDeliveryService;
   private readonly admin: AdminService;
+  private readonly emailAuth: EmailAuthService;
 
   constructor(
     private readonly config: GatewayConfig,
@@ -50,6 +52,7 @@ export class PlatformService {
   ) {
     this.activationDelivery = new ActivationDeliveryService(config, database);
     this.admin = new AdminService(config, database);
+    this.emailAuth = new EmailAuthService(config, database);
   }
 
   actorFrom(authorization: string | undefined): ActorContext {
@@ -75,6 +78,22 @@ export class PlatformService {
 
   async exchangeActivationTicket(body: unknown): Promise<unknown> {
     return this.activationDelivery.exchangeTicket(body);
+  }
+
+  async registerWithEmail(body: unknown, clientKey: string): Promise<unknown> {
+    return this.emailAuth.register(body, clientKey);
+  }
+
+  async loginWithEmail(body: unknown, clientKey: string): Promise<unknown> {
+    return this.emailAuth.login(body, clientKey);
+  }
+
+  async me(actor: ActorContext): Promise<unknown> {
+    return this.emailAuth.me(actor);
+  }
+
+  async setPassword(actor: ActorContext, body: unknown): Promise<unknown> {
+    return this.emailAuth.setPassword(actor, body);
   }
 
   async createWorkflowRun(actor: ActorContext, body: unknown): Promise<{ runId: string; status: 'pending' }> {

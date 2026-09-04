@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 
-import { clearSessionAccessToken, readSessionAccessToken } from '../lib/auth-session';
+import { clearSessionAccessToken, readSessionAccessToken, storeSessionAccessToken } from '../lib/auth-session';
 
-const gatewayUrl = import.meta.env.VITE_GATEWAY_URL ?? 'http://localhost:4100';
+const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
+
+/** Local paths only — never bounce to an external origin. */
+function safeNextPath(): string {
+  const next = new URLSearchParams(window.location.search).get('next') ?? '';
+  return next.startsWith('/') && !next.startsWith('//') ? next : '';
+}
 
 type Section = 'pipelines' | 'accounts' | 'activity' | 'settings';
 type WizardStep = 'start' | 'configure' | 'accounts' | 'review' | 'saved';
@@ -27,6 +33,14 @@ interface ApprovalView { id: string; runId: string; requestedAction: { summary?:
 interface TaskEventView { id: string; runId: string; actionType: string; billableUnits: string; status: string; createdAt: string; }
 interface AuditEventView { id: string; runId?: string; eventType: string; createdAt: string; }
 interface UsageView { status: string; taskUsed: number; taskQuota: number; }
+interface MeView {
+  user: { email: string; displayName: string; passwordSet: boolean };
+  workspace: { id: string; name: string };
+  role: string;
+  plan: string;
+  subscriptionStatus: string;
+}
+interface SessionResponse { accessToken?: string; expiresAt?: string; }
 
 interface PipelineDraft {
   sourceType: 'template' | 'description';
@@ -46,6 +60,8 @@ const fallbackTemplates: PipelineTemplate[] = [
   { id: 'comment_lead', name: 'Comment-to-lead review', description: 'Classify high-intent comments and hand qualified leads to your team.', steps: ['Watch comments', 'AI classify', 'Review', 'Hand off'] },
 ];
 
+const ACTIVE_SUBSCRIPTIONS = new Set(['active', 'trialing']);
+
 const socialPlatforms = [
   ['facebook', 'Facebook'], ['instagram', 'Instagram'], ['linkedin', 'LinkedIn'],
   ['pinterest', 'Pinterest'], ['googlebusiness', 'Google Business'], ['snapchat', 'Snapchat'],
@@ -58,6 +74,7 @@ function freshDraft(): PipelineDraft {
 
 export default function PlatformDashboard() {
   const [token, setToken] = useState(readSessionAccessToken);
+  const [me, setMe] = useState<MeView | null>(null);
   const [section, setSection] = useState<Section>('pipelines');
   const [templates, setTemplates] = useState<PipelineTemplate[]>(fallbackTemplates);
   const [pipelines, setPipelines] = useState<PipelineView[]>([]);
@@ -80,9 +97,23 @@ export default function PlatformDashboard() {
   const [feedbackStatus, setFeedbackStatus] = useState('');
   const [referralUrl, setReferralUrl] = useState('');
   const [referralStatus, setReferralStatus] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [passwordStatus, setPasswordStatus] = useState('');
 
   const selectedTemplate = useMemo(() => templates.find((template) => template.id === draft.templateId), [draft.templateId, templates]);
   const healthyAccounts = accounts.filter((account) => account.status === 'connected');
+
+  const signOut = useCallback(() => {
+    clearSessionAccessToken();
+    setToken('');
+    setMe(null);
+  }, []);
+
+  const loadMe = useCallback(async (currentToken: string) => {
+    const response = await fetch(`${gatewayUrl}/api/auth/me`, { headers: { authorization: `Bearer ${currentToken}` } });
+    if (response.status === 401 || response.status === 403) { signOut(); return; }
+    if (response.ok) setMe(await response.json() as MeView);
+  }, [signOut]);
 
   const headers = useCallback((json = false): HeadersInit => {
     return { authorization: `Bearer ${token}`, ...(json ? { 'content-type': 'application/json' } : {}) };
@@ -126,9 +157,12 @@ export default function PlatformDashboard() {
 
   useEffect(() => {
     if (!token) return;
-    const timeout = window.setTimeout(() => void loadWorkspace(), 0);
+    const timeout = window.setTimeout(() => {
+      void loadMe(token);
+      void loadWorkspace();
+    }, 0);
     return () => window.clearTimeout(timeout);
-  }, [loadWorkspace, token]);
+  }, [loadMe, loadWorkspace, token]);
 
   useEffect(() => {
     const gatewayOrigin = new URL(gatewayUrl, window.location.origin).origin;
@@ -245,30 +279,99 @@ export default function PlatformDashboard() {
     setReferralUrl(result.url); setReferralStatus('Share this link and earn 20% credit on eligible first-year payments.');
   }
 
+  async function savePassword() {
+    setPasswordStatus('');
+    const response = await fetch(`${gatewayUrl}/api/auth/password`, {
+      method: 'POST', headers: headers(true), body: JSON.stringify({ password: newPassword }),
+    });
+    if (!response.ok) { setPasswordStatus('The password could not be saved. Use 8-128 characters.'); return; }
+    setNewPassword('');
+    setPasswordStatus('Password saved — you can now sign in with your email.');
+    await loadMe(token);
+  }
+
+  if (!token) {
+    return <EmailAuthScreen onSession={(session) => {
+      storeSessionAccessToken(session);
+      const next = safeNextPath();
+      if (next) { window.location.assign(next); return; }
+      setToken(session);
+    }} />;
+  }
+
+  // PR #36: complete the same-origin checkout bounce for an existing session.
+  const next = safeNextPath();
+  if (next && window.location.pathname.startsWith('/app') && !window.location.pathname.startsWith('/app/admin')) {
+    window.location.assign(next);
+    return null;
+  }
+
+  const locked = me ? !ACTIVE_SUBSCRIPTIONS.has(me.subscriptionStatus) : false;
+
   return (
     <main className="paper-grain min-h-screen bg-paper text-ink">
       <header className="border-b-2 border-ink/20 bg-paper-card px-6 py-5 md:px-10">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div><p className="font-hand text-lg text-sky-deep">Piggybot Platform</p><h1 className="font-display text-3xl">Marketing workspace</h1></div>
+          <div><p className="font-hand text-lg text-sky-deep">Piggybot Platform</p><h1 className="font-display text-3xl">{me?.workspace.name ?? 'Marketing workspace'}</h1>{me && <p className="mt-1 text-sm text-ink-soft">Signed in as {me.user.email} · {me.role} · plan {me.plan}</p>}</div>
           <nav className="flex flex-wrap gap-2" aria-label="Workspace navigation">
             {([['pipelines', 'Pipelines'], ['accounts', 'Accounts'], ['activity', 'Activity'], ['settings', 'Settings']] as const).map(([id, label]) => <button key={id} onClick={() => setSection(id)} className={`rounded-full px-4 py-2 text-sm font-medium ${section === id ? 'bg-sky-deep text-white' : 'bg-paper text-ink-soft hover:bg-sky-pale'}`}>{label}</button>)}
           </nav>
-          <div className="flex gap-4 text-sm"><a className="text-ink-soft hover:text-ink" href="/app/admin">Admin</a><a className="text-ink-soft hover:text-ink" href="/contact">Help</a><a className="text-ink-soft hover:text-ink" href="/">Website</a></div>
+          <div className="flex items-center gap-4 text-sm"><a className="text-ink-soft hover:text-ink" href="/app/admin">Admin</a><a className="text-ink-soft hover:text-ink" href="/contact">Help</a><a className="text-ink-soft hover:text-ink" href="/">Website</a><button onClick={signOut} className="rounded-md border border-ink/20 px-3 py-1.5 text-ink-soft hover:text-ink">Sign out</button></div>
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl p-6 md:p-10">
+      {locked && <section className="mx-auto mt-8 max-w-7xl rounded-xl border-2 border-sunset/50 bg-sunset/10 p-5"><h2 className="text-lg font-semibold">Your workspace is in preview mode</h2><p className="mt-1 text-sm text-ink-soft">Every automation feature is locked until this workspace has an active subscription.</p><a href="/activate?plan=growth" className="mt-4 inline-block rounded-md bg-sunset px-5 py-3 font-medium text-white shadow-paint-sm">Subscribe to unlock</a></section>}
+
+      <div className={`mx-auto max-w-7xl p-6 md:p-10 ${locked && section !== 'settings' ? 'pointer-events-none select-none opacity-40 grayscale' : ''}`} aria-disabled={locked && section !== 'settings'}>
         {message && <div className="mb-6 rounded-xl border border-sky-deep/20 bg-sky-pale p-4 text-sm text-sky-deep" role="status">{message}</div>}
-        {!token && <SessionGate token={token} setToken={setToken} />}
-        {token && section === 'pipelines' && <PipelinesSection templates={templates} pipelines={pipelines} usage={usage} loading={loading} onNew={() => { setDraft(freshDraft()); setSavedPipeline(null); setReadiness(null); setWizardStep('start'); }} onTemplate={startTemplate} onContinue={continuePipeline} onActivity={() => setSection('activity')} />}
-        {token && section === 'accounts' && <AccountsSection accounts={accounts} connecting={connecting} onConnect={connectSocial} onRefresh={() => void refreshAccounts(true)} />}
-        {token && section === 'activity' && <ActivitySection approvals={approvals} taskEvents={taskEvents} auditEvents={auditEvents} runId={runId} setRunId={setRunId} run={run} onLoadRun={() => void loadRun()} onDecision={decideApproval} />}
-        {token && section === 'settings' && <SettingsSection token={token} setToken={setToken} feedbackCategory={feedbackCategory} setFeedbackCategory={setFeedbackCategory} feedbackMessage={feedbackMessage} setFeedbackMessage={setFeedbackMessage} feedbackStatus={feedbackStatus} onFeedback={() => void sendFeedback()} referralUrl={referralUrl} referralStatus={referralStatus} onReferral={() => void createReferralLink()} />}
+        {section === 'pipelines' && <PipelinesSection templates={templates} pipelines={pipelines} usage={usage} loading={loading} onNew={() => { setDraft(freshDraft()); setSavedPipeline(null); setReadiness(null); setWizardStep('start'); }} onTemplate={startTemplate} onContinue={continuePipeline} onActivity={() => setSection('activity')} />}
+        {section === 'accounts' && <AccountsSection accounts={accounts} connecting={connecting} onConnect={connectSocial} onRefresh={() => void refreshAccounts(true)} />}
+        {section === 'activity' && <ActivitySection approvals={approvals} taskEvents={taskEvents} auditEvents={auditEvents} runId={runId} setRunId={setRunId} run={run} onLoadRun={() => void loadRun()} onDecision={decideApproval} />}
+        {section === 'settings' && <SettingsSection me={me} locked={locked} newPassword={newPassword} setNewPassword={setNewPassword} passwordStatus={passwordStatus} onSavePassword={() => void savePassword()} onSignOut={signOut} feedbackCategory={feedbackCategory} setFeedbackCategory={setFeedbackCategory} feedbackMessage={feedbackMessage} setFeedbackMessage={setFeedbackMessage} feedbackStatus={feedbackStatus} onFeedback={() => void sendFeedback()} referralUrl={referralUrl} referralStatus={referralStatus} onReferral={() => void createReferralLink()} />}
       </div>
 
-      {wizardStep && <PipelineWizard step={wizardStep} draft={draft} setDraft={setDraft} templates={templates} selectedTemplate={draft.sourceType === 'template' ? selectedTemplate : undefined} accounts={healthyAccounts} savedPipeline={savedPipeline} readiness={readiness} loading={loading} onClose={() => setWizardStep(null)} onStep={setWizardStep} onTemplate={startTemplate} onDescription={startDescription} onToggleAccount={toggleAccount} onSave={() => void saveDraft()} onTest={() => void testSetup()} onActivate={() => void activateSavedPipeline()} />}
+      {wizardStep && !locked && <PipelineWizard step={wizardStep} draft={draft} setDraft={setDraft} templates={templates} selectedTemplate={draft.sourceType === 'template' ? selectedTemplate : undefined} accounts={healthyAccounts} savedPipeline={savedPipeline} readiness={readiness} loading={loading} onClose={() => setWizardStep(null)} onStep={setWizardStep} onTemplate={startTemplate} onDescription={startDescription} onToggleAccount={toggleAccount} onSave={() => void saveDraft()} onTest={() => void testSetup()} onActivate={() => void activateSavedPipeline()} />}
     </main>
   );
+}
+
+/** Email sign-in / registration gate from PR #35. */
+function EmailAuthScreen({ onSession }: { onSession: (accessToken: string) => void }) {
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function submit() {
+    setBusy(true); setError('');
+    try {
+      const response = await fetch(`${gatewayUrl}/api/auth/${mode === 'login' ? 'login' : 'register'}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(mode === 'login'
+          ? { email, password }
+          : { email, password, ...(displayName.trim() ? { displayName: displayName.trim() } : {}) }),
+      });
+      const body = await response.json().catch(() => ({})) as SessionResponse & { error?: string };
+      if (!response.ok || typeof body.accessToken !== 'string') {
+        setError(body.error === 'email_already_registered'
+          ? 'This email already has an account — sign in instead.'
+          : body.error === 'rate_limited'
+            ? 'Too many attempts. Wait a few minutes and try again.'
+            : 'Sign-in failed. Check your email and password.');
+        return;
+      }
+      onSession(body.accessToken);
+    } catch {
+      setError('The platform could not be reached. Try again in a moment.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <main className="paper-grain flex min-h-screen items-center justify-center bg-paper p-6 text-ink"><section className="wobble sketch w-full max-w-md bg-paper-card p-8 shadow-paint"><p className="font-hand text-xl text-sky-deep">Piggybot Platform</p><h1 className="mt-2 font-display text-3xl">{mode === 'login' ? 'Sign in to your workspace' : 'Create your workspace'}</h1><p className="mt-2 text-sm text-ink-soft">{mode === 'login' ? 'Use the email you signed up with — Gmail works great.' : 'Register with your email. A free workspace is created instantly; subscribe any time to unlock every feature.'}</p><div className="mt-6 grid grid-cols-2 gap-2 rounded-lg border border-ink/15 p-1 text-sm font-medium"><button onClick={() => { setMode('login'); setError(''); }} className={`rounded-md px-3 py-2 ${mode === 'login' ? 'bg-sky-deep text-white' : 'text-ink-soft hover:text-ink'}`}>Sign in</button><button onClick={() => { setMode('register'); setError(''); }} className={`rounded-md px-3 py-2 ${mode === 'register' ? 'bg-sky-deep text-white' : 'text-ink-soft hover:text-ink'}`}>Register</button></div><label className="mt-5 block text-sm text-ink-soft">Email</label><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-2 w-full rounded-md border border-ink/20 bg-paper p-3 text-sm" placeholder="you@gmail.com" autoComplete="email" /><label className="mt-4 block text-sm text-ink-soft">Password</label><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void submit(); }} className="mt-2 w-full rounded-md border border-ink/20 bg-paper p-3 text-sm" placeholder={mode === 'register' ? '8-128 characters' : 'Your password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />{mode === 'register' && <><label className="mt-4 block text-sm text-ink-soft">Display name <span className="text-ink-faint">(optional)</span></label><input value={displayName} onChange={(event) => setDisplayName(event.target.value)} className="mt-2 w-full rounded-md border border-ink/20 bg-paper p-3 text-sm" placeholder="How should we call you?" autoComplete="name" /></>}{error && <p className="mt-4 rounded-lg bg-sunset/15 p-3 text-sm text-sunset-deep" role="alert">{error}</p>}<button disabled={busy || !email.trim() || password.length < 8} onClick={() => void submit()} className="mt-6 w-full rounded-md bg-sky-deep px-4 py-3 font-medium text-white shadow-paint-sm transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50">{busy ? 'One moment…' : mode === 'login' ? 'Sign in' : 'Create account'}</button><div className="mt-5 flex justify-between text-sm"><a href="/" className="text-ink-soft hover:text-ink">← Back to site</a><a href="/contact" className="text-ink-soft hover:text-ink">Need help?</a></div></section></main>;
 }
 
 function PipelinesSection({ templates, pipelines, usage, loading, onNew, onTemplate, onContinue, onActivity }: { templates: PipelineTemplate[]; pipelines: PipelineView[]; usage: UsageView | null; loading: boolean; onNew: () => void; onTemplate: (template: PipelineTemplate) => void; onContinue: (pipeline: PipelineView) => void; onActivity: () => void; }) {
@@ -297,8 +400,8 @@ function ActivitySection({ approvals, taskEvents, auditEvents, runId, setRunId, 
   return <div className="space-y-8"><section><p className="font-hand text-lg text-sky-deep">Human control</p><h2 className="font-display text-3xl">Approvals & Activity</h2><div className="mt-5 grid gap-6 lg:grid-cols-3"><Feed title="Approvals" empty="No actions are waiting for approval.">{approvals.map((approval) => <div key={approval.id} className="border-b border-ink/10 py-3 text-sm"><p>{approval.requestedAction.summary ?? 'Publishing action'}</p><p className="mt-1 text-xs text-ink-soft">{new Date(approval.requestedAt).toLocaleString()}</p><div className="mt-2 flex gap-2"><button className="rounded bg-sky-deep px-2 py-1 text-xs text-white" onClick={() => void onDecision(approval.id, 'approved')}>Approve</button><button className="rounded border border-ink/30 px-2 py-1 text-xs" onClick={() => void onDecision(approval.id, 'rejected')}>Reject</button></div></div>)}</Feed><Feed title="Successful actions" empty="No billable actions yet.">{taskEvents.map((event) => <div key={event.id} className="border-b border-ink/10 py-3 text-sm"><p>{event.actionType}: {event.billableUnits} unit(s)</p><p className="mt-1 text-xs text-ink-soft">{event.status} · {new Date(event.createdAt).toLocaleString()}</p></div>)}</Feed><Feed title="Audit trail" empty="No audit events yet.">{auditEvents.map((event) => <div key={event.id} className="border-b border-ink/10 py-3 text-sm"><p>{event.eventType}</p><p className="mt-1 text-xs text-ink-soft">{new Date(event.createdAt).toLocaleString()}</p></div>)}</Feed></div></section><section className="rounded-xl border border-ink/20 bg-paper-card p-5"><h3 className="text-lg font-semibold">Find a specific run</h3><div className="mt-4 flex flex-col gap-3 md:flex-row"><input value={runId} onChange={(event) => setRunId(event.target.value)} className="flex-1 rounded-md border border-ink/20 bg-paper p-3" placeholder="Workflow run UUID" /><button onClick={onLoadRun} className="rounded-md bg-sky-deep px-5 py-3 font-medium text-white">Load run</button></div>{run && <div className="mt-5 grid gap-3 rounded-lg bg-sky-pale p-4 text-sm md:grid-cols-3"><span>Status: <b>{run.status}</b></span><span>Workflow: {run.workflowId}</span><span>Created: {new Date(run.createdAt).toLocaleString()}</span></div>}</section></div>;
 }
 
-function SettingsSection({ token, setToken, feedbackCategory, setFeedbackCategory, feedbackMessage, setFeedbackMessage, feedbackStatus, onFeedback, referralUrl, referralStatus, onReferral }: { token: string; setToken: (value: string) => void; feedbackCategory: string; setFeedbackCategory: (value: string) => void; feedbackMessage: string; setFeedbackMessage: (value: string) => void; feedbackStatus: string; onFeedback: () => void; referralUrl: string; referralStatus: string; onReferral: () => void; }) {
-  return <div className="grid gap-6 lg:grid-cols-2"><section className="sketch bg-paper-card p-5"><h2 className="text-lg font-semibold">Workspace session</h2><p className="mt-1 text-sm text-ink-soft">Activation links create a short-lived session scoped to this tab.</p><label className="mt-4 block text-sm text-ink-soft">Access token</label><input type="password" value={token} onChange={(event) => setToken(event.target.value)} className="mt-2 w-full rounded-md border border-ink/20 bg-paper p-3 text-xs" autoComplete="off" /><button onClick={() => { clearSessionAccessToken(); setToken(''); }} className="mt-3 rounded-md border border-ink/20 px-4 py-2 text-sm font-medium">Clear session</button></section><section className="sketch bg-paper-card p-5"><h2 className="text-lg font-semibold">Refer & earn 20%</h2><p className="mt-1 text-sm text-ink-soft">Earn account credit after an eligible referral clears its refund window.</p><input readOnly value={referralUrl} className="mt-4 w-full rounded-md border border-ink/20 bg-paper p-3 text-sm" placeholder="Generate your personal referral link" /><div className="mt-3 flex gap-2"><button onClick={onReferral} className="rounded-md bg-sunset px-4 py-2 text-sm font-medium text-white">Generate link</button>{referralUrl && <button onClick={() => void navigator.clipboard.writeText(referralUrl)} className="rounded-md border border-ink/30 px-4 py-2 text-sm font-medium">Copy</button>}</div>{referralStatus && <p className="mt-3 text-sm text-sky-deep">{referralStatus}</p>}</section><section className="sketch bg-paper-card p-5 lg:col-span-2"><h2 className="text-lg font-semibold">Help & support</h2><div className="mt-4 grid gap-3 md:grid-cols-[180px_1fr_auto]"><select value={feedbackCategory} onChange={(event) => setFeedbackCategory(event.target.value)} className="rounded-md border border-ink/20 bg-paper p-3"><option value="billing">Billing</option><option value="bug">Bug</option><option value="feature">Feature request</option><option value="other">Other</option></select><textarea value={feedbackMessage} maxLength={2000} onChange={(event) => setFeedbackMessage(event.target.value)} className="min-h-24 rounded-md border border-ink/20 bg-paper p-3" placeholder="How can we help?" /><button disabled={!feedbackMessage.trim()} onClick={onFeedback} className="h-fit rounded-md bg-sky-deep px-5 py-3 font-medium text-white disabled:opacity-50">Send to support</button></div>{feedbackStatus && <p className="mt-3 text-sm text-sky-deep">{feedbackStatus}</p>}</section></div>;
+function SettingsSection({ me, locked, newPassword, setNewPassword, passwordStatus, onSavePassword, onSignOut, feedbackCategory, setFeedbackCategory, feedbackMessage, setFeedbackMessage, feedbackStatus, onFeedback, referralUrl, referralStatus, onReferral }: { me: MeView | null; locked: boolean; newPassword: string; setNewPassword: (value: string) => void; passwordStatus: string; onSavePassword: () => void; onSignOut: () => void; feedbackCategory: string; setFeedbackCategory: (value: string) => void; feedbackMessage: string; setFeedbackMessage: (value: string) => void; feedbackStatus: string; onFeedback: () => void; referralUrl: string; referralStatus: string; onReferral: () => void; }) {
+  return <div className="grid gap-6 lg:grid-cols-2"><section className="sketch bg-paper-card p-5"><h2 className="text-lg font-semibold">Account</h2>{me ? <><p className="mt-2 text-sm font-medium">{me.user.email}</p><p className="mt-1 text-sm text-ink-soft">{me.workspace.name} · {me.role} · plan {me.plan}</p>{!me.user.passwordSet && <><p className="mt-4 text-sm text-ink-soft">Set a password so you can sign in with your email next time.</p><input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="mt-2 w-full rounded-md border border-ink/20 bg-paper p-3 text-sm" placeholder="New password (8-128 characters)" autoComplete="new-password" /><button disabled={newPassword.length < 8} onClick={onSavePassword} className="mt-3 rounded-md bg-sky-deep px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50">Save password</button></>}{passwordStatus && <p className="mt-3 text-sm text-sky-deep" role="status">{passwordStatus}</p>}</> : <p className="mt-2 text-sm text-ink-soft">Loading workspace identity…</p>}<button onClick={onSignOut} className="mt-4 rounded-md border border-ink/20 px-4 py-2 text-sm font-medium">Sign out</button></section><section className="sketch bg-paper-card p-5"><h2 className="text-lg font-semibold">Refer & earn 20%</h2><p className="mt-1 text-sm text-ink-soft">Earn account credit after an eligible referral clears its refund window.</p><input readOnly value={referralUrl} className="mt-4 w-full rounded-md border border-ink/20 bg-paper p-3 text-sm" placeholder="Generate your personal referral link" /><div className="mt-3 flex gap-2"><button disabled={locked} onClick={onReferral} className="rounded-md bg-sunset px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50">Generate link</button>{referralUrl && <button onClick={() => void navigator.clipboard.writeText(referralUrl)} className="rounded-md border border-ink/30 px-4 py-2 text-sm font-medium">Copy</button>}</div>{referralStatus && <p className="mt-3 text-sm text-sky-deep">{referralStatus}</p>}</section><section className="sketch bg-paper-card p-5 lg:col-span-2"><h2 className="text-lg font-semibold">Help & support</h2><div className="mt-4 grid gap-3 md:grid-cols-[180px_1fr_auto]"><select value={feedbackCategory} onChange={(event) => setFeedbackCategory(event.target.value)} className="rounded-md border border-ink/20 bg-paper p-3"><option value="billing">Billing</option><option value="bug">Bug</option><option value="feature">Feature request</option><option value="other">Other</option></select><textarea value={feedbackMessage} maxLength={2000} onChange={(event) => setFeedbackMessage(event.target.value)} className="min-h-24 rounded-md border border-ink/20 bg-paper p-3" placeholder="How can we help?" /><button disabled={locked || !feedbackMessage.trim()} onClick={onFeedback} className="h-fit rounded-md bg-sky-deep px-5 py-3 font-medium text-white disabled:cursor-not-allowed disabled:opacity-50">Send to support</button></div>{feedbackStatus && <p className="mt-3 text-sm text-sky-deep">{feedbackStatus}</p>}</section></div>;
 }
 
 function PipelineWizard({ step, draft, setDraft, templates, selectedTemplate, accounts, savedPipeline, readiness, loading, onClose, onStep, onTemplate, onDescription, onToggleAccount, onSave, onTest, onActivate }: { step: WizardStep; draft: PipelineDraft; setDraft: React.Dispatch<React.SetStateAction<PipelineDraft>>; templates: PipelineTemplate[]; selectedTemplate?: PipelineTemplate; accounts: ConnectedAccount[]; savedPipeline: PipelineView | null; readiness: PipelineReadiness | null; loading: boolean; onClose: () => void; onStep: (step: WizardStep) => void; onTemplate: (template: PipelineTemplate) => void; onDescription: () => void; onToggleAccount: (id: string) => void; onSave: () => void; onTest: () => void; onActivate: () => void; }) {
@@ -313,7 +416,6 @@ function PipelineWizard({ step, draft, setDraft, templates, selectedTemplate, ac
   </div></div></div>;
 }
 
-function SessionGate({ token, setToken }: { token: string; setToken: (value: string) => void; }) { return <section className="mx-auto max-w-xl sketch bg-paper-card p-6 text-center shadow-paint"><p className="font-hand text-lg text-sky-deep">Welcome back</p><h2 className="font-display text-3xl">Open your workspace</h2><p className="mt-2 text-sm text-ink-soft">Use the short-lived token from your activation link.</p><input type="password" value={token} onChange={(event) => setToken(event.target.value)} className="mt-5 w-full rounded-md border border-ink/20 bg-paper p-3 text-sm" placeholder="Workspace access token" autoComplete="off" /></section>; }
 function TemplateCard({ template, onClick }: { template: PipelineTemplate; onClick: () => void; }) { return <button onClick={onClick} className="wobble-2 sketch bg-paper-card p-5 text-left shadow-paint-sm transition hover:-translate-y-1 hover:bg-sky-pale"><span className="text-xs font-semibold uppercase tracking-wide text-sky-deep">Standard template</span><span className="mt-2 block text-lg font-semibold">{template.name}</span><span className="mt-2 block text-sm text-ink-soft">{template.description}</span><span className="mt-4 block text-xs font-medium text-sky-deep">Use this template →</span></button>; }
 function Stat({ label, value, detail }: { label: string; value: string; detail: string; }) { return <div className="sketch bg-paper-card p-5 shadow-paint-sm"><p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">{label}</p><p className="mt-2 font-display text-3xl">{value}</p><p className="mt-1 text-xs text-ink-soft">{detail}</p></div>; }
 function StatusBadge({ status }: { status: string }) { const active = status === 'published' || status === 'connected' || status === 'succeeded'; return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${active ? 'bg-meadow-light text-meadow-deep' : status === 'draft' || status === 'syncing' ? 'bg-sun/35 text-ink' : 'bg-sunset/15 text-sunset'}`}>{status === 'published' ? 'Active' : status}</span>; }

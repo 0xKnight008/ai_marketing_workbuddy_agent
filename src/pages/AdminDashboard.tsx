@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { readSessionAccessToken } from '../lib/auth-session';
 
-const gatewayUrl = import.meta.env.VITE_GATEWAY_URL ?? 'http://localhost:4100';
+const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
 type AdminTab = 'workspaces' | 'feedback' | 'jobs' | 'referrals';
 
 interface UsageView {
@@ -72,6 +72,16 @@ const tabs: Array<{ id: AdminTab; label: string }> = [
 ];
 
 export default function AdminDashboard() {
+  // Internal console: reachable only by direct URL, never linked or indexed.
+  useEffect(() => {
+    document.title = 'Piggybot internal admin';
+    const meta = document.createElement('meta');
+    meta.name = 'robots';
+    meta.content = 'noindex, nofollow';
+    document.head.appendChild(meta);
+    return () => { document.head.removeChild(meta); };
+  }, []);
+
   const [accessToken, setAccessToken] = useState(readSessionAccessToken);
   const [adminToken, setAdminToken] = useState('');
   const [tab, setTab] = useState<AdminTab>('workspaces');

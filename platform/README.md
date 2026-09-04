@@ -63,7 +63,7 @@ The gateway exposes the tenant-scoped building blocks at:
 
 Draft edits create immutable workflow versions, while existing published
 workflows remain visible in the pipeline shelf. Apply
-`migrations/0013_connected_account_platform.sql` before deploying this UI so
+`migrations/0014_connected_account_platform.sql` before deploying this UI so
 connected accounts include their platform and can be selected in context.
 
 ## Platform admin console
