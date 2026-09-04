@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { readSessionAccessToken } from '../lib/auth-session';
 
-const gatewayUrl = import.meta.env.VITE_GATEWAY_URL ?? 'http://localhost:4100';
+const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
 type AdminTab = 'workspaces' | 'feedback' | 'jobs' | 'referrals';
 
 interface UsageView {
