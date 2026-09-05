@@ -13,6 +13,7 @@ test('pipeline catalogue exposes guided templates without leaking database defin
   const templates = listPipelineTemplates();
   assert.deepEqual(templates.map((template) => template.id), ['repurpose', 'weekly_report', 'comment_lead']);
   assert.equal('definitionSteps' in templates[0]!, false);
+  assert.deepEqual(templates.filter((template) => template.available).map((template) => template.id), ['repurpose']);
 });
 
 test('existing published workflows remain visible as imported pipelines', async () => {
@@ -102,6 +103,7 @@ test('activation requires healthy accounts and publishes a ready draft', async (
 
   assert.equal(result.status, 'published');
   assert.equal(result.definition.targetAccountIds[0], accountId);
+  assert.equal(result.run.status, 'pending');
 });
 
 function pipelineTransaction(overrides: Partial<PipelineDefinition>, activate = false): TenantTransaction {
@@ -122,8 +124,10 @@ function pipelineTransaction(overrides: Partial<PipelineDefinition>, activate = 
         return { rows: [{ id: pipelineId, name: 'Launch repurposing', status: activate ? 'published' : 'draft', version: 1, updatedAt: '2026-09-04T00:00:00Z', definition } as Row], rowCount: 1 };
       }
       if (sql.includes('FROM connected_account')) {
-        return { rows: definition.targetAccountIds.map((id) => ({ id, status: 'connected' } as Row)), rowCount: definition.targetAccountIds.length };
+        return { rows: definition.targetAccountIds.map((id) => ({ id, status: 'connected', platform: 'linkedin', externalAccountId: `external-${id}`, capabilities: ['social.create_post'] } as Row)), rowCount: definition.targetAccountIds.length };
       }
+      if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null } as Row], rowCount: 1 };
+      if (sql.includes('INSERT INTO workflow_run')) return { rows: [{ id: 'run-1', status: 'pending', workflowId: pipelineId, createdAt: '2026-09-05' } as Row], rowCount: 1 };
       if (sql.includes('UPDATE workflow')) {
         return { rows: [{ id: pipelineId, name: 'Launch repurposing', status: 'published', version: 1, updatedAt: '2026-09-04T00:05:00Z' } as Row], rowCount: 1 };
       }
@@ -131,3 +135,47 @@ function pipelineTransaction(overrides: Partial<PipelineDefinition>, activate = 
     },
   } as TenantTransaction;
 }
+
+test('activation queues the configured announcement once and returns the same run on retry', async () => {
+  const base = pipelineTransaction({ targetAccountIds: [accountId], tone: 'warm', language: 'es' }, true);
+  const queries: Array<{ sql: string; values: readonly unknown[] }> = [];
+  let inserted = false;
+  const tx: TenantTransaction = {
+    query: (async (sql: string, values: readonly unknown[] = []) => {
+      queries.push({ sql, values });
+      if (sql.includes('INSERT INTO workflow_run')) {
+        if (inserted) return { rows: [], rowCount: 0 };
+        inserted = true;
+      }
+      if (sql.startsWith('SELECT id, status') && sql.includes('FROM workflow_run')) return { rows: [{ id: 'run-1', status: 'pending' }], rowCount: 1 };
+      return base.query(sql, values);
+    }) as TenantTransaction['query'],
+  };
+  const first = await activatePipeline(tx, actor, pipelineId);
+  const second = await activatePipeline(tx, actor, pipelineId);
+  assert.equal(first.run.id, second.run.id);
+  assert.equal(queries.filter(({ sql }) => sql.includes('INSERT INTO job')).length, 1);
+  const values = queries.find(({ sql }) => sql.includes('INSERT INTO workflow_run'))!.values;
+  assert.equal(values[3], `pipeline:${pipelineId}:v1:activation`);
+  assert.deepEqual(values[4], { mode: 'publish', brief: 'Create a complete launch announcement for all selected channels.', targets: [{ platform: 'linkedin', accountId: `external-${accountId}` }] });
+  assert.deepEqual(values[5], { tone: 'warm', language: 'es', forbiddenWords: [], approvalPolicy: 'required', allowedModelClasses: ['eco'] });
+  assert.ok(queries.some(({ sql }) => sql.includes('FOR UPDATE OF w')));
+});
+
+test('unsupported templates fail readiness and never enqueue announcement jobs', async () => {
+  const tx = pipelineTransaction({ steps: [{ type: 'social.get_analytics' }, { type: 'ai.summarize' }, { type: 'approval' }] });
+  assert.equal((await inspectPipelineReadiness(tx, actor, pipelineId)).ready, false);
+  await assert.rejects(() => activatePipeline(tx, actor, pipelineId), /not ready/);
+});
+
+test('activation rejects inactive workspaces before publishing or enqueueing', async () => {
+  const queries: string[] = [];
+  const base = pipelineTransaction({});
+  const tx: TenantTransaction = { query: (async (sql: string, values?: readonly unknown[]) => {
+    queries.push(sql);
+    if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', subscriptionStatus: 'inactive', trialEndsAt: null, paymentGraceEndsAt: null }], rowCount: 1 };
+    return base.query(sql, values);
+  }) as TenantTransaction['query'] };
+  await assert.rejects(() => activatePipeline(tx, actor, pipelineId), /automation_paused/);
+  assert.equal(queries.some((sql) => sql.includes('UPDATE workflow') || sql.includes('INSERT INTO job')), false);
+});

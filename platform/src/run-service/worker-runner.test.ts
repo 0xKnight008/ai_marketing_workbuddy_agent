@@ -5,6 +5,33 @@ import type { QueryResultRow } from 'pg';
 import type { TenantTransaction } from '../foundation/database';
 import { RunWorker, type ClaimedJob, type RunWorkerDatabase } from './worker-runner';
 
+for (const kind of ['prepare_ai_run', 'execute_approved_actions']) {
+  test(`worker does not call suppliers for inactive subscriptions (${kind})`, async () => {
+    const statements: string[] = [];
+    const tx: TenantTransaction = { query: (async (sql: string) => {
+      statements.push(sql);
+      if (sql.includes('FROM workflow_run r')) return { rows: [{ id: 'run-1', input: {}, context: { allowedModelClasses: ['eco'] }, definition: { steps: [{ type: 'ai.prepare_announcement' }, { type: 'approval' }, { type: 'social.schedule_post' }] } }], rowCount: 1 };
+      if (sql.startsWith('SELECT status FROM workflow_run')) return { rows: [{ status: 'queued' }], rowCount: 1 };
+      if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', subscriptionStatus: 'inactive', trialEndsAt: null, paymentGraceEndsAt: null }], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    }) as TenantTransaction['query'] };
+    let calls = 0;
+    const worker = new RunWorker({ workerName: 'review-test', database: {
+      claimNextJob: async () => ({ id: 'job-1', runId: 'run-1', workspaceId: 'workspace-1', kind, attempt: 1, payload: { actionPlan: {
+        summary: 'Post', requiresApproval: true, actions: [{ stepOrder: 1, type: 'social.create_post', platform: 'linkedin', accountId: 'account-1', content: 'Hello', idempotencyKey: 'run-1:post', requiresApproval: true }],
+      } } }),
+      withWorkspace: async (_workspaceId, operation) => operation(tx),
+    }, aiRuntime: {
+      prepareAnnouncement: async () => { calls++; return { aiRunId: 'ai-run-1', status: 'accepted' }; },
+      getAnnouncementRun: async () => { throw new Error('unexpected'); },
+    }, zernio: { executeAction: async () => { calls++; } } });
+    await worker.runOne();
+    assert.equal(calls, 0);
+    assert.ok(statements.some((sql) => sql.includes("status = 'waiting_approval'")));
+    assert.equal(statements.some((sql) => sql.includes('INSERT INTO task_event')), false);
+  });
+}
+
 test('RunWorker drains a bounded batch and requeues unsupported work safely', async () => {
   const jobs: ClaimedJob[] = [
     { id: 'job-1', workspaceId: 'workspace-1', runId: null, kind: 'unknown', payload: {}, attempt: 1 },

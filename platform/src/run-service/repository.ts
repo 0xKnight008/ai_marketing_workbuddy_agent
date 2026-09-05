@@ -2,18 +2,23 @@ import type { ActorContext, RunStatus, WorkflowRunRequest } from '../contracts/d
 import { actionPlanSchema, type ActionPlan, type AiRuntimeEvent } from '../contracts/ai-runtime-event';
 import type { TenantTransaction } from '../foundation/database';
 import { nextStatusAfterApproval } from './state-machine';
+import { requireAutomationAccess } from '../billing/guardrails';
+import { isAnnouncementWorkflow } from '../contracts/workflow-definition';
+import { HttpError } from '../http/errors';
 
 export interface RunRecord { id: string; status: RunStatus; workflowId: string; createdAt: string; }
 
 export async function createDurableRun(tx: TenantTransaction, actor: ActorContext, request: WorkflowRunRequest): Promise<RunRecord> {
-  const workflow = await tx.query<{ id: string }>(
-    `SELECT w.id
+  await requireAutomationAccess(tx);
+  const workflow = await tx.query<{ id: string; definition: unknown }>(
+    `SELECT w.id, v.definition
        FROM workflow w
        JOIN workflow_version v ON v.workflow_id = w.id AND v.version = $2
       WHERE w.id = $1 AND w.workspace_id = $3 AND w.status = 'published'`,
     [request.workflowId, request.workflowVersion, actor.workspaceId],
   );
   if (!workflow.rows[0]) throw new Error('Workflow is not available in this workspace');
+  if (!isAnnouncementWorkflow(workflow.rows[0].definition)) throw new HttpError(409, 'workflow_execution_unsupported');
   const created = await tx.query<RunRecord>(
     `INSERT INTO workflow_run (workspace_id, workflow_id, workflow_version, status, idempotency_key, input, context_snapshot, requested_by)
      VALUES ($1, $2, $3, 'pending', $4, $5, $6, $7)

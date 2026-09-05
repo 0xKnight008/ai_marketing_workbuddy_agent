@@ -1,4 +1,5 @@
 import type { TenantTransaction } from '../foundation/database';
+import { HttpError } from '../http/errors';
 import { MODEL_BAND_POLICIES, PLAN_CATALOG, planKey, requestedModelBand, type ModelBand, type PlanKey } from './plans';
 
 const WARNING_RATIO = 0.8;
@@ -55,6 +56,21 @@ export function guardrailStatus(taskUsed: number, taskQuota: number, supplierSpe
   return 'normal';
 }
 
+/** Subscription restrictions must survive every projected usage calculation. */
+function executionStatus(usage: Pick<UsageSnapshot, 'subscriptionStatus' | 'trialEndsAt' | 'paymentGraceEndsAt'>, resourceStatus: GuardrailStatus): GuardrailStatus {
+  if (resourceStatus === 'paused') return 'paused';
+  if (usage.subscriptionStatus === 'active' || usage.subscriptionStatus === 'manual') return resourceStatus;
+  if (usage.subscriptionStatus === 'trialing' && Date.parse(usage.trialEndsAt ?? '') > Date.now()) return resourceStatus;
+  if (usage.subscriptionStatus === 'past_due' && Date.parse(usage.paymentGraceEndsAt ?? '') > Date.now()) return 'approval_required';
+  return 'paused';
+}
+
+export async function requireAutomationAccess(tx: TenantTransaction): Promise<UsageSnapshot> {
+  const usage = await usageSnapshot(tx);
+  if (usage.status === 'paused') throw new HttpError(402, 'automation_paused');
+  return usage;
+}
+
 async function billingRow(tx: TenantTransaction): Promise<BillingRow> {
   const row = await tx.query<BillingRow>(`
     INSERT INTO workspace_billing (workspace_id, period_start, plan, purchased_ai_credits)
@@ -96,11 +112,7 @@ export async function usageSnapshot(tx: TenantTransaction): Promise<UsageSnapsho
     aiCreditsAvailable: Math.max(0, (trialActive ? 30 : entitlement.aiCredits) + number(billing.purchasedCredits) - aiCreditsUsed),
     supplierSpendMicros,
     supplierSpendLimitMicros,
-    status: billing.subscriptionStatus === 'inactive' || (billing.subscriptionStatus === 'past_due' && !paymentGraceActive)
-      ? 'paused'
-      : billing.subscriptionStatus === 'past_due'
-        ? 'approval_required'
-        : guardrailStatus(taskUsed, entitlement.taskQuota, supplierSpendMicros, supplierSpendLimitMicros),
+    status: executionStatus({ subscriptionStatus: billing.subscriptionStatus, trialEndsAt: billing.trialEndsAt ?? undefined, paymentGraceEndsAt: billing.paymentGraceEndsAt ?? undefined }, guardrailStatus(taskUsed, entitlement.taskQuota, supplierSpendMicros, supplierSpendLimitMicros)),
     subscriptionStatus: billing.subscriptionStatus,
     trialEndsAt: trialActive ? billing.trialEndsAt ?? undefined : undefined,
     paymentGraceEndsAt: paymentGraceActive ? billing.paymentGraceEndsAt ?? undefined : undefined,
@@ -123,13 +135,14 @@ export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: s
   const band = useFallbackEco ? 'eco' : requested;
   const policy = MODEL_BAND_POLICIES[band];
   const projectedSpend = current.supplierSpendMicros + policy.supplierCostMicros;
-  const projected = { ...current, supplierSpendMicros: projectedSpend, status: guardrailStatus(current.taskUsed, current.taskQuota, projectedSpend, current.supplierSpendLimitMicros) };
-  const effectiveBand = projected.status === 'degraded' ? 'eco' : band;
+  const resourceStatus = guardrailStatus(current.taskUsed, current.taskQuota, projectedSpend, current.supplierSpendLimitMicros);
+  const projected = { ...current, supplierSpendMicros: projectedSpend, status: executionStatus(current, resourceStatus) };
+  const effectiveBand = resourceStatus === 'degraded' ? 'eco' : band;
   const effectivePolicy = MODEL_BAND_POLICIES[effectiveBand];
   const credits = current.aiCreditsAvailable >= effectivePolicy.credits ? effectivePolicy.credits : 0;
-  const provider = projected.status === 'degraded' ? 'fallback' as const : 'primary' as const;
+  const provider = resourceStatus === 'degraded' ? 'fallback' as const : 'primary' as const;
   const effectiveSpend = current.supplierSpendMicros + effectivePolicy.supplierCostMicros;
-  const effectiveGuardrail = { ...projected, supplierSpendMicros: effectiveSpend, status: guardrailStatus(current.taskUsed, current.taskQuota, effectiveSpend, current.supplierSpendLimitMicros) };
+  const effectiveGuardrail = { ...projected, supplierSpendMicros: effectiveSpend, status: executionStatus(current, guardrailStatus(current.taskUsed, current.taskQuota, effectiveSpend, current.supplierSpendLimitMicros)) };
   if (projected.status === 'paused') return { band: effectiveBand, provider, credits, supplierCostMicros: effectivePolicy.supplierCostMicros, guardrail: projected };
   await tx.query(`INSERT INTO task_event (workspace_id, run_id, action_type, billable_units, ai_credits, supplier_cost_micros, supplier, status)
     VALUES (current_setting('app.workspace_id')::uuid, $1, $2, 0, $3, $4, $5, 'succeeded') ON CONFLICT DO NOTHING`, [runId, `ai.${effectiveBand}.${provider}`, credits, effectivePolicy.supplierCostMicros, provider]);
@@ -149,7 +162,7 @@ export async function recordSuccessfulAction(tx: TenantTransaction, input: { run
   const supplierCostMicros = supplierActionCostMicros(input);
   const current = await usageSnapshot(tx);
   const projected = { ...current, taskUsed: current.taskUsed + taskUnits, supplierSpendMicros: current.supplierSpendMicros + supplierCostMicros };
-  projected.status = guardrailStatus(projected.taskUsed, projected.taskQuota, projected.supplierSpendMicros, projected.supplierSpendLimitMicros);
+  projected.status = executionStatus(current, guardrailStatus(projected.taskUsed, projected.taskQuota, projected.supplierSpendMicros, projected.supplierSpendLimitMicros));
   await tx.query(`INSERT INTO task_event (workspace_id, run_id, step_run_id, action_type, billable_units, ai_credits, supplier_cost_micros, status)
     VALUES (current_setting('app.workspace_id')::uuid, $1, $2, $3, $4, 0, $5, 'succeeded') ON CONFLICT DO NOTHING`, [input.runId, input.stepRunId, input.actionType, taskUnits, supplierCostMicros]);
   return projected;
@@ -164,7 +177,7 @@ export async function projectedActionUsage(tx: TenantTransaction, input: { actio
     taskUsed: current.taskUsed + taskUnits,
     supplierSpendMicros: current.supplierSpendMicros + supplierCostMicros,
   };
-  projected.status = guardrailStatus(projected.taskUsed, projected.taskQuota, projected.supplierSpendMicros, projected.supplierSpendLimitMicros);
+  projected.status = executionStatus(current, guardrailStatus(projected.taskUsed, projected.taskQuota, projected.supplierSpendMicros, projected.supplierSpendLimitMicros));
   return projected;
 }
 

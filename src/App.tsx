@@ -30,6 +30,7 @@ export default function App() {
   if (window.location.pathname.startsWith('/app/admin')) return <AdminDashboard />;
   if (window.location.pathname.startsWith('/app')) return <PlatformDashboard />;
   const localPath = window.location.pathname.replace(/^\/(zh|en|es)(?=\/|$)/, '');
+  if (/^\/(login|register)\/?$/.test(localPath)) return <PlatformDashboard />;
   const referralUrl = referralDestination(localPath);
   if (referralUrl) {
     window.location.replace(referralUrl);

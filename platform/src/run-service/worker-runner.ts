@@ -2,6 +2,7 @@ import { actionPlanSchema, type ActionPlan, type AiRuntimeEvent } from '../contr
 import type { BrandContextSnapshot } from '../contracts/domain';
 import { MODEL_BAND_POLICIES } from '../billing/plans';
 import { projectedActionUsage, recordSuccessfulAction, reserveAiRun, type AiReservation, type UsageSnapshot } from '../billing/guardrails';
+import { isAnnouncementWorkflow } from '../contracts/workflow-definition';
 import { assertExecutableAction, type ConnectedAccountView } from '../connector-service/actions';
 import type { TenantTransaction } from '../foundation/database';
 import { ingestAiRuntimeEvent } from './repository';
@@ -79,12 +80,15 @@ export class RunWorker {
   private async executePrepare(job: ClaimedJob): Promise<void> {
     if (!job.runId) throw new Error('prepare_ai_run is missing runId');
     const prepared = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
-      const result = await tx.query<{ id: string; input: Record<string, unknown>; context: BrandContextSnapshot; requestedBy: string }>(
-        'SELECT id, input, context_snapshot AS context, requested_by AS "requestedBy" FROM workflow_run WHERE id = $1 AND workspace_id = $2',
+      const result = await tx.query<{ id: string; input: Record<string, unknown>; context: BrandContextSnapshot; requestedBy: string; definition: unknown }>(
+        `SELECT r.id, r.input, r.context_snapshot AS context, r.requested_by AS "requestedBy", v.definition
+         FROM workflow_run r JOIN workflow_version v ON v.workflow_id = r.workflow_id AND v.version = r.workflow_version
+         WHERE r.id = $1 AND r.workspace_id = $2`,
         [job.runId, job.workspaceId],
       );
       const found = result.rows[0];
       if (!found) throw new Error('Run not found');
+      if (!isAnnouncementWorkflow(found.definition)) throw new Error('Workflow execution is not supported');
       const reservation = await reserveAiRun(tx, found.context.allowedModelClasses, found.id);
       if (reservation.guardrail.status === 'paused') {
         await this.pauseForBilling(tx, job, reservation.guardrail, 'ai_run');

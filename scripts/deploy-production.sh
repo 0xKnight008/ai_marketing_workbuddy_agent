@@ -21,15 +21,29 @@ restart_platform_on_error() {
 trap restart_platform_on_error ERR
 
 for required_file in "$platform_env" "$runtime_env" "$public_api_env"; do
-  if [[ ! -r "$required_file" ]]; then
-    echo "Required environment file is not readable: $required_file" >&2
+  # systemd/Docker read these as root. The SSH account need not have direct
+  # access to secret files, but deployment requires an existing sudo grant.
+  if [[ ! -r "$required_file" ]] && ! sudo -n test -r "$required_file"; then
+    echo "Required environment file is missing or inaccessible: $required_file (checked deployment user and non-interactive sudo). Provision the file or correct its configured path; do not make secrets world-readable." >&2
     exit 1
   fi
 done
 
+if [[ "${1:-}" == '--check' ]]; then
+  echo "Production environment files are accessible."
+  exit 0
+fi
+
 set -a
 # shellcheck disable=SC1090
-source "$platform_env"
+if [[ -r "$platform_env" ]]; then
+  source "$platform_env"
+else
+  # Capture first so a failed privileged read cannot be hidden by `source`.
+  platform_environment="$(sudo -n cat -- "$platform_env")"
+  source /dev/stdin <<< "$platform_environment"
+  unset platform_environment
+fi
 set +a
 : "${DATABASE_URL:?DATABASE_URL must be set in the platform environment file}"
 

@@ -28,6 +28,17 @@ describe('Egg production gateway', () => {
     .expect(200)
     .expect({ ok: true, service: 'gateway' }));
 
+  it('exposes email login and rejects invalid input before accessing the database', () => app.httpRequest()
+    .post('/api/auth/login').send({})
+    .expect('Cache-Control', 'no-store').expect(400).expect({ error: 'invalid_request' }));
+
+  it('exposes registration and rejects invalid input before accessing the database', () => app.httpRequest()
+    .post('/api/auth/register').send({})
+    .expect('Cache-Control', 'no-store').expect(400).expect({ error: 'invalid_request' }));
+
+  it('requires a valid session for identity lookup', () => app.httpRequest()
+    .get('/api/auth/me').expect(401).expect({ error: 'unauthorized' }));
+
   it('applies the shared error middleware before a controller uses the database', () => app.httpRequest()
     .post('/api/workflow-runs')
     .send({})

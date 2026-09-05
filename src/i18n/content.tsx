@@ -144,7 +144,7 @@ const zh: SiteContent = {
       { label: "精灵集市", href: "#integrations" },
       { label: "价目灯笼", href: "#pricing" },
     ],
-    console: "控制台",
+    console: "登录 / 注册",
     cta: "免费召唤",
   },
   hero: {
@@ -492,7 +492,7 @@ const en: SiteContent = {
       { label: "Integrations", href: "#integrations" },
       { label: "Pricing", href: "#pricing" },
     ],
-    console: "Console",
+    console: "Sign in / Register",
     cta: "Start Free",
   },
   hero: {
@@ -840,7 +840,7 @@ const es: SiteContent = {
       { label: "Integraciones", href: "#integrations" },
       { label: "Precios", href: "#pricing" },
     ],
-    console: "Consola",
+    console: "Entrar / Registrarse",
     cta: "Empezar gratis",
   },
   hero: {

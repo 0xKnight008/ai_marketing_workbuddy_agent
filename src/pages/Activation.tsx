@@ -2,7 +2,8 @@ import { ArrowRight, CheckCircle2, CreditCard, LoaderCircle, LockKeyhole, LogIn 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Lang } from '../i18n/content';
-import { readSessionAccessToken, storeSessionAccessToken } from '../lib/auth-session';
+import { clearSessionAccessToken, readSessionAccessToken, storeSessionAccessToken } from '../lib/auth-session';
+import { checkoutAuthPath, requiresReauthentication } from '../lib/auth-navigation';
 
 const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
 const publicCheckoutEnabled = import.meta.env.VITE_PUBLIC_CHECKOUT_ENABLED === 'true';
@@ -52,11 +53,10 @@ export default function Activation({ lang }: { lang: Lang }) {
   // Checkout needs a workspace session. Visitors arriving straight from the
   // pricing table have none, so send them through sign-in/registration and
   // bring them right back here afterwards.
-  const returnTo = useMemo(() => `${window.location.pathname}${window.location.search}`, []);
   const needsAuth = !ticket && !result && !readSessionAccessToken().trim();
 
   function goToAuth() {
-    window.location.assign(`/app?next=${encodeURIComponent(returnTo)}`);
+    window.location.assign(checkoutAuthPath(window.location.pathname, window.location.search, plan));
   }
 
   useEffect(() => {
@@ -90,6 +90,11 @@ export default function Activation({ lang }: { lang: Lang }) {
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
         body: JSON.stringify({ plan, referralCode }),
       });
+      if (requiresReauthentication(response.status)) {
+        clearSessionAccessToken();
+        goToAuth();
+        return;
+      }
       const body = await response.json().catch(() => ({})) as { url?: unknown };
       if (!response.ok || typeof body.url !== 'string') throw new Error('checkout unavailable');
       window.location.assign(body.url);
