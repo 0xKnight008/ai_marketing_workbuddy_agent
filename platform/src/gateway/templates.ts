@@ -1,6 +1,8 @@
 import type { ActorContext } from '../contracts/domain';
 import type { TenantTransaction } from '../foundation/database';
 import { requirePermission } from '../foundation/rbac';
+import { isAnnouncementWorkflow } from '../contracts/workflow-definition';
+import { HttpError } from '../http/errors';
 
 const templates = {
   repurpose: { name: 'Repurpose and schedule', steps: [{ type: 'ai.prepare_announcement' }, { type: 'approval' }, { type: 'social.schedule_post' }] },
@@ -14,6 +16,7 @@ export async function createPublishedTemplate(tx: TenantTransaction, actor: Acto
   requirePermission(actor.role, 'workflow:edit');
   const template = templates[templateId];
   if (!template) throw new Error('Unsupported template');
+  if (!isAnnouncementWorkflow(template)) throw new HttpError(409, 'workflow_execution_unsupported');
   const workflow = await tx.query<{ id: string }>("INSERT INTO workflow (workspace_id, name, status, current_version, created_by) VALUES ($1, $2, 'published', 1, $3) RETURNING id", [actor.workspaceId, template.name, actor.actorId]);
   const workflowId = workflow.rows[0]?.id;
   if (!workflowId) throw new Error('Workflow creation failed');
