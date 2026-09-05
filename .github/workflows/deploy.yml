@@ -32,6 +32,9 @@ jobs:
       - name: Verify public npm registries
         run: npm run check:lockfile-registries
 
+      - name: Test deployment preflight
+        run: node --test scripts/deploy-production.test.mjs
+
       - name: Install public API dependencies
         working-directory: server
         run: npm ci
@@ -58,6 +61,10 @@ jobs:
       - name: Test platform
         working-directory: platform
         run: npm test
+
+      - name: Test authentication navigation
+        working-directory: platform
+        run: npm run test:ui
 
       - name: Typecheck AI runtime
         working-directory: ai-runtime
@@ -143,12 +150,19 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
           script: |
+            set -Eeuo pipefail
             # 设置部署目录
             DEPLOY_DIR="/opt/ai-marketing-agent"
             
             echo "📁 Preparing deployment directory..."
             sudo mkdir -p $DEPLOY_DIR
             cd $DEPLOY_DIR
+
+            # Check prerequisites before overwriting any live application files.
+            preflight_dir="$(mktemp -d)"
+            trap 'rm -f "$preflight_dir/deploy.sh"; rmdir "$preflight_dir"' EXIT
+            tar -xzf /tmp/deploy.tar.gz -C "$preflight_dir" ./deploy.sh
+            bash "$preflight_dir/deploy.sh" --check
             
             # 解压部署包
             echo "📦 Extracting deployment package..."

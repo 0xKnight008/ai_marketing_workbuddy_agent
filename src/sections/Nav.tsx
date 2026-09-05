@@ -63,7 +63,7 @@ export function Nav() {
               </a>
             ))}
             <a
-              href="/app"
+              href="/login"
               className="px-3 py-2 text-[15px] font-bold text-ink-soft hover:text-ink hover:bg-paper-deep/70 rounded-full transition-colors whitespace-nowrap"
             >
               {t.nav.console}
@@ -117,7 +117,7 @@ export function Nav() {
               </a>
             ))}
             <a
-              href="/app"
+              href="/login"
               onClick={() => setOpen(false)}
               className="px-3 py-2.5 font-bold text-ink-soft hover:text-ink hover:bg-paper-deep rounded-xl"
             >

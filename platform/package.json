@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test src/**/*.test.ts && egg-bin test --ts",
     "test:egg": "egg-bin test --ts",
+    "test:ui": "tsx --test ../tests/*.test.ts",
     "migrate": "tsx src/foundation/migrate.ts",
     "issue:token": "tsx src/identity/issue-token.ts",
     "dev": "egg-bin dev --ts",
