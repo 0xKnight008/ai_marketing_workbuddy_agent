@@ -67,6 +67,9 @@ Applying main including PR #39 also repairs worker claiming via 0015.
 - A required reusable CI job uses disposable PostgreSQL 16: reproduce missing
   columns on the pre-0013 schema, apply migrations, then exercise the real
   register/login/me/password-hash path without external email or payment calls.
+- The worker regression fixture from PR #39 now explicitly casts its status
+  parameter to `job_status`, fixing CI's `text versus job_status` inference
+  failure. This changes test data insertion only, not the production migration.
 
 This improves release checks; it does not provision missing environment files,
 create production systemd units, migrate production remotely or confirm live

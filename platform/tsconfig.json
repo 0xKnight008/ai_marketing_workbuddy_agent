@@ -14,6 +14,6 @@
     "isolatedModules": true,
     "noEmit": true
   },
-  "include": ["app.ts", "src/**/*.ts", "app/**/*.ts", "config/**/*.ts", "typings/**/*.d.ts", "test/**/*.ts"],
+  "include": ["app.ts", "src/**/*.ts", "app/**/*.ts", "config/**/*.ts", "typings/**/*.d.ts", "test/**/*.ts", "tests-postgres/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

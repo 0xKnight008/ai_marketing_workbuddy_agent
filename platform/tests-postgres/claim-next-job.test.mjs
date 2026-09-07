@@ -49,9 +49,9 @@ test('claim_next_job migration repairs 42702 and preserves lease semantics', asy
     const insert = async ({ status = 'queued', attempt = 0, stale = false, future = false, lastError = null } = {}) => {
       const result = await client.query(`INSERT INTO job
         (workspace_id, kind, payload, status, attempt, max_attempts, locked_at, locked_by, available_at, last_error)
-        VALUES ($1, 'regression', '{"test":true}', $2, $3, 3,
-          CASE WHEN $2 = 'running' THEN now() - CASE WHEN $4 THEN interval '6 minutes' ELSE interval '1 minute' END END,
-          CASE WHEN $2 = 'running' THEN 'previous-worker' END,
+        VALUES ($1, 'regression', '{"test":true}', $2::job_status, $3, 3,
+          CASE WHEN $2::job_status = 'running' THEN now() - CASE WHEN $4 THEN interval '6 minutes' ELSE interval '1 minute' END END,
+          CASE WHEN $2::job_status = 'running' THEN 'previous-worker' END,
           now() + CASE WHEN $5 THEN interval '1 hour' ELSE interval '0 seconds' END, $6) RETURNING id`,
       [workspaceId, status, attempt, stale, future, lastError]);
       return result.rows[0].id;
