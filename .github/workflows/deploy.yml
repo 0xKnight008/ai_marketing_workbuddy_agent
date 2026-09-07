@@ -11,6 +11,20 @@ jobs:
   validate:
     name: Validate release candidate
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: piggybot_test
+          POSTGRES_PASSWORD: local-ci-only
+          POSTGRES_DB: piggybot_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U piggybot_test -d piggybot_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     
     steps:
       # 1. 检出代码
@@ -61,6 +75,12 @@ jobs:
       - name: Test platform
         working-directory: platform
         run: npm test
+
+      - name: Test PostgreSQL migrations and job claiming
+        working-directory: platform
+        env:
+          TEST_DATABASE_URL: postgres://piggybot_test:local-ci-only@127.0.0.1:5432/piggybot_test
+        run: npm run test:postgres
 
       - name: Test authentication navigation
         working-directory: platform
