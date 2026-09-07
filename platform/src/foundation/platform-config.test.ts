@@ -25,3 +25,12 @@ test('Zernio client RPM rejects unsafe values', () => {
     /greater than or equal to 1/,
   );
 });
+
+test('yearly Stripe Price configuration is optional and distinct from legacy monthly IDs', () => {
+  assert.equal(loadGatewayConfig(gatewayEnvironment).STRIPE_PRICE_GROWTH_YEARLY, undefined);
+  const config = loadGatewayConfig({ ...gatewayEnvironment, STRIPE_PRICE_CREATOR_YEARLY: 'price_creator', STRIPE_PRICE_GROWTH_YEARLY: 'price_growth', STRIPE_PRICE_AGENCY_YEARLY: 'price_agency' });
+  assert.equal(config.STRIPE_PRICE_CREATOR_YEARLY, 'price_creator');
+  assert.equal(config.STRIPE_PRICE_GROWTH_YEARLY, 'price_growth');
+  assert.equal(config.STRIPE_PRICE_AGENCY_YEARLY, 'price_agency');
+  assert.equal(config.STRIPE_PRICE_GROWTH, undefined);
+});

@@ -47,6 +47,7 @@ Configure these gateway environment variables with recurring Stripe Price IDs fo
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 - `STRIPE_PRICE_CREATOR`, `STRIPE_PRICE_GROWTH`, `STRIPE_PRICE_AGENCY`
+- Yearly: `STRIPE_PRICE_CREATOR_YEARLY`, `STRIPE_PRICE_GROWTH_YEARLY`, `STRIPE_PRICE_AGENCY_YEARLY`. See [annual setup](YEARLY_SUBSCRIPTIONS.md); monthly usage limits do not change.
 - `STRIPE_TRIAL_DAYS=7`
 - `STRIPE_PAYMENT_GRACE_DAYS=7`
 - `RESEND_API_KEY`

@@ -6,7 +6,7 @@ import { AdminService } from '../admin/service';
 import { aiRuntimeEventSchema } from '../contracts/ai-runtime-event';
 import { PLAN_KEYS } from '../billing/plans';
 import { activateStripeSubscription, updateStripeSubscriptionStatus, usageSnapshot } from '../billing/guardrails';
-import { createStripeCheckoutSession, retrieveStripeSubscription, stripeActivationFromWebhook, stripeInvoicePaidFromWebhook, stripeSubscriptionStatusFromWebhook, verifyStripeWebhookSignature } from '../billing/stripe';
+import { billingIntervalSchema, createStripeCheckoutSession, retrieveStripeSubscription, stripeActivationFromWebhook, stripeInvoicePaidFromWebhook, stripeSubscriptionStatusFromWebhook, verifyStripeWebhookSignature } from '../billing/stripe';
 import type { ActorContext } from '../contracts/domain';
 import { Database } from '../foundation/database';
 import type { GatewayConfig } from '../foundation/platform-config';
@@ -107,16 +107,17 @@ export class PlatformService {
 
   async createStripeCheckout(actor: ActorContext, body: unknown): Promise<{ id: string; url: string }> {
     if (actor.role !== 'owner') throw new HttpError(403, 'owner_required');
-    const parsed = z.object({ plan: z.enum(PLAN_KEYS), referralCode: z.string().regex(/^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$/).optional() }).parse(body);
+    const parsed = z.object({ plan: z.enum(PLAN_KEYS), billingInterval: billingIntervalSchema.default('month'), referralCode: z.string().regex(/^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$/).optional() }).parse(body);
     const checkout = await createStripeCheckoutSession(this.config, {
       workspaceId: actor.workspaceId,
       actorId: actor.actorId,
       plan: parsed.plan,
+      billingInterval: parsed.billingInterval,
       referralCode: parsed.referralCode,
     });
     await this.database.withWorkspace(actor.workspaceId, (tx) => tx.query(
       'INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)',
-      [actor.workspaceId, actor.actorId, 'billing.stripe_checkout_started', { plan: parsed.plan, stripeCheckoutSessionId: checkout.id }],
+      [actor.workspaceId, actor.actorId, 'billing.stripe_checkout_started', { plan: parsed.plan, billingInterval: parsed.billingInterval, stripeCheckoutSessionId: checkout.id }],
     ));
     return checkout;
   }
