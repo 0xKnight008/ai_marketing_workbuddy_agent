@@ -1,0 +1,36 @@
+name: Authentication schema regression
+
+on:
+  workflow_call:
+
+jobs:
+  auth-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: auth_test
+          POSTGRES_PASSWORD: local-ci-only
+          POSTGRES_DB: auth_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U auth_test -d auth_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: platform/package-lock.json
+      - run: npm ci
+        working-directory: platform
+      - name: Reproduce missing columns, migrate, register, log in and verify identity
+        working-directory: platform
+        env:
+          TEST_DATABASE_URL: postgres://auth_test:local-ci-only@127.0.0.1:5432/auth_test
+        run: node --import tsx --test tests-postgres/auth-schema.test.ts

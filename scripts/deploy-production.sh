@@ -73,6 +73,7 @@ platform_stopped=true
 
 cd "$deploy_dir/platform"
 npm run migrate
+npm run db:check
 
 cd "$deploy_dir"
 sudo docker compose up -d
@@ -82,7 +83,7 @@ platform_stopped=false
 
 for attempt in {1..30}; do
   if curl --fail --silent --show-error http://127.0.0.1:4111/internal/health >/dev/null \
-    && curl --fail --silent --show-error http://127.0.0.1:4100/internal/health >/dev/null \
+    && curl --fail --silent --show-error --max-time 10 http://127.0.0.1:4100/internal/ready >/dev/null \
     && curl --fail --silent --show-error http://127.0.0.1:8001/ >/dev/null; then
     echo "Production deployment passed all health checks."
     exit 0

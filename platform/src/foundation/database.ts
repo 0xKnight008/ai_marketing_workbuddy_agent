@@ -8,7 +8,7 @@ export class Database {
   private readonly pool: Pool;
 
   constructor(databaseUrl: string) {
-    this.pool = new Pool({ connectionString: databaseUrl });
+    this.pool = new Pool({ connectionString: databaseUrl, connectionTimeoutMillis: 5_000 });
   }
 
   async withWorkspace<T>(workspaceId: string, operation: (tx: TenantTransaction) => Promise<T>): Promise<T> {
