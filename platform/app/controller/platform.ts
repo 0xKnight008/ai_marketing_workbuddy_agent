@@ -1,9 +1,19 @@
 import { Controller } from 'egg';
 
 import { HttpError } from '../../src/http/errors';
+import { assertAuthSchema } from '../../src/foundation/auth-readiness';
 
 export default class PlatformController extends Controller {
   async health(): Promise<void> { this.ctx.body = { ok: true, service: 'gateway' }; }
+
+  async ready(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    try { await assertAuthSchema(this.app.platform.database); } catch (error) {
+      this.ctx.logger.error(error);
+      throw new HttpError(503, 'auth_database_not_ready');
+    }
+    this.ctx.body = { ok: true, service: 'gateway', authSchema: 'ready' };
+  }
 
   async runtimeEvent(): Promise<void> {
     const rawBody = (this.ctx.state as { rawBody?: Buffer }).rawBody;

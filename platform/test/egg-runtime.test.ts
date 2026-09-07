@@ -1,6 +1,7 @@
 import mm from 'egg-mock';
 
 import { issueAccessToken } from '../src/identity/token';
+import type { TenantTransaction } from '../src/foundation/database';
 
 describe('Egg production gateway', () => {
   Object.assign(process.env, {
@@ -22,11 +23,26 @@ describe('Egg production gateway', () => {
   before(async () => { await app.ready(); });
 
   after(async () => { await app.close(); });
+  afterEach(() => { mm.restore(); });
 
   it('serves health through Egg routing', () => app.httpRequest()
     .get('/internal/health')
     .expect(200)
     .expect({ ok: true, service: 'gateway' }));
+
+  it('reports ready only after checking the auth database', async () => {
+    mm(app.platform.database, 'withAdmin', async (operation: (tx: TenantTransaction) => Promise<void>) => operation({
+      query: async () => ({ rows: [], rowCount: 0 }),
+    }));
+    await app.httpRequest().get('/internal/ready').expect('Cache-Control', 'no-store')
+      .expect(200).expect({ ok: true, service: 'gateway', authSchema: 'ready' });
+  });
+
+  it('returns 503 without private SQL details when auth schema is missing', async () => {
+    mm(app.platform.database, 'withAdmin', async () => { throw new Error('column password_hash does not exist'); });
+    await app.httpRequest().get('/internal/ready').expect('Cache-Control', 'no-store')
+      .expect(503).expect({ error: 'auth_database_not_ready' });
+  });
 
   it('exposes email login and rejects invalid input before accessing the database', () => app.httpRequest()
     .post('/api/auth/login').send({})

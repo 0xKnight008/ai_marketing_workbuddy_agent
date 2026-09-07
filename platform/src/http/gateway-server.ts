@@ -8,6 +8,7 @@ import { aiRuntimeEventSchema } from '../contracts/ai-runtime-event';
 import { usageSnapshot } from '../billing/guardrails';
 import type { ActorContext } from '../contracts/domain';
 import { Database } from '../foundation/database';
+import { assertAuthSchema } from '../foundation/auth-readiness';
 import { loadGatewayConfig } from '../foundation/platform-config';
 import type { PlatformOrm } from '../foundation/sequelize';
 import { requirePermission } from '../foundation/rbac';
@@ -23,6 +24,7 @@ async function main(): Promise<void> {
 const config = loadGatewayConfig();
 
 const database = new Database(config.DATABASE_URL);
+try { await assertAuthSchema(database); } catch (error) { await database.close(); throw error; }
 const platformService = new PlatformService(config, database, {} as PlatformOrm);
 const app = Fastify({ logger: true });
 const rawBodies = new WeakMap<FastifyRequest, string>();
@@ -80,6 +82,13 @@ function verifyAiRuntimeSignature(request: FastifyRequest): void {
 }
 
 app.get('/internal/health', async () => ({ ok: true, service: 'gateway' }));
+app.get('/internal/ready', async () => {
+  try { await assertAuthSchema(database); } catch (error) {
+    app.log.error(error);
+    throw new HttpError(503, 'auth_database_not_ready');
+  }
+  return { ok: true, service: 'gateway', authSchema: 'ready' };
+});
 
 app.post('/internal/ai-runtime-events', async (request, reply) => {
   verifyAiRuntimeSignature(request);

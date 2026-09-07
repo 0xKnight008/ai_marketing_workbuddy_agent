@@ -3,6 +3,7 @@ import type { Application } from 'egg';
 export default (app: Application) => {
   const { router, controller } = app;
   router.get('/internal/health', controller.platform.health);
+  router.get('/internal/ready', controller.platform.ready);
   router.post('/internal/ai-runtime-events', controller.platform.runtimeEvent);
   router.post('/webhooks/stripe', controller.platform.stripeWebhook);
   router.post('/api/activation/exchange', controller.platform.exchangeActivationTicket);

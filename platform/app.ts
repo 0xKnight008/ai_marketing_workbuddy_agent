@@ -2,6 +2,7 @@ import type { Application } from 'egg';
 
 import { AiRuntimeClient } from './src/ai-runtime/client';
 import { Database } from './src/foundation/database';
+import { assertAuthSchema } from './src/foundation/auth-readiness';
 import { loadGatewayConfig, loadWorkerConfig } from './src/foundation/platform-config';
 import { PlatformOrm } from './src/foundation/sequelize';
 import { PlatformService } from './src/egg/platform-service';
@@ -20,6 +21,14 @@ export default class AppBootHook {
     if (gatewayConfig.DATABASE_URL !== workerConfig.DATABASE_URL) throw new Error('Gateway and worker must use the same DATABASE_URL');
 
     const database = new Database(gatewayConfig.DATABASE_URL);
+    // Do not start serving a new auth release against an old database. Unit
+    // routing tests use no live DB; real schema coverage runs separately in CI.
+    if (this.app.config.env !== 'unittest') {
+      try { await assertAuthSchema(database); } catch (error) {
+        await database.close();
+        throw error;
+      }
+    }
     const orm = new PlatformOrm(gatewayConfig.DATABASE_URL);
     const zernio = workerConfig.ZERNIO_BASE_URL && workerConfig.ZERNIO_API_KEY
       ? new ZernioClient({ baseUrl: workerConfig.ZERNIO_BASE_URL, apiKey: workerConfig.ZERNIO_API_KEY, oauthRedirectUri: 'http://localhost/unused', oauthStateSecret: 'worker-not-used', globalRequestsPerMinute: workerConfig.ZERNIO_CLIENT_RPM })
@@ -40,6 +49,7 @@ export default class AppBootHook {
   }
 
   async beforeClose(): Promise<void> {
+    if (!this.app.platform) return; // Startup schema verification may have failed.
     await Promise.all([this.app.platform.database.close(), this.app.platform.orm.close()]);
   }
 }
