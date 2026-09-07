@@ -7,6 +7,8 @@ import { HttpError } from '../http/errors';
 import { PLAN_KEYS, type PlanKey } from './plans';
 
 const planSchema = z.enum(PLAN_KEYS);
+export const billingIntervalSchema = z.enum(['month', 'year']);
+export type BillingInterval = z.infer<typeof billingIntervalSchema>;
 
 export interface StripeCheckoutSession {
   id: string;
@@ -66,11 +68,11 @@ interface StripeSubscription {
   workspaceId?: string;
 }
 
-function stripeConfiguration(config: GatewayConfig, plan: PlanKey) {
+function stripeConfiguration(config: GatewayConfig, plan: PlanKey, billingInterval: BillingInterval) {
   const priceIds: Record<PlanKey, string | undefined> = {
-    creator: config.STRIPE_PRICE_CREATOR,
-    growth: config.STRIPE_PRICE_GROWTH,
-    agency: config.STRIPE_PRICE_AGENCY,
+    creator: billingInterval === 'year' ? config.STRIPE_PRICE_CREATOR_YEARLY : config.STRIPE_PRICE_CREATOR,
+    growth: billingInterval === 'year' ? config.STRIPE_PRICE_GROWTH_YEARLY : config.STRIPE_PRICE_GROWTH,
+    agency: billingInterval === 'year' ? config.STRIPE_PRICE_AGENCY_YEARLY : config.STRIPE_PRICE_AGENCY,
   };
   const priceId = priceIds[plan];
   if (!config.STRIPE_SECRET_KEY || !priceId) {
@@ -84,8 +86,21 @@ function stripeSecret(config: GatewayConfig): string {
   return config.STRIPE_SECRET_KEY;
 }
 
-export async function createStripeCheckoutSession(config: GatewayConfig, input: { workspaceId: string; actorId: string; plan: PlanKey; referralCode?: string }): Promise<StripeCheckoutSession> {
-  const stripe = stripeConfiguration(config, input.plan);
+export async function createStripeCheckoutSession(config: GatewayConfig, input: { workspaceId: string; actorId: string; plan: PlanKey; billingInterval?: BillingInterval; referralCode?: string }): Promise<StripeCheckoutSession> {
+  const billingInterval = billingIntervalSchema.default('month').parse(input.billingInterval);
+  const stripe = stripeConfiguration(config, input.plan, billingInterval);
+  if (billingInterval === 'year') {
+    // A misconfigured annual variable must not silently sell a monthly or
+    // one-time Price. This is a read, before creating the Checkout Session.
+    const priceResponse = await fetch(`https://api.stripe.com/v1/prices/${encodeURIComponent(stripe.priceId)}`, {
+      headers: { authorization: `Bearer ${stripe.secretKey}` }, signal: AbortSignal.timeout(10_000),
+    });
+    if (!priceResponse.ok) throw new HttpError(502, 'stripe_price_lookup_failed');
+    const price = await priceResponse.json() as { active?: boolean; recurring?: { interval?: string; interval_count?: number } };
+    if (!price.active || price.recurring?.interval !== 'year' || price.recurring.interval_count !== 1) {
+      throw new HttpError(503, 'stripe_annual_price_invalid');
+    }
+  }
   const body = new URLSearchParams();
   body.set('mode', 'subscription');
   body.set('line_items[0][price]', stripe.priceId);
@@ -94,12 +109,16 @@ export async function createStripeCheckoutSession(config: GatewayConfig, input: 
   body.set('metadata[workspaceId]', input.workspaceId);
   body.set('metadata[actorId]', input.actorId);
   body.set('metadata[plan]', input.plan);
+  body.set('metadata[billingInterval]', billingInterval);
   if (input.referralCode) body.set('metadata[referral_code]', input.referralCode);
   body.set('subscription_data[metadata][workspaceId]', input.workspaceId);
   body.set('subscription_data[metadata][plan]', input.plan);
+  body.set('subscription_data[metadata][billingInterval]', billingInterval);
   body.set('subscription_data[trial_period_days]', String(config.STRIPE_TRIAL_DAYS));
-  body.set('success_url', `${config.PUBLIC_SITE_URL.replace(/\/$/, '')}/activate?checkout=success&session_id={CHECKOUT_SESSION_ID}`);
-  body.set('cancel_url', `${config.PUBLIC_SITE_URL.replace(/\/$/, '')}/activate?checkout=cancelled`);
+  const returnParams = new URLSearchParams({ plan: input.plan, billingInterval });
+  if (input.referralCode) returnParams.set('ref', input.referralCode);
+  body.set('success_url', `${config.PUBLIC_SITE_URL.replace(/\/$/, '')}/activate?checkout=success&${returnParams}&session_id={CHECKOUT_SESSION_ID}`);
+  body.set('cancel_url', `${config.PUBLIC_SITE_URL.replace(/\/$/, '')}/activate?checkout=cancelled&${returnParams}`);
 
   const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
     method: 'POST',

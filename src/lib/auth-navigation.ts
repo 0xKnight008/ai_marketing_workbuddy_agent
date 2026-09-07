@@ -10,9 +10,10 @@ export function safeNextPath(search: string, origin: string): string {
   } catch { return ''; }
 }
 
-export function checkoutAuthPath(pathname: string, search: string, plan: string): string {
+export function checkoutAuthPath(pathname: string, search: string, plan: string, billingInterval?: 'month' | 'year'): string {
   const params = new URLSearchParams(search);
   params.set('plan', plan);
+  if (billingInterval) params.set('billingInterval', billingInterval);
   return `/login?next=${encodeURIComponent(`${pathname}?${params}`)}`;
 }
 
