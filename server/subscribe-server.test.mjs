@@ -175,9 +175,12 @@ test('relays human Discord thread replies through Resend and closes the loop', a
   const calls = [];
   const finished = [];
   const feedbackStore = {
-    async pendingDiscordThreads() { return [{ ticketId: 'FB-1234', email: 'customer@example.com', threadId: 'thread-1' }]; },
-    async claimDiscordReply(reply) { calls.push(['claim', reply]); return true; },
-    async finishDiscordReply(reply) { finished.push(reply); },
+    async pendingDiscordThreads() { return [{ ticketId: 'FB-1234', email: 'customer@example.com', threadId: '100' }]; },
+    async markDiscordPoll() {},
+    async advanceDiscordCursor() {},
+    async failDiscordPoll(_ticket, error) { assert.fail(error); },
+    async claimDiscordReply(reply) { calls.push(['claim', reply]); return { state: 'claimed', reply }; },
+    async finishDiscordReply(reply) { finished.push(reply); return true; },
     async failDiscordReply() { assert.fail('delivery should not fail'); },
   };
   await deliverDiscordReplies({
@@ -186,8 +189,8 @@ test('relays human Discord thread replies through Resend and closes the loop', a
     fetchImpl: async (url, options) => {
       calls.push([url, options]);
       if (url.includes('/messages?')) return Response.json([
-        { id: 'bot-message', author: { bot: true }, content: 'ignored' },
-        { id: 'reply-1', author: { id: 'agent-1', username: 'Ada' }, content: ' We have fixed your workflow. ' },
+        { id: '101', author: { bot: true }, content: 'ignored' },
+        { id: '102', author: { id: 'agent-1', username: 'Ada' }, content: ' We have fixed your workflow. ' },
       ]);
       assert.equal(url, 'https://api.resend.com/emails');
       const payload = JSON.parse(options.body);
@@ -198,6 +201,6 @@ test('relays human Discord thread replies through Resend and closes the loop', a
     },
   });
   assert.equal(finished.length, 1);
-  assert.equal(finished[0].messageId, 'reply-1');
+  assert.equal(finished[0].messageId, '102');
   assert.equal(calls.filter(([kind]) => kind === 'claim').length, 1);
 });

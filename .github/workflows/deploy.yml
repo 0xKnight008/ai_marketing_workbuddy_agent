@@ -58,7 +58,7 @@ jobs:
 
       - name: Test subscription endpoint
         working-directory: server
-        run: node --test subscribe-server.test.mjs
+        run: node --test *.test.mjs
       
       - name: Install website dependencies
         run: npm ci
@@ -79,7 +79,7 @@ jobs:
         working-directory: platform
         run: npm test
 
-      - name: Test PostgreSQL migrations and job claiming
+      - name: Test PostgreSQL migrations, job claiming and feedback delivery
         working-directory: platform
         env:
           TEST_DATABASE_URL: postgres://piggybot_test:local-ci-only@127.0.0.1:5432/piggybot_test

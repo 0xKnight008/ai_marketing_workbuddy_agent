@@ -4,6 +4,9 @@ import { pathToFileURL } from 'node:url';
 
 import pg from 'pg';
 
+import { createReplyStore, deliverDiscordReplies, supportReplyConfiguration } from './feedback-delivery.mjs';
+export { deliverDiscordReplies } from './feedback-delivery.mjs';
+
 const { Pool } = pg;
 const DEFAULT_FORM_ID = '1FAIpQLSf0snTCY6aXd-eREWUYHvfHUPsdAxRLiCW2KxJanUQomT0ncA';
 const DEFAULT_EMAIL_ENTRY = '1237653730';
@@ -125,30 +128,7 @@ export function createFeedbackStore(databaseUrl) {
     async setDiscordThread(ticketId, threadId) {
       await pool.query('UPDATE feedback_message SET discord_thread_id = $2 WHERE ticket_no = $1', [ticketId, threadId]);
     },
-    async pendingDiscordThreads() {
-      const result = await pool.query(`SELECT ticket_no AS "ticketId", email, discord_thread_id AS "threadId"
-        FROM feedback_message WHERE status IN ('new', 'replied') AND discord_thread_id IS NOT NULL ORDER BY created_at LIMIT 100`);
-      return result.rows;
-    },
-    async claimDiscordReply(reply) {
-      const result = await pool.query(`INSERT INTO feedback_reply
-          (ticket_no, direction, author, body, provider_message_id, delivery_status)
-        VALUES ($1, 'outbound', $2, $3, $4, 'pending')
-        ON CONFLICT (provider_message_id) WHERE provider_message_id IS NOT NULL
-        DO UPDATE SET author = EXCLUDED.author, body = EXCLUDED.body, delivery_status = 'pending', delivery_error = NULL
-        RETURNING id`, [reply.ticketId, reply.author, reply.body, reply.messageId]);
-      return Boolean(result.rows[0]);
-    },
-    async finishDiscordReply(reply) {
-      await pool.query(`WITH delivered AS (
-          UPDATE feedback_reply SET delivery_status = 'sent', delivery_error = NULL
-          WHERE provider_message_id = $1 RETURNING ticket_no
-        ) UPDATE feedback_message SET status = $4, replied_by = $3, replied_at = now()
-          WHERE ticket_no = $2 AND EXISTS (SELECT 1 FROM delivered)`, [reply.messageId, reply.ticketId, reply.author, reply.status ?? 'replied']);
-    },
-    async failDiscordReply(messageId, error) {
-      await pool.query("UPDATE feedback_reply SET delivery_status = 'failed', delivery_error = $2 WHERE provider_message_id = $1", [messageId, String(error).slice(0, 500)]);
-    },
+    ...createReplyStore(pool),
     async activeReferral(code) {
       const result = await pool.query('SELECT code FROM referral_link WHERE code = $1 AND revoked_at IS NULL', [code]);
       return result.rows[0]?.code;
@@ -175,7 +155,7 @@ async function notifyDiscord(env, fetchImpl, feedbackStore, feedback) {
   const headers = { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' };
   const message = await fetchImpl(`https://discord.com/api/v10/channels/${env.DISCORD_FEEDBACK_CHANNEL_ID}/messages`, {
     method: 'POST', headers,
-    body: JSON.stringify({ content: `**${feedback.ticketId}** · ${feedback.category}\n${feedback.email}${feedback.name ? ` (${feedback.name})` : ''}\n\n${feedback.message}` }),
+    body: JSON.stringify({ content: `**${feedback.ticketId}** · ${feedback.category}\n${feedback.email}${feedback.name ? ` (${feedback.name})` : ''}\n\n${feedback.message}`, allowed_mentions: { parse: [] } }),
     signal: AbortSignal.timeout(10_000),
   });
   if (!message.ok) throw new Error(`discord_message_failed_${message.status}`);
@@ -188,45 +168,6 @@ async function notifyDiscord(env, fetchImpl, feedbackStore, feedback) {
   if (!thread.ok) throw new Error(`discord_thread_failed_${thread.status}`);
   const created = await thread.json();
   if (created?.id) await feedbackStore.setDiscordThread(feedback.ticketId, created.id);
-}
-
-function supportReplyConfiguration(env) {
-  const values = [env.DISCORD_BOT_TOKEN, env.DISCORD_FEEDBACK_CHANNEL_ID, env.RESEND_API_KEY, env.FEEDBACK_FROM_EMAIL];
-  if (values.some(Boolean) && !values.every(Boolean)) throw new Error('Discord reply delivery requires DISCORD_BOT_TOKEN, DISCORD_FEEDBACK_CHANNEL_ID, RESEND_API_KEY, and FEEDBACK_FROM_EMAIL');
-  return values.every(Boolean);
-}
-
-export async function deliverDiscordReplies({ env, fetchImpl = fetch, feedbackStore }) {
-  if (!feedbackStore || !supportReplyConfiguration(env)) return;
-  const discordHeaders = { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` };
-  for (const ticket of await feedbackStore.pendingDiscordThreads()) {
-    const response = await fetchImpl(`https://discord.com/api/v10/channels/${ticket.threadId}/messages?limit=50`, {
-      headers: discordHeaders, signal: AbortSignal.timeout(10_000),
-    });
-    if (!response.ok) throw new Error(`discord_thread_messages_failed_${response.status}`);
-    const messages = await response.json();
-    for (const message of messages.reverse()) {
-      const body = cleanText(message?.content, 5_000);
-      if (!message?.id || message?.author?.bot || !body) continue;
-      const author = `discord:${message.author?.username ?? message.author?.id ?? 'operator'}`;
-      const closing = body.toLowerCase() === '/close';
-      const emailBody = closing ? 'Your Piggybot support ticket has been closed.' : body;
-      const reply = { author, body, messageId: message.id, status: closing ? 'closed' : 'replied', ticketId: ticket.ticketId };
-      if (!(await feedbackStore.claimDiscordReply(reply))) continue;
-      try {
-        const email = await fetchImpl('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json', 'Idempotency-Key': `feedback-reply/${message.id}` },
-          body: JSON.stringify({ from: env.FEEDBACK_FROM_EMAIL, to: [ticket.email], subject: `[${ticket.ticketId}] Piggybot support reply`, text: `${emailBody}\n\nReply to this email if you need more help.` }),
-          signal: AbortSignal.timeout(10_000),
-        });
-        if (!email.ok) throw new Error(`resend_delivery_failed_${email.status}`);
-        await feedbackStore.finishDiscordReply(reply);
-      } catch (error) {
-        await feedbackStore.failDiscordReply(message.id, error instanceof Error ? error.message : 'delivery_failed');
-      }
-    }
-  }
 }
 
 export function createSubscriptionServer({ env = process.env, fetchImpl = fetch, now = Date.now, feedbackStore = env.DATABASE_URL ? createFeedbackStore(env.DATABASE_URL) : undefined } = {}) {
