@@ -67,6 +67,11 @@ describe('Egg production gateway', () => {
     .expect(401)
     .expect({ error: 'unauthorized' }));
 
+  it('rejects unauthenticated checkout confirmations before Stripe calls', () => app.httpRequest()
+    .post('/api/billing/checkout-session/confirm')
+    .send({ sessionId: 'cs_test_trial' })
+    .expect(401));
+
   it('exposes checkout through Egg and requires an authenticated owner', () => app.httpRequest()
     .post('/api/billing/checkout-session')
     .send({ plan: 'growth' })

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import type { GatewayConfig } from '../foundation/platform-config';
 import { HttpError } from '../http/errors';
 import { PLAN_KEYS, type PlanKey } from './plans';
+import type { ActorContext } from '../contracts/domain';
 
 const planSchema = z.enum(PLAN_KEYS);
 export const billingIntervalSchema = z.enum(['month', 'year']);
@@ -32,6 +33,7 @@ export interface StripeActivationEvent {
   priceId?: string;
   subscriptionStatus: string;
   trialEndsAt?: string;
+  trialStartsAt?: string;
 }
 
 export interface StripeSubscriptionStatusEvent {
@@ -64,6 +66,7 @@ interface StripeSubscription {
   customerId?: string;
   status: string;
   trialEndsAt?: string;
+  trialStartsAt?: string;
   priceId?: string;
   workspaceId?: string;
 }
@@ -228,6 +231,7 @@ export function stripeSubscriptionStatusFromWebhook(
 export async function retrieveStripeSubscription(config: GatewayConfig, subscriptionId: string): Promise<StripeSubscription> {
   const response = await fetch(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(subscriptionId)}`, {
     headers: { authorization: `Bearer ${stripeSecret(config)}` },
+    signal: AbortSignal.timeout(10_000),
   });
   const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
   if (!response.ok) throw new HttpError(502, 'stripe_subscription_fetch_failed');
@@ -242,9 +246,54 @@ export async function retrieveStripeSubscription(config: GatewayConfig, subscrip
     customerId: stringValue(payload.customer),
     status,
     trialEndsAt: unixTimestampToIso(payload.trial_end),
+    trialStartsAt: unixTimestampToIso(payload.trial_start),
     priceId,
     workspaceId: workspaceMetadata(payload.metadata)?.workspaceId,
   };
+}
+
+/** The browser supplies only an opaque ID; ownership and entitlement come from Stripe. */
+export async function retrieveCheckoutActivation(config: GatewayConfig, sessionId: string, actor: ActorContext): Promise<StripeActivationEvent> {
+  if (actor.role !== 'owner') throw new HttpError(403, 'owner_required');
+  if (!/^cs_[a-zA-Z0-9_]+$/.test(sessionId)) throw new HttpError(400, 'stripe_session_invalid');
+  const response = await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}`, {
+    headers: { authorization: `Bearer ${stripeSecret(config)}` }, signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) throw new HttpError(502, 'stripe_checkout_fetch_failed');
+  const session = await response.json() as Record<string, unknown>;
+  const metadata = workspaceMetadata(session.metadata);
+  if (session.id !== sessionId || metadata?.workspaceId !== actor.workspaceId || !metadata.plan || !metadata.actorId) throw new HttpError(403, 'stripe_workspace_mismatch');
+  if (session.mode !== 'subscription' || session.status !== 'complete' || !['paid', 'no_payment_required'].includes(String(session.payment_status))) throw new HttpError(409, 'stripe_checkout_not_complete');
+  const subscriptionId = stringValue(session.subscription);
+  if (!subscriptionId) throw new HttpError(409, 'stripe_subscription_missing');
+  const subscription = await retrieveStripeSubscription(config, subscriptionId);
+  if (subscription.workspaceId !== actor.workspaceId || subscription.customerId !== stringValue(session.customer)) throw new HttpError(403, 'stripe_workspace_mismatch');
+  if (subscription.status !== 'active' && !(subscription.status === 'trialing' && Date.parse(subscription.trialEndsAt ?? '') > Date.now())) throw new HttpError(409, 'stripe_subscription_not_entitled');
+  return {
+    eventId: `checkout-return:${sessionId}`, eventType: 'checkout.session.reconciled',
+    workspaceId: actor.workspaceId, actorId: metadata.actorId, plan: metadata.plan,
+    subscriptionId, customerId: subscription.customerId, priceId: subscription.priceId,
+    subscriptionStatus: subscription.status, trialEndsAt: subscription.trialEndsAt, trialStartsAt: subscription.trialStartsAt,
+  };
+}
+
+/** Inspect the workspace's recorded Checkout without creating a second customer/subscription. */
+export async function inspectRecordedCheckout(config: GatewayConfig, sessionId: string, actor: ActorContext): Promise<{ state: 'complete' | 'expired' | 'open'; url?: string }> {
+  if (actor.role !== 'owner') throw new HttpError(403, 'owner_required');
+  if (!/^cs_[a-zA-Z0-9_]+$/.test(sessionId)) throw new HttpError(400, 'stripe_session_invalid');
+  const response = await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}`, {
+    headers: { authorization: `Bearer ${stripeSecret(config)}` }, signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) throw new HttpError(502, 'stripe_checkout_fetch_failed');
+  const session = await response.json() as Record<string, unknown>;
+  if (session.id !== sessionId || workspaceMetadata(session.metadata)?.workspaceId !== actor.workspaceId || session.mode !== 'subscription') throw new HttpError(403, 'stripe_workspace_mismatch');
+  if (session.status === 'complete') return { state: 'complete' };
+  if (session.status === 'expired') return { state: 'expired' };
+  if (session.status === 'open' && typeof session.url === 'string') {
+    const url = new URL(session.url);
+    if (url.protocol === 'https:' && url.hostname === 'checkout.stripe.com') return { state: 'open', url: session.url };
+  }
+  throw new HttpError(409, 'stripe_checkout_not_complete');
 }
 
 function stripeEventFromWebhook(rawBody: string): StripeEvent {

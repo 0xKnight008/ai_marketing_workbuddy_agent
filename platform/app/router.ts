@@ -13,6 +13,8 @@ export default (app: Application) => {
   router.post('/api/auth/password', controller.platform.setPassword);
   router.post('/api/workflow-runs', controller.platform.createRun);
   router.post('/api/billing/checkout-session', controller.platform.createStripeCheckout);
+  router.post('/api/billing/checkout-session/confirm', controller.platform.reconcileStripeCheckout);
+  router.post('/api/billing/checkout-session/recover', controller.platform.recoverStripeCheckout);
   router.post('/api/workflow-templates/:templateId/publish', controller.platform.publishTemplate);
   router.get('/api/pipeline-templates', controller.platform.pipelineTemplates);
   router.get('/api/pipelines', controller.platform.pipelines);

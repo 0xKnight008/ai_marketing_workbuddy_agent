@@ -27,7 +27,7 @@ interface RunView { id: string; status: string; workflowId: string; createdAt: s
 interface ApprovalView { id: string; runId: string; requestedAction: { summary?: string }; requestedAt: string; }
 interface TaskEventView { id: string; runId: string; actionType: string; billableUnits: string; status: string; createdAt: string; }
 interface AuditEventView { id: string; runId?: string; eventType: string; createdAt: string; }
-interface UsageView { status: string; taskUsed: number; taskQuota: number; }
+interface UsageView { status: string; taskUsed: number; taskQuota: number; subscriptionStatus: string; plan: string; }
 interface MeView {
   user: { email: string; displayName: string; passwordSet: boolean };
   workspace: { id: string; name: string };
@@ -95,6 +95,7 @@ export default function PlatformDashboard() {
   const [referralStatus, setReferralStatus] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [passwordStatus, setPasswordStatus] = useState('');
+  const [recoveringCheckout, setRecoveringCheckout] = useState(false);
 
   const selectedTemplate = useMemo(() => templates.find((template) => template.id === draft.templateId), [draft.templateId, templates]);
   const healthyAccounts = accounts.filter((account) => account.status === 'connected');
@@ -147,7 +148,11 @@ export default function PlatformDashboard() {
       if (pipelinesResponse.ok) setPipelines(await pipelinesResponse.json() as PipelineView[]);
       if (accountsResponse.ok) setAccounts(await accountsResponse.json() as ConnectedAccount[]);
       if (approvalsResponse.ok) setApprovals(await approvalsResponse.json() as ApprovalView[]);
-      if (usageResponse.ok) setUsage(await usageResponse.json() as UsageView);
+      if (usageResponse.ok) {
+        const latest = await usageResponse.json() as UsageView;
+        setUsage(latest);
+        setMe((previous) => previous ? { ...previous, subscriptionStatus: latest.subscriptionStatus, plan: latest.plan } : previous);
+      }
       if (tasksResponse.ok) setTaskEvents(await tasksResponse.json() as TaskEventView[]);
       if (auditResponse.ok) setAuditEvents(await auditResponse.json() as AuditEventView[]);
       if (requests.every((response) => !response.ok)) setMessage('The workspace could not be loaded. Check your session permissions.');
@@ -171,6 +176,13 @@ export default function PlatformDashboard() {
       void loadMe(token).then((valid) => { if (valid) void loadWorkspace(); });
     }, 0);
     return () => window.clearTimeout(timeout);
+  }, [loadMe, loadWorkspace, token]);
+
+  useEffect(() => {
+    if (!token) return;
+    const refresh = () => { void loadMe(token).then((valid) => { if (valid) void loadWorkspace(); }); };
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
   }, [loadMe, loadWorkspace, token]);
 
   useEffect(() => {
@@ -321,6 +333,18 @@ export default function PlatformDashboard() {
   if (!me) return <main className="min-h-screen bg-paper p-10 text-ink"><p role="status">{sessionError || 'Verifying your session…'}</p>{sessionError && <button onClick={() => void loadMe(token).then((valid) => { if (valid) void loadWorkspace(); })} className="m-3 rounded-md border p-3">Retry</button>}<button onClick={signOut} className="m-3 rounded-md border p-3">Sign in again</button></main>;
 
   const locked = !ACTIVE_SUBSCRIPTIONS.has(me.subscriptionStatus) || usage?.status === 'paused';
+  async function recoverCheckout() {
+    setRecoveringCheckout(true);
+    try {
+      const response = await fetch(`${gatewayUrl}/api/billing/checkout-session/recover`, { method: 'POST', headers: headers() });
+      if (!response.ok) throw new Error('Unable to verify checkout. Retry or contact support; do not purchase again.');
+      const result = await response.json() as { state: string; url?: string };
+      if (result.state === 'open' && result.url) { window.location.assign(result.url); return; }
+      if (result.state === 'confirmed') { await loadMe(token); await loadWorkspace(); setMessage('Subscription verified. Current trial and usage limits still apply.'); }
+      else setMessage(result.state === 'expired' ? 'Your previous checkout expired without completing. Choose a plan to start a new checkout.' : 'No recorded checkout was found for this workspace. A Stripe Customer alone does not activate a subscription.');
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Checkout verification failed.'); }
+    finally { setRecoveringCheckout(false); }
+  }
 
   return (
     <main className="paper-grain min-h-screen bg-paper text-ink">
@@ -334,7 +358,7 @@ export default function PlatformDashboard() {
         </div>
       </header>
 
-      {locked && <section className="mx-auto mt-8 max-w-7xl rounded-xl border-2 border-sunset/50 bg-sunset/10 p-5"><h2 className="text-lg font-semibold">Your workspace is in preview mode</h2><p className="mt-1 text-sm text-ink-soft">Every automation feature is locked until this workspace has an active subscription.</p><a href="/activate?plan=growth" className="mt-4 inline-block rounded-md bg-sunset px-5 py-3 font-medium text-white shadow-paint-sm">Subscribe to unlock</a></section>}
+      {locked && <section className="mx-auto mt-8 max-w-7xl rounded-xl border-2 border-sunset/50 bg-sunset/10 p-5"><h2 className="text-lg font-semibold">Automation is paused</h2><p className="mt-1 text-sm text-ink-soft">Complete your subscription or review your usage limits. A free trial pauses after 7 days or 30 AI credits, whichever comes first.</p><div className="mt-4 flex flex-wrap gap-3">{me.role === 'owner' && <button disabled={recoveringCheckout} onClick={() => void recoverCheckout()} className="rounded-md bg-sky-deep px-5 py-3 font-medium text-white disabled:opacity-50">{recoveringCheckout ? 'Checking Stripe…' : 'Check / resume checkout'}</button>}<a href="/activate?plan=growth" className="inline-block rounded-md bg-sunset px-5 py-3 font-medium text-white shadow-paint-sm">View plans</a></div></section>}
 
       <div className={`mx-auto max-w-7xl p-6 md:p-10 ${locked && section !== 'settings' ? 'pointer-events-none select-none opacity-40 grayscale' : ''}`} aria-disabled={locked && section !== 'settings'} inert={locked && section !== 'settings'}>
         {message && <div className="mb-6 rounded-xl border border-sky-deep/20 bg-sky-pale p-4 text-sm text-sky-deep" role="status">{message}</div>}

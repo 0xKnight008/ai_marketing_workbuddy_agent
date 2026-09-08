@@ -23,6 +23,7 @@ export interface UsageSnapshot {
   taskQuota: number;
   aiCreditsUsed: number;
   aiCreditsAvailable: number;
+  trialCreditsRemaining?: number;
   supplierSpendMicros: number;
   supplierSpendLimitMicros: number;
   status: GuardrailStatus;
@@ -57,10 +58,10 @@ export function guardrailStatus(taskUsed: number, taskQuota: number, supplierSpe
 }
 
 /** Subscription restrictions must survive every projected usage calculation. */
-function executionStatus(usage: Pick<UsageSnapshot, 'subscriptionStatus' | 'trialEndsAt' | 'paymentGraceEndsAt'>, resourceStatus: GuardrailStatus): GuardrailStatus {
+function executionStatus(usage: Pick<UsageSnapshot, 'subscriptionStatus' | 'trialEndsAt' | 'paymentGraceEndsAt' | 'trialCreditsRemaining'>, resourceStatus: GuardrailStatus): GuardrailStatus {
   if (resourceStatus === 'paused') return 'paused';
   if (usage.subscriptionStatus === 'active' || usage.subscriptionStatus === 'manual') return resourceStatus;
-  if (usage.subscriptionStatus === 'trialing' && Date.parse(usage.trialEndsAt ?? '') > Date.now()) return resourceStatus;
+  if (usage.subscriptionStatus === 'trialing' && Date.parse(usage.trialEndsAt ?? '') > Date.now() && (usage.trialCreditsRemaining ?? 0) > 0) return resourceStatus;
   if (usage.subscriptionStatus === 'past_due' && Date.parse(usage.paymentGraceEndsAt ?? '') > Date.now()) return 'approval_required';
   return 'paused';
 }
@@ -89,7 +90,8 @@ export async function usageSnapshot(tx: TenantTransaction): Promise<UsageSnapsho
   const billing = await billingRow(tx);
   const plan = planKey(billing.plan);
   const entitlement = PLAN_CATALOG[plan];
-  const trialActive = billing.trialEndsAt !== null && new Date(billing.trialEndsAt).getTime() > Date.now();
+  const isTrial = billing.subscriptionStatus === 'trialing';
+  const trialActive = isTrial && billing.trialEndsAt !== null && new Date(billing.trialEndsAt).getTime() > Date.now();
   const paymentGraceActive = billing.paymentGraceEndsAt !== null && new Date(billing.paymentGraceEndsAt).getTime() > Date.now();
   const periodUsage = await tx.query<UsageRow>(`
     SELECT COALESCE(SUM(CASE WHEN status = 'reversed' THEN -billable_units ELSE billable_units END), 0) AS "taskUsed",
@@ -100,6 +102,12 @@ export async function usageSnapshot(tx: TenantTransaction): Promise<UsageSnapsho
        AND created_at >= date_trunc('month', now())`, []);
   const accounts = await tx.query<AccountRow>(`SELECT COUNT(*) AS "connectedAccounts" FROM connected_account WHERE workspace_id = current_setting('app.workspace_id')::uuid AND status = 'connected'`, []);
   const usage = periodUsage.rows[0] ?? { taskUsed: 0, aiCreditsUsed: 0, supplierSpendMicros: 0 };
+  const trialUsage = isTrial ? await tx.query<{ trialCreditsUsed: string | number }>(`
+    SELECT COALESCE(SUM(CASE WHEN status = 'reversed' THEN -ai_credits ELSE ai_credits END), 0) AS "trialCreditsUsed"
+    FROM task_event WHERE workspace_id = current_setting('app.workspace_id')::uuid
+      AND created_at >= (SELECT COALESCE(trial_started_at, trial_ends_at - interval '7 days') FROM workspace_billing
+        WHERE workspace_id = current_setting('app.workspace_id')::uuid)`, []) : undefined;
+  const trialCreditsRemaining = isTrial ? Math.max(0, 30 - number(trialUsage?.rows[0]?.trialCreditsUsed)) : undefined;
   const taskUsed = number(usage.taskUsed);
   const aiCreditsUsed = number(usage.aiCreditsUsed);
   const supplierSpendMicros = number(usage.supplierSpendMicros) + monthlyZernioMicros(number(accounts.rows[0]?.connectedAccounts));
@@ -108,11 +116,12 @@ export async function usageSnapshot(tx: TenantTransaction): Promise<UsageSnapsho
     plan,
     taskUsed,
     taskQuota: entitlement.taskQuota,
-    aiCreditsUsed,
-    aiCreditsAvailable: Math.max(0, (trialActive ? 30 : entitlement.aiCredits) + number(billing.purchasedCredits) - aiCreditsUsed),
+    aiCreditsUsed: isTrial ? number(trialUsage?.rows[0]?.trialCreditsUsed) : aiCreditsUsed,
+    aiCreditsAvailable: isTrial ? (trialActive ? trialCreditsRemaining! : 0) : Math.max(0, entitlement.aiCredits + number(billing.purchasedCredits) - aiCreditsUsed),
+    trialCreditsRemaining,
     supplierSpendMicros,
     supplierSpendLimitMicros,
-    status: executionStatus({ subscriptionStatus: billing.subscriptionStatus, trialEndsAt: billing.trialEndsAt ?? undefined, paymentGraceEndsAt: billing.paymentGraceEndsAt ?? undefined }, guardrailStatus(taskUsed, entitlement.taskQuota, supplierSpendMicros, supplierSpendLimitMicros)),
+    status: executionStatus({ subscriptionStatus: billing.subscriptionStatus, trialEndsAt: billing.trialEndsAt ?? undefined, paymentGraceEndsAt: billing.paymentGraceEndsAt ?? undefined, trialCreditsRemaining }, guardrailStatus(taskUsed, entitlement.taskQuota, supplierSpendMicros, supplierSpendLimitMicros)),
     subscriptionStatus: billing.subscriptionStatus,
     trialEndsAt: trialActive ? billing.trialEndsAt ?? undefined : undefined,
     paymentGraceEndsAt: paymentGraceActive ? billing.paymentGraceEndsAt ?? undefined : undefined,
@@ -201,6 +210,7 @@ export interface StripeActivation {
   priceId?: string;
   subscriptionStatus: string;
   trialEndsAt?: string;
+  trialStartsAt?: string;
 }
 
 /** Applies a verified Stripe event once. Never call this with browser-provided payment data. */
@@ -219,6 +229,7 @@ export async function activateStripeSubscription(tx: TenantTransaction, activati
         stripe_price_id = $4,
         subscription_status = $5,
         trial_ends_at = $6::timestamptz,
+        trial_started_at = COALESCE($7::timestamptz, $6::timestamptz - interval '7 days'),
         payment_grace_ends_at = NULL,
         activated_at = COALESCE(activated_at, now()),
         updated_at = now()
@@ -229,6 +240,7 @@ export async function activateStripeSubscription(tx: TenantTransaction, activati
     activation.priceId ?? null,
     activation.subscriptionStatus,
     activation.trialEndsAt ?? null,
+    activation.trialStartsAt ?? null,
   ]);
   return { applied: true, usage: await usageSnapshot(tx) };
 }

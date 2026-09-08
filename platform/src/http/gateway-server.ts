@@ -222,6 +222,16 @@ app.post('/api/billing/checkout-session', async (request) => {
   return platformService.createStripeCheckout(actor, request.body);
 });
 
+app.post('/api/billing/checkout-session/confirm', async (request, reply) => {
+  reply.header('cache-control', 'no-store');
+  return platformService.reconcileStripeCheckout(actorFrom(request), request.body);
+});
+
+app.post('/api/billing/checkout-session/recover', async (request, reply) => {
+  reply.header('cache-control', 'no-store');
+  return platformService.recoverStripeCheckout(actorFrom(request));
+});
+
 // This endpoint is intended to be called by the verified payment webhook or
 // an owner-only admin console. It never accepts payment details itself.
 app.post('/api/billing/entitlements', async (request, reply) => {

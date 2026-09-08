@@ -5,6 +5,7 @@ import type { Lang } from '../i18n/content';
 import { clearSessionAccessToken, readSessionAccessToken, storeSessionAccessToken } from '../lib/auth-session';
 import { checkoutAuthPath, requiresReauthentication } from '../lib/auth-navigation';
 import { billingCopy, selectedBillingInterval, type BillingInterval } from '../lib/billing-interval';
+import { confirmCheckout, confirmationCopy } from '../lib/checkout-confirmation';
 
 const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
 const publicCheckoutEnabled = import.meta.env.VITE_PUBLIC_CHECKOUT_ENABLED === 'true';
@@ -13,21 +14,21 @@ type Plan = (typeof plans)[number];
 
 const copy = {
   zh: {
-    eyebrow: '服务激活', title: '选择计划，安全前往 Stripe', description: '支付由 Stripe 托管。成功付款后，Piggybot 仅接受 Stripe 已验证的事件来激活你的工作区。',
+    eyebrow: '服务激活', title: '选择计划，安全前往 Stripe', description: '结账由 Stripe 托管。Piggybot 向 Stripe 核验有效订阅或免费试用后激活工作区，无需等待试用后的首次扣款。',
     unavailable: '线上购买暂未开放。请联系我们加入受控测试。', continue: '安全前往 Stripe', processing: '正在创建安全结账…', back: '返回价格方案', secure: '银行卡信息不会经过 Piggybot。',
     signInFirst: '请先登录或免费注册账号，再继续安全结账。', signInContinue: '登录 / 注册并继续',
     success: '付款已完成。Stripe 正在安全地确认付款并激活你的工作区。', successNext: '请查收激活邮件。邮件中的一次性链接会安全登录并带你进入控制台。', activating: '正在安全激活你的工作区…', activationFailed: '此激活链接无效、已过期或已使用。请联系支持团队获取新链接。', console: '进入控制台', cancelled: '结账已取消，尚未更改你的计划。', failed: '无法创建 Stripe 结账。请检查会话和服务配置后重试。', referral: '你正在通过好友推荐加入 Piggybot。',
     plans: { creator: 'Creator · $19 / 月', growth: 'Growth · $59 / 月', agency: 'Agency · $169 / 月' },
   },
   en: {
-    eyebrow: 'Service activation', title: 'Choose a plan, then continue securely to Stripe', description: 'Stripe hosts payment. Piggybot activates a workspace only from a Stripe-verified event after payment succeeds.',
+    eyebrow: 'Service activation', title: 'Choose a plan, then continue securely to Stripe', description: 'Stripe hosts checkout. Piggybot verifies an active subscription or free trial with Stripe before activating your workspace; a trial does not require an initial charge.',
     unavailable: 'Online checkout is not open yet. Contact us to join the controlled beta.', continue: 'Continue securely to Stripe', processing: 'Creating secure checkout…', back: 'Back to pricing', secure: 'Card details never pass through Piggybot.',
     signInFirst: 'Sign in — or create a free account — to continue to secure checkout.', signInContinue: 'Sign in / register to continue',
     success: 'Payment is complete. Stripe is securely confirming it and activating your workspace.', successNext: 'Check your email. Its one-time activation link will sign you in securely and take you to the console.', activating: 'Securely activating your workspace…', activationFailed: 'This activation link is invalid, expired, or already used. Contact support for a new link.', console: 'Enter console', cancelled: 'Checkout was cancelled. Your plan has not changed.', failed: 'Stripe Checkout could not be created. Check your session and service configuration, then try again.', referral: 'You’re joining Piggybot through a friend’s referral.',
     plans: { creator: 'Creator · $19 / mo', growth: 'Growth · $59 / mo', agency: 'Agency · $169 / mo' },
   },
   es: {
-    eyebrow: 'Activación del servicio', title: 'Elige un plan y continúa de forma segura con Stripe', description: 'Stripe aloja el pago. Piggybot solo activa un espacio de trabajo desde un evento verificado por Stripe tras un pago correcto.',
+    eyebrow: 'Activación del servicio', title: 'Elige un plan y continúa de forma segura con Stripe', description: 'Stripe aloja el proceso de compra. Piggybot verifica la suscripción o prueba gratuita con Stripe antes de activar el espacio; la prueba no requiere un cargo inicial.',
     unavailable: 'El pago en línea aún no está abierto. Contáctanos para participar en la beta controlada.', continue: 'Continuar de forma segura con Stripe', processing: 'Creando pago seguro…', back: 'Volver a precios', secure: 'Los datos de la tarjeta nunca pasan por Piggybot.',
     signInFirst: 'Inicia sesión —o crea una cuenta gratis— para continuar con el pago seguro.', signInContinue: 'Iniciar sesión / registrarse',
     success: 'El pago se completó. Stripe lo está confirmando de forma segura y activando tu espacio.', successNext: 'Revisa tu correo. El enlace de activación de un solo uso iniciará sesión de forma segura y te llevará a la consola.', activating: 'Activando tu espacio de forma segura…', activationFailed: 'Este enlace de activación no es válido, ha caducado o ya se usó. Contacta con soporte para obtener uno nuevo.', console: 'Entrar en la consola', cancelled: 'El pago se canceló. Tu plan no cambió.', failed: 'No se pudo crear Stripe Checkout. Revisa la sesión y la configuración del servicio e inténtalo de nuevo.', referral: 'Te unes a Piggybot mediante la recomendación de un amigo.',
@@ -48,6 +49,10 @@ export default function Activation({ lang }: { lang: Lang }) {
   const [state, setState] = useState<'idle' | 'sending' | 'error'>('idle');
   const [message, setMessage] = useState('');
   const result = useMemo(() => new URLSearchParams(window.location.search).get('checkout'), []);
+  const sessionId = useMemo(() => new URLSearchParams(window.location.search).get('session_id'), []);
+  const [confirmation, setConfirmation] = useState<'pending' | 'confirmed' | 'signin' | 'error'>('pending');
+  const [confirmationAttempt, setConfirmationAttempt] = useState(0);
+  const confirmationText = confirmationCopy[lang];
   const referralCode = useMemo(() => new URLSearchParams(window.location.search).get('ref')?.toUpperCase(), []);
   const ticket = useMemo(() => new URLSearchParams(window.location.search).get('ticket'), []);
   const [activationState, setActivationState] = useState<'idle' | 'activating' | 'error'>(ticket ? 'activating' : 'idle');
@@ -61,6 +66,15 @@ export default function Activation({ lang }: { lang: Lang }) {
   function goToAuth() {
     window.location.assign(checkoutAuthPath(window.location.pathname, window.location.search, plan, billingInterval));
   }
+
+  useEffect(() => {
+    if (ticket || result !== 'success') return;
+    let current = true;
+    void confirmCheckout(gatewayUrl, sessionId, readSessionAccessToken()).then((value) => {
+      if (current) setConfirmation(value);
+    }).catch(() => { if (current) setConfirmation('error'); });
+    return () => { current = false; };
+  }, [ticket, result, sessionId, confirmationAttempt]);
 
   useEffect(() => {
     if (!ticket || exchangeStarted.current) return;
@@ -117,9 +131,10 @@ export default function Activation({ lang }: { lang: Lang }) {
         {ticket && activationState === 'activating' && <Notice tone="neutral"><LoaderCircle className="h-5 w-5 shrink-0 animate-spin" />{t.activating}</Notice>}
         {ticket && activationState === 'error' && <Notice tone="error">{t.activationFailed}</Notice>}
         {!ticket && result === 'success' && <>
-          <Notice tone="success"><CheckCircle2 className="h-5 w-5 shrink-0" />{t.success}</Notice>
-          <p className="mt-3 text-sm leading-relaxed text-ink-soft">{t.successNext}</p>
-          <a href="/app" className="mt-5 flex w-full items-center justify-center gap-2 bg-sky-deep px-5 py-3 font-display text-white sketch shadow-paint transition hover:-translate-y-0.5"><ArrowRight className="h-4 w-4" />{t.console}</a>
+          {confirmation === 'pending' && <Notice tone="neutral"><LoaderCircle className="h-5 w-5 shrink-0 animate-spin" />{confirmationText.pending}</Notice>}
+          {confirmation === 'confirmed' && <><Notice tone="success"><CheckCircle2 className="h-5 w-5 shrink-0" />{confirmationText.ready}</Notice><a href="/app" className="mt-5 flex w-full items-center justify-center gap-2 bg-sky-deep px-5 py-3 font-display text-white sketch shadow-paint"><ArrowRight className="h-4 w-4" />{t.console}</a></>}
+          {confirmation === 'error' && <><Notice tone="error">{confirmationText.failed}</Notice><button type="button" onClick={() => { setConfirmation('pending'); setConfirmationAttempt((value) => value + 1); }} className="mt-4 rounded-lg bg-sky-deep px-5 py-3 font-bold text-white">{confirmationText.retry}</button></>}
+          {confirmation === 'signin' && <><Notice tone="neutral">{t.signInFirst}</Notice><button type="button" onClick={goToAuth} className="mt-4 rounded-lg bg-sky-deep px-5 py-3 font-bold text-white">{t.signInContinue}</button></>}
         </>}
         {!ticket && result === 'cancelled' && <Notice tone="neutral">{t.cancelled}</Notice>}
 
