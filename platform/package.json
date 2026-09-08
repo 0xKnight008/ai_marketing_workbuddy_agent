@@ -13,7 +13,7 @@
     "test": "tsx --test src/**/*.test.ts && egg-bin test --ts",
     "test:egg": "egg-bin test --ts",
     "test:ui": "tsx --test ../tests/*.test.ts",
-    "test:postgres": "node --test tests-postgres/*.test.mjs",
+    "test:postgres": "node --test --test-concurrency=1 tests-postgres/*.test.mjs",
     "migrate": "tsx src/foundation/migrate.ts",
     "db:check": "tsx src/foundation/check-auth-schema.ts",
     "issue:token": "tsx src/identity/issue-token.ts",

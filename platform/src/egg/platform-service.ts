@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import { z } from 'zod';
+import { createReplyStore, deliverDiscordReplies, supportReplyConfiguration } from '../../../server/feedback-delivery.mjs';
 
 import { AdminService } from '../admin/service';
 import { aiRuntimeEventSchema } from '../contracts/ai-runtime-event';
@@ -41,6 +42,7 @@ import { activeReferralLink, referralSummary } from '../referral/service';
 
 /** Framework-neutral orchestration used by Egg controllers and scheduled work. */
 export class PlatformService {
+  private deliveringSupportReplies = false;
   private readonly activationDelivery: ActivationDeliveryService;
   private readonly admin: AdminService;
   private readonly emailAuth: EmailAuthService;
@@ -82,6 +84,15 @@ export class PlatformService {
 
   async registerWithEmail(body: unknown, clientKey: string): Promise<unknown> {
     return this.emailAuth.register(body, clientKey);
+  }
+
+  async deliverSupportReplies(): Promise<void> {
+    if (this.deliveringSupportReplies || !supportReplyConfiguration(this.config)) return;
+    this.deliveringSupportReplies = true;
+    try {
+      const feedbackStore = createReplyStore({ query: (sql, values) => this.database.withAdmin((tx) => tx.query(sql, values)) });
+      await deliverDiscordReplies({ env: this.config, feedbackStore });
+    } finally { this.deliveringSupportReplies = false; }
   }
 
   async loginWithEmail(body: unknown, clientKey: string): Promise<unknown> {
@@ -442,7 +453,7 @@ export class PlatformService {
     const headers = { Authorization: `Bot ${this.config.DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' };
     const posted = await fetch(`https://discord.com/api/v10/channels/${this.config.DISCORD_FEEDBACK_CHANNEL_ID}/messages`, {
       method: 'POST', headers,
-      body: JSON.stringify({ content: `**${feedback.ticketId}** · ${feedback.category}\n${feedback.email}${feedback.name ? ` (${feedback.name})` : ''}\n\n${feedback.message}` }),
+      body: JSON.stringify({ content: `**${feedback.ticketId}** · ${feedback.category}\n${feedback.email}${feedback.name ? ` (${feedback.name})` : ''}\n\n${feedback.message}`, allowed_mentions: { parse: [] } }),
       signal: AbortSignal.timeout(10_000),
     });
     if (!posted.ok) throw new Error(`discord_message_failed_${posted.status}`);
@@ -454,7 +465,12 @@ export class PlatformService {
       signal: AbortSignal.timeout(10_000),
     });
     if (!thread.ok) throw new Error(`discord_thread_failed_${thread.status}`);
-    await thread.json();
+    const created = await thread.json() as { id?: string };
+    if (!created.id || !/^\d{1,20}$/.test(created.id)) throw new Error('discord_thread_missing_id');
+    await this.database.withAdmin((tx) => tx.query(
+      'UPDATE feedback_message SET discord_thread_id = $2 WHERE ticket_no = $1',
+      [feedback.ticketId, created.id],
+    ));
   }
 
   private async ensureZernioProfile(workspaceId: string): Promise<string> {

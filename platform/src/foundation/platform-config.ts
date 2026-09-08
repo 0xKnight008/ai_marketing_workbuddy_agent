@@ -36,6 +36,8 @@ export const gatewayConfigSchema = databaseConfigSchema.extend({
   DISCORD_FEEDBACK_CHANNEL_ID: z.string().min(1).optional(),
   RESEND_API_KEY: z.string().min(1).optional(),
   RESEND_FROM_EMAIL: z.string().min(3).optional(),
+  FEEDBACK_FROM_EMAIL: z.string().min(3).optional(),
+  DISCORD_REPLY_DELIVERY_ENABLED: z.enum(['true', 'false']).default('true'),
   ACTIVATION_TICKET_TTL_SECONDS: z.coerce.number().int().min(300).max(86_400).default(1_800),
   ACTIVATION_SESSION_TTL_SECONDS: z.coerce.number().int().min(300).max(86_400).default(14_400),
   AUTH_SESSION_TTL_SECONDS: z.coerce.number().int().min(300).max(604_800).default(43_200),
