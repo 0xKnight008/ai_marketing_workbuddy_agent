@@ -26,12 +26,13 @@ test('degrades on exhausted task quota but pauses on exhausted supplier spend', 
   assert.equal(guardrailStatus(0, 100, 1_000_000, 1_000_000), 'paused');
 });
 
-function usageTransaction(taskUsed: number, supplierSpendMicros = 0, subscriptionStatus = 'active', endsAt: string | null = null): { inserted: unknown[][]; tx: TenantTransaction } {
+function usageTransaction(taskUsed: number, supplierSpendMicros = 0, subscriptionStatus = 'active', endsAt: string | null = null, trialCreditsUsed = 0): { inserted: unknown[][]; tx: TenantTransaction } {
   const inserted: unknown[][] = [];
   const query = async (sql: string, values: readonly unknown[] = []) => {
       if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus, trialEndsAt: endsAt, paymentGraceEndsAt: endsAt }], rowCount: 1 };
       if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed, aiCreditsUsed: 0, supplierSpendMicros }], rowCount: 1 };
       if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }], rowCount: 1 };
+      if (sql.includes('AS "trialCreditsUsed"')) return { rows: [{ trialCreditsUsed }], rowCount: 1 };
       inserted.push([...values]);
       return { rows: [], rowCount: 1 };
   };
@@ -72,6 +73,19 @@ test('active trials and explicit manual entitlements work; expired trials do not
   assert.equal((await usageSnapshot(usageTransaction(0, 0, 'trialing', new Date(Date.now() + 60_000).toISOString()).tx)).status, 'normal');
   assert.equal((await usageSnapshot(usageTransaction(0, 0, 'manual').tx)).status, 'normal');
   assert.equal((await usageSnapshot(usageTransaction(0, 0, 'trialing', '2020-01-01T00:00:00Z').tx)).status, 'paused');
+});
+
+test('trial stops at thirty cumulative AI credits even when monthly usage is zero', async () => {
+  const future = new Date(Date.now() + 86_400_000).toISOString();
+  const remaining = await usageSnapshot(usageTransaction(0, 0, 'trialing', future, 29).tx);
+  assert.equal(remaining.status, 'normal');
+  assert.equal(remaining.aiCreditsAvailable, 1);
+  assert.equal(remaining.aiCreditsUsed, 29);
+  const exhausted = usageTransaction(0, 0, 'trialing', future, 30);
+  assert.equal((await usageSnapshot(exhausted.tx)).status, 'paused');
+  assert.equal((await usageSnapshot(exhausted.tx)).aiCreditsAvailable, 0);
+  await assert.rejects(requireAutomationAccess(exhausted.tx), /automation_paused/);
+  assert.equal((await reserveAiRun(exhausted.tx, ['eco'], 'run-1')).guardrail.status, 'paused');
 });
 
 test('projects the exact X linked-post supplier cost', async () => {

@@ -7,7 +7,7 @@ import { AdminService } from '../admin/service';
 import { aiRuntimeEventSchema } from '../contracts/ai-runtime-event';
 import { PLAN_KEYS } from '../billing/plans';
 import { activateStripeSubscription, updateStripeSubscriptionStatus, usageSnapshot } from '../billing/guardrails';
-import { billingIntervalSchema, createStripeCheckoutSession, retrieveStripeSubscription, stripeActivationFromWebhook, stripeInvoicePaidFromWebhook, stripeSubscriptionStatusFromWebhook, verifyStripeWebhookSignature } from '../billing/stripe';
+import { billingIntervalSchema, createStripeCheckoutSession, inspectRecordedCheckout, retrieveCheckoutActivation, retrieveStripeSubscription, stripeActivationFromWebhook, stripeInvoicePaidFromWebhook, stripeSubscriptionStatusFromWebhook, verifyStripeWebhookSignature } from '../billing/stripe';
 import type { ActorContext } from '../contracts/domain';
 import { Database } from '../foundation/database';
 import type { GatewayConfig } from '../foundation/platform-config';
@@ -151,6 +151,7 @@ export class PlatformService {
         priceId: subscription?.priceId ?? activation.priceId,
         subscriptionStatus: subscription?.status ?? activation.subscriptionStatus,
         trialEndsAt: subscription?.trialEndsAt,
+        trialStartsAt: subscription?.trialStartsAt,
       };
       const result = await this.database.withWorkspace(hydrated.workspaceId, async (tx) => {
         const applied = await activateStripeSubscription(tx, hydrated);
@@ -208,6 +209,33 @@ export class PlatformService {
       return applied;
     });
     return { received: true, activated: result.applied };
+  }
+
+  async reconcileStripeCheckout(actor: ActorContext, body: unknown): Promise<unknown> {
+    const { sessionId } = z.object({ sessionId: z.string().max(255) }).parse(body);
+    const activation = await retrieveCheckoutActivation(this.config, sessionId, actor);
+    return this.database.withWorkspace(actor.workspaceId, async (tx) => {
+      // Serialise against other billing writes and reject a stale checkout for
+      // a different subscription instead of replacing the current entitlement.
+      await usageSnapshot(tx);
+      const current = await tx.query<{ subscriptionId: string | null }>(`SELECT stripe_subscription_id AS "subscriptionId" FROM workspace_billing WHERE workspace_id = current_setting('app.workspace_id')::uuid FOR UPDATE`);
+      if (current.rows[0]?.subscriptionId && current.rows[0].subscriptionId !== activation.subscriptionId) throw new HttpError(409, 'stripe_subscription_mismatch');
+      await activateStripeSubscription(tx, activation);
+      return usageSnapshot(tx);
+    });
+  }
+
+  async recoverStripeCheckout(actor: ActorContext): Promise<unknown> {
+    if (actor.role !== 'owner') throw new HttpError(403, 'owner_required');
+    const recorded = await this.database.withWorkspace(actor.workspaceId, (tx) => tx.query<{ sessionId: string }>(`
+      SELECT payload->>'stripeCheckoutSessionId' AS "sessionId" FROM audit_event
+      WHERE workspace_id = current_setting('app.workspace_id')::uuid AND event_type = 'billing.stripe_checkout_started'
+      ORDER BY created_at DESC LIMIT 1`));
+    const sessionId = recorded.rows[0]?.sessionId;
+    if (!sessionId) return { state: 'not_found' };
+    const checkout = await inspectRecordedCheckout(this.config, sessionId, actor);
+    if (checkout.state !== 'complete') return checkout;
+    return { state: 'confirmed', usage: await this.reconcileStripeCheckout(actor, { sessionId }) };
   }
 
   async billingUsage(actor: ActorContext): Promise<unknown> {
