@@ -138,24 +138,6 @@ export function Footer() {
           )}
         </Reveal>
 
-        {/* 链接列 */}
-        <div className="mt-20 pt-12 border-t-2 border-dashed border-[#FDF6E4]/15 grid grid-cols-2 md:grid-cols-3 gap-8 max-w-3xl">
-          {f.columns.map((col) => (
-            <div key={col.title}>
-              <h4 className="font-display text-[#F6E7C1] text-lg">{col.title}</h4>
-              <ul className="mt-4 space-y-2.5">
-                {col.links.map((l) => (
-                  <li key={l.label}>
-                    <a href={l.href} className="text-sm text-[#A8B4CC] hover:text-sun transition-colors font-bold">
-                      {l.label}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-
         {/* 夜丘 */}
         <div className="mt-14 -mx-4 sm:-mx-6">
           <NightHills className="w-full h-36 sm:h-44" />

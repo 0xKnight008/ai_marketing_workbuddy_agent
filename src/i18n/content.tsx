@@ -7,7 +7,7 @@ export interface SiteContent {
   docTitle: string;
   metaDescription: string;
   ogDescription: string;
-  nav: { links: { label: string; href: string }[]; console: string; cta: string };
+  nav: { links: { label: string; href: string }[]; featureLinks: { label: string; href: string }[]; featuresOverview: string; menu: string; console: string; cta: string };
   hero: {
     badge: string;
     l1: string;
@@ -122,7 +122,6 @@ export interface SiteContent {
     signupSuccess: string;
     signupInvalid: string;
     signupError: string;
-    columns: { title: string; links: { label: string; href: string }[] }[];
     legal: { privacy: string; terms: string };
     copyright: string;
     madeWith: string;
@@ -137,12 +136,16 @@ const zh: SiteContent = {
   nav: {
     links: [
       { label: "精灵能力", href: "#features" },
+      { label: "价目灯笼", href: "#pricing" },
+    ],
+    featuresOverview: "能力总览",
+    menu: "导航菜单",
+    featureLinks: [
       { label: "咒语演示", href: "#copilot" },
       { label: "工作流剧场", href: "#workflows" },
       { label: "修行模式", href: "#modes" },
       { label: "安心结界", href: "#governance" },
       { label: "精灵集市", href: "#integrations" },
-      { label: "价目灯笼", href: "#pricing" },
     ],
     console: "登录 / 注册",
     cta: "免费召唤",
@@ -466,11 +469,6 @@ const zh: SiteContent = {
     signupSuccess: "🎉 订阅成功！精灵会第一时间把新消息送到你的邮箱。",
     signupInvalid: "请输入有效的邮箱地址",
     signupError: "提交失败，请稍后重试",
-    columns: [
-      { title: "产品", links: [{ label: "Flow Builder", href: "#features" }, { label: "AI Copilot", href: "#copilot" }, { label: "模板画廊", href: "#workflows" }, { label: "统一收件箱", href: "#features" }, { label: "用量仪表盘", href: "#pricing" }] },
-      { title: "场景", links: [{ label: "内容一变多", href: "#workflows" }, { label: "评论变线索", href: "#workflows" }, { label: "每周增长报告", href: "#workflows" }, { label: "广告守护", href: "#workflows" }] },
-      { title: "资源", links: [{ label: "开发者 API", href: "https://github.com/0xKnight008/ai_marketing_workbuddy_agent" }, { label: "MCP Server", href: "https://github.com/0xKnight008/ai_marketing_workbuddy_agent" }, { label: "帮助中心", href: "/zh/contact" }, { label: "更新日志", href: "https://github.com/0xKnight008/ai_marketing_workbuddy_agent/commits/main" }] },
-    ],
     legal: { privacy: "隐私政策", terms: "服务条款" },
     copyright: "© 2026 精灵村村委会 · piggybot.me",
     madeWith: "由爱与一缕吉卜力之风打造",
@@ -485,12 +483,16 @@ const en: SiteContent = {
   nav: {
     links: [
       { label: "Features", href: "#features" },
+      { label: "Pricing", href: "#pricing" },
+    ],
+    featuresOverview: "Overview",
+    menu: "Navigation menu",
+    featureLinks: [
       { label: "Copilot Demo", href: "#copilot" },
       { label: "Workflows", href: "#workflows" },
       { label: "Agent Modes", href: "#modes" },
       { label: "Governance", href: "#governance" },
       { label: "Integrations", href: "#integrations" },
-      { label: "Pricing", href: "#pricing" },
     ],
     console: "Sign in / Register",
     cta: "Start Free",
@@ -814,11 +816,6 @@ const en: SiteContent = {
     signupSuccess: "🎉 You're on the list! Sprites will deliver the news to your inbox.",
     signupInvalid: "Please enter a valid email address",
     signupError: "Something went wrong. Please try again.",
-    columns: [
-      { title: "Product", links: [{ label: "Flow Builder", href: "#features" }, { label: "AI Copilot", href: "#copilot" }, { label: "Template Gallery", href: "#workflows" }, { label: "Unified Inbox", href: "#features" }, { label: "Usage Dashboard", href: "#pricing" }] },
-      { title: "Playbooks", links: [{ label: "Repurpose everywhere", href: "#workflows" }, { label: "Comments to leads", href: "#workflows" }, { label: "Weekly growth report", href: "#workflows" }, { label: "Ad guardian", href: "#workflows" }] },
-      { title: "Resources", links: [{ label: "Developer API", href: "https://github.com/0xKnight008/ai_marketing_workbuddy_agent" }, { label: "MCP Server", href: "https://github.com/0xKnight008/ai_marketing_workbuddy_agent" }, { label: "Help center", href: "/contact" }, { label: "Changelog", href: "https://github.com/0xKnight008/ai_marketing_workbuddy_agent/commits/main" }] },
-    ],
     legal: { privacy: "Privacy Policy", terms: "Terms of Service" },
     copyright: "© 2026 Sprite Village Council · piggybot.me",
     madeWith: "built with ♥ and a little Ghibli wind",
@@ -833,12 +830,16 @@ const es: SiteContent = {
   nav: {
     links: [
       { label: "Funciones", href: "#features" },
+      { label: "Precios", href: "#pricing" },
+    ],
+    featuresOverview: "Vista general",
+    menu: "Menú de navegación",
+    featureLinks: [
       { label: "Demo Copilot", href: "#copilot" },
       { label: "Flujos", href: "#workflows" },
       { label: "Modos", href: "#modes" },
       { label: "Gobernanza", href: "#governance" },
       { label: "Integraciones", href: "#integrations" },
-      { label: "Precios", href: "#pricing" },
     ],
     console: "Entrar / Registrarse",
     cta: "Empezar gratis",
@@ -1162,11 +1163,6 @@ const es: SiteContent = {
     signupSuccess: "🎉 ¡Suscripción exitosa! Los duendes enviarán las novedades a tu correo.",
     signupInvalid: "Introduce un correo electrónico válido",
     signupError: "Algo salió mal. Inténtalo de nuevo.",
-    columns: [
-      { title: "Producto", links: [{ label: "Constructor de flujos", href: "#features" }, { label: "Copilot de IA", href: "#copilot" }, { label: "Galería de plantillas", href: "#workflows" }, { label: "Bandeja unificada", href: "#features" }, { label: "Panel de uso", href: "#pricing" }] },
-      { title: "Guías", links: [{ label: "Un post en todas partes", href: "#workflows" }, { label: "Comentarios en leads", href: "#workflows" }, { label: "Informe semanal", href: "#workflows" }, { label: "Guardián de anuncios", href: "#workflows" }] },
-      { title: "Recursos", links: [{ label: "API para desarrolladores", href: "https://github.com/0xKnight008/ai_marketing_workbuddy_agent" }, { label: "Servidor MCP", href: "https://github.com/0xKnight008/ai_marketing_workbuddy_agent" }, { label: "Centro de ayuda", href: "/es/contact" }, { label: "Novedades", href: "https://github.com/0xKnight008/ai_marketing_workbuddy_agent/commits/main" }] },
-    ],
     legal: { privacy: "Política de Privacidad", terms: "Términos de Servicio" },
     copyright: "© 2026 Consejo de la Aldea · piggybot.me",
     madeWith: "creado con ♥ y un poco de viento Ghibli",

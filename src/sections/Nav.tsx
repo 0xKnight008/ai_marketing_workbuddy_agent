@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Menu, X, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, Menu, X, Sparkles } from "lucide-react";
 import { Piggy } from "../components/ghibli/Piggy";
 import { useT } from "../i18n/LangContext";
 import type { Lang } from "../i18n/content";
@@ -9,6 +9,55 @@ const LANGS: { code: Lang; label: string }[] = [
   { code: "en", label: "EN" },
   { code: "es", label: "ES" },
 ];
+
+function FeaturesMenu({ label, mobile = false, onNavigate }: { label: string; mobile?: boolean; onNavigate?: () => void }) {
+  const { t } = useT();
+  const details = useRef<HTMLDetailsElement>(null);
+
+  useEffect(() => {
+    const closeOutside = (event: PointerEvent) => {
+      if (details.current && !details.current.contains(event.target as Node)) details.current.open = false;
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    return () => document.removeEventListener("pointerdown", closeOutside);
+  }, []);
+
+  return (
+    <details
+      ref={details}
+      className="group/features relative"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.currentTarget.open = false;
+          event.currentTarget.querySelector("summary")?.focus();
+        }
+      }}
+    >
+      <summary className={`flex cursor-pointer list-none items-center justify-between gap-1.5 font-bold text-ink-soft hover:text-ink hover:bg-paper-deep/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-meadow [&::-webkit-details-marker]:hidden ${mobile ? "px-3 py-2.5 rounded-xl" : "px-3 py-2 text-[15px] rounded-full whitespace-nowrap"}`}>
+        {label}
+        <ChevronDown aria-hidden className="h-4 w-4 transition-transform group-open/features:rotate-180" />
+      </summary>
+      <div className={mobile ? "ml-3 border-l-2 border-meadow/25 pl-2" : "absolute left-0 top-full z-50 mt-2 w-56 rounded-2xl border-2 border-ink/15 bg-paper-card p-2 shadow-paint"}>
+        {[{ label: t.nav.featuresOverview, href: "#features" }, ...t.nav.featureLinks].map((link) => (
+          <a
+            key={link.href}
+            href={link.href}
+            onClick={() => {
+              if (details.current) details.current.open = false;
+              onNavigate?.();
+            }}
+            className="block rounded-xl px-3 py-2.5 text-[15px] font-bold text-ink-soft hover:bg-paper-deep hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-meadow"
+          >
+            {link.label}
+          </a>
+        ))}
+      </div>
+    </details>
+  );
+}
 
 /** Route every locale to its own static entry point. */
 function langHref(current: Lang, target: Lang): string {
@@ -52,8 +101,10 @@ export function Nav() {
           </a>
 
           {/* 桌面导航 */}
-          <nav className="hidden lg:flex items-center gap-1">
-            {t.nav.links.map((l) => (
+          <nav className="hidden xl:flex items-center gap-1" aria-label={t.nav.menu}>
+            {t.nav.links.map((l) => l.href === "#features" ? (
+              <FeaturesMenu key={l.href} label={l.label} />
+            ) : (
               <a
                 key={l.href}
                 href={l.href}
@@ -70,7 +121,7 @@ export function Nav() {
             </a>
           </nav>
 
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-3">
             {/* 语言切换 */}
             <div className="hidden sm:flex items-center gap-0.5 p-1 bg-paper-card/85 sketch-soft rounded-full">
               {LANGS.map((l) => (
@@ -94,9 +145,12 @@ export function Nav() {
               {t.nav.cta}
             </a>
             <button
-              className="lg:hidden p-2 sketch wobble-3 bg-paper-card text-ink"
+              type="button"
+              className="xl:hidden p-2 sketch wobble-3 bg-paper-card text-ink"
               onClick={() => setOpen(!open)}
-              aria-label="menu"
+              aria-label={t.nav.menu}
+              aria-expanded={open}
+              aria-controls="mobile-navigation"
             >
               {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
@@ -105,8 +159,10 @@ export function Nav() {
 
         {/* 移动端菜单 */}
         {open && (
-          <nav className="lg:hidden mt-3 p-4 bg-paper-card sketch wobble shadow-paint flex flex-col gap-1">
-            {t.nav.links.map((l) => (
+          <nav id="mobile-navigation" aria-label={t.nav.menu} className="xl:hidden mt-3 max-h-[calc(100dvh-6rem)] overflow-y-auto p-4 bg-paper-card sketch wobble shadow-paint flex flex-col gap-1">
+            {t.nav.links.map((l) => l.href === "#features" ? (
+              <FeaturesMenu key={l.href} label={l.label} mobile onNavigate={() => setOpen(false)} />
+            ) : (
               <a
                 key={l.href}
                 href={l.href}
