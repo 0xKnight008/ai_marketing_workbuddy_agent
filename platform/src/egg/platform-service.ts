@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { createReplyStore, deliverDiscordReplies, supportReplyConfiguration } from '../../../server/feedback-delivery.mjs';
 
 import { AdminService } from '../admin/service';
+import { AdminEmailLogin } from '../admin/email-login';
 import { aiRuntimeEventSchema } from '../contracts/ai-runtime-event';
 import { PLAN_KEYS } from '../billing/plans';
 import { activateStripeSubscription, updateStripeSubscriptionStatus, usageSnapshot } from '../billing/guardrails';
@@ -48,6 +49,7 @@ export class PlatformService {
   private readonly admin: AdminService;
   private readonly emailAuth: EmailAuthService;
   readonly customerBilling: CustomerBillingService;
+  readonly adminEmailLogin: AdminEmailLogin;
 
   constructor(
     private readonly config: GatewayConfig,
@@ -56,6 +58,7 @@ export class PlatformService {
   ) {
     this.activationDelivery = new ActivationDeliveryService(config, database);
     this.admin = new AdminService(config, database);
+    this.adminEmailLogin = new AdminEmailLogin(config, database);
     this.emailAuth = new EmailAuthService(config, database);
     this.customerBilling = new CustomerBillingService(config, database);
   }

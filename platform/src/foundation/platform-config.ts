@@ -26,6 +26,7 @@ export const gatewayConfigSchema = databaseConfigSchema.extend({
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
   STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
   BILLING_ADMIN_TOKEN: z.string().min(32).optional(),
+  PLATFORM_ADMIN_EMAILS: z.string().default(''),
   STRIPE_PRICE_CREATOR: z.string().min(1).optional(),
   STRIPE_PRICE_GROWTH: z.string().min(1).optional(),
   STRIPE_PRICE_AGENCY: z.string().min(1).optional(),

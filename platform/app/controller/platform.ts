@@ -1,9 +1,30 @@
 import { Controller } from 'egg';
+import { ADMIN_COOKIE, ADMIN_COOKIE_OPTIONS, adminPrincipal } from '../../src/admin/email-login';
 
 import { HttpError } from '../../src/http/errors';
 import { assertAuthSchema } from '../../src/foundation/auth-readiness';
 
 export default class PlatformController extends Controller {
+  async requestAdminLink(): Promise<void> {
+    await this.app.platform.service.adminEmailLogin.requestLink(this.ctx.request.body, this.ctx.ip);
+    this.ctx.status = 202;
+    this.ctx.body = { message: 'If this email is authorized, a sign-in link will be sent.' };
+  }
+  async exchangeAdminLink(): Promise<void> {
+    const session = await this.app.platform.service.adminEmailLogin.exchange(this.ctx.request.body);
+    this.ctx.cookies.set(ADMIN_COOKIE, session, { ...ADMIN_COOKIE_OPTIONS, maxAge: 30 * 60 * 1000 });
+    this.ctx.body = { ok: true };
+  }
+  async adminSession(): Promise<void> {
+    const actor = this.ctx.state.platformAdminActor;
+    if (!actor || !adminPrincipal(actor)) throw new HttpError(401, 'admin_session_required');
+    this.ctx.body = { email: adminPrincipal(actor)!.email };
+  }
+  async logoutAdmin(): Promise<void> {
+    await this.app.platform.service.adminEmailLogin.logout(this.ctx.cookies.get(ADMIN_COOKIE, { signed: false }) ?? '');
+    this.ctx.cookies.set(ADMIN_COOKIE, '', { ...ADMIN_COOKIE_OPTIONS, maxAge: 0 });
+    this.ctx.body = { ok: true };
+  }
   async health(): Promise<void> { this.ctx.body = { ok: true, service: 'gateway' }; }
 
   async ready(): Promise<void> {
@@ -195,7 +216,10 @@ export default class PlatformController extends Controller {
     this.ctx.body = await this.app.platform.service.createFeedback(this.actor(), this.ctx.request.body);
   }
 
-  private actor() { return this.app.platform.service.actorFrom(this.ctx.get('authorization')); }
+  private actor() {
+    if (this.ctx.path.startsWith('/api/admin/') && this.ctx.state.platformAdminActor) return this.ctx.state.platformAdminActor;
+    return this.app.platform.service.actorFrom(this.ctx.get('authorization'));
+  }
   private adminToken() { return this.ctx.get('x-billing-admin-token'); }
 }
 

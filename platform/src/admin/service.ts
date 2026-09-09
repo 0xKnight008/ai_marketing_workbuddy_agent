@@ -8,6 +8,7 @@ import type { ActorContext } from '../contracts/domain';
 import { Database, type TenantTransaction } from '../foundation/database';
 import type { GatewayConfig } from '../foundation/platform-config';
 import { HttpError } from '../http/errors';
+import { adminPrincipal } from './email-login';
 
 const feedbackStatusSchema = z.enum(['new', 'replied', 'closed']);
 const referralStatusSchema = z.enum(['pending', 'available', 'void', 'clawed_back']);
@@ -322,6 +323,7 @@ export class AdminService {
   }
 
   private authorize(actor: ActorContext, adminToken: string | undefined): void {
+    if (adminPrincipal(actor)) return;
     if (actor.role !== 'owner' && actor.role !== 'admin') throw new HttpError(403, 'platform_admin_required');
     const configured = this.config.BILLING_ADMIN_TOKEN;
     if (!configured || !adminToken || !safeEqual(configured, adminToken)) throw new HttpError(403, 'platform_admin_required');
@@ -351,6 +353,12 @@ export class AdminService {
     eventType: string,
     payload: Record<string, unknown>,
   ): Promise<void> {
+    const principal = adminPrincipal(actor);
+    if (principal) {
+      await tx.query('INSERT INTO platform_admin_audit(email,event_type,workspace_id,details) VALUES($1,$2,$3,$4)',
+        [principal.email, eventType, workspaceId === actor.workspaceId ? null : workspaceId, { ...payload, sessionId: principal.sessionId }]);
+      return;
+    }
     await tx.query('INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)', [
       workspaceId,
       actor.actorId,

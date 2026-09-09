@@ -14,6 +14,9 @@ import { PlatformService } from '../src/egg/platform-service';
 import type { PlatformOrm } from '../src/foundation/sequelize';
 import { requireAutomationAccess, reserveAiRun, usageSnapshot, type UsageSnapshot } from '../src/billing/guardrails';
 import { applyCreditTopup, applyCreditRefund } from '../src/billing/customer-billing';
+import { AdminEmailLogin, adminPrincipal } from '../src/admin/email-login';
+import { AdminService } from '../src/admin/service';
+import { createHash } from 'node:crypto';
 
 test('migration 0013 upgrades missing auth columns and enables register/login/me on PostgreSQL', async (t) => {
   const url = process.env.TEST_DATABASE_URL;
@@ -50,6 +53,32 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
 
     for (const name of names.filter((name) => name >= '0013')) await migrate(name);
     await assertAuthSchema(database);
+    await t.test('admin links redeem atomically once, expire and revoke without workspace privileges', async () => {
+      const email = 'admin@example.invalid';
+      const config = { PLATFORM_ADMIN_EMAILS: email } as GatewayConfig;
+      const login = new AdminEmailLogin(config, database);
+      const ticket = 'a'.repeat(43);
+      const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+      await client.query("INSERT INTO platform_admin_link(token_hash,email,expires_at) VALUES($1,$2,now()+interval '10 minutes')", [hash(ticket), email]);
+      const attempts = await Promise.allSettled([login.exchange({ ticket }), login.exchange({ ticket })]);
+      assert.equal(attempts.filter(r => r.status === 'fulfilled').length, 1);
+      const session = (attempts.find(r => r.status === 'fulfilled') as PromiseFulfilledResult<string>).value;
+      const actor = await login.authenticate(session);
+      assert.equal(adminPrincipal(actor)?.email, email);
+      assert.deepEqual(await new AdminService(config, database).newsletter(actor, undefined, {}), []);
+      await client.query("INSERT INTO feedback_message(ticket_no,email,message) VALUES('FB-AAAAAAAA','sender@example.invalid','admin audit test')");
+      await new AdminService(config, database).updateFeedback(actor, undefined, 'FB-AAAAAAAA', { status: 'closed' });
+      const audit = await client.query("SELECT email,workspace_id FROM platform_admin_audit WHERE event_type='admin.feedback_status_changed'");
+      assert.deepEqual(audit.rows, [{ email, workspace_id: null }]);
+      await assert.rejects(new AdminService(config, database).newsletter({ ...actor }, undefined, {}), /platform_admin_required/);
+      await assert.rejects(new AdminEmailLogin({ PLATFORM_ADMIN_EMAILS: '' } as GatewayConfig, database).authenticate(session), /admin_session_required/);
+      await login.logout(session);
+      await assert.rejects(login.authenticate(session), /admin_session_required/);
+      await client.query("UPDATE platform_admin_link SET consumed_at=NULL, expires_at=now()-interval '1 second' WHERE token_hash=$1", [hash(ticket)]);
+      await assert.rejects(login.exchange({ ticket }), /admin_link_invalid_or_expired/);
+      await client.query("UPDATE platform_admin_session SET revoked_at=NULL,expires_at=now()-interval '1 second' WHERE token_hash=$1", [hash(session)]);
+      await assert.rejects(login.authenticate(session), /admin_session_required/);
+    });
     const registration = await auth.register(credentials, 'test-client');
     const registered = verifyAccessToken(registration.accessToken, secret);
     assert.equal((await auth.me(registered)).user.passwordSet, true);

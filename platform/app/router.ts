@@ -39,6 +39,10 @@ export default (app: Application) => {
   router.post('/api/referral/link', controller.platform.referralLink);
   router.get('/api/referral/summary', controller.platform.referralSummary);
   router.post('/api/billing/entitlements', controller.platform.updateBillingEntitlements);
+  router.post('/api/admin/auth/request', controller.platform.requestAdminLink);
+  router.post('/api/admin/auth/exchange', controller.platform.exchangeAdminLink);
+  router.get('/api/admin/auth/session', controller.platform.adminSession);
+  router.post('/api/admin/auth/logout', controller.platform.logoutAdmin);
   router.get('/api/admin/workspaces', controller.platform.adminWorkspaces);
   router.post('/api/admin/workspaces/:workspaceId/entitlements', controller.platform.adminUpdateEntitlements);
   router.get('/api/admin/feedback', controller.platform.adminFeedback);
