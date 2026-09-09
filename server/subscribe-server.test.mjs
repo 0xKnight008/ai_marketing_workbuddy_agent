@@ -9,7 +9,7 @@ const env = {
   GOOGLE_FORM_ID: '1FAIpQLSf0snTCY6aXd-eREWUYHvfHUPsdAxRLiCW2KxJanUQomT0ncA',
 };
 
-async function withServer(fetchImpl, run, feedbackStore, extraEnv = {}) {
+async function withServer(fetchImpl, run, feedbackStore = { newsletter: { async subscribe() {} } }, extraEnv = {}) {
   const server = createSubscriptionServer({ env: { ...env, ...extraEnv }, fetchImpl, feedbackStore });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -22,24 +22,21 @@ async function withServer(fetchImpl, run, feedbackStore, extraEnv = {}) {
   }
 }
 
-test('forwards a valid email after Google Forms accepts it', async () => {
-  let formBody;
-  await withServer(async (_url, options) => {
-    formBody = options.body;
-    return new Response('', { status: 200 });
-  }, async (baseUrl) => {
+test('stores normalized newsletter email without calling Google or Resend', async () => {
+  let stored;
+  await withServer(async () => { throw new Error('No external call expected'); }, async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/subscribe`, {
-      body: JSON.stringify({ email: 'test@example.com' }),
+      body: JSON.stringify({ email: ' Test@Example.com ' }),
       headers: { 'Content-Type': 'application/json' },
       method: 'POST',
     });
     assert.equal(response.status, 201);
     assert.deepEqual(await response.json(), { accepted: true });
-  });
-  assert.equal(formBody.get('entry.1237653730'), 'test@example.com');
+  }, { newsletter: { async subscribe(email) { stored = email; } } });
+  assert.equal(stored, 'test@example.com');
 });
 
-test('rejects invalid emails before calling Google Forms', async () => {
+test('rejects invalid emails before storing or sending', async () => {
   let calls = 0;
   await withServer(async () => {
     calls += 1;
@@ -56,16 +53,27 @@ test('rejects invalid emails before calling Google Forms', async () => {
   assert.equal(calls, 0);
 });
 
-test('returns an error when Google Forms rejects the request', async () => {
+test('newsletter honeypot and configured challenge prevent unwanted welcome mail', async () => {
+  let saved = 0;
+  await withServer(async () => Response.json({ success: false }), async (baseUrl) => {
+    const post = body => fetch(`${baseUrl}/api/subscribe`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    assert.equal((await post({ email: 'test@example.invalid', website: 'spam' })).status, 201);
+    assert.equal((await post({ email: 'test@example.invalid' })).status, 403);
+    assert.equal((await post({ email: 'test@example.invalid', turnstileToken: 'bad' })).status, 403);
+  }, { newsletter: { async subscribe() { saved++; } } }, { TURNSTILE_SECRET: 'test-only' });
+  assert.equal(saved, 0);
+});
+
+test('returns an error when database persistence fails', async () => {
   await withServer(async () => new Response('', { status: 403 }), async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/subscribe`, {
       body: JSON.stringify({ email: 'test@example.com' }),
       headers: { 'Content-Type': 'application/json' },
       method: 'POST',
     });
-    assert.equal(response.status, 502);
+    assert.equal(response.status, 503);
     assert.deepEqual(await response.json(), { error: 'subscription_unavailable' });
-  });
+  }, { newsletter: { async subscribe() { throw new Error('database unavailable'); } } });
 });
 
 test('rate limits repeated requests from one address', async () => {
@@ -90,7 +98,7 @@ test('rate limits repeated requests from one address', async () => {
     });
     assert.equal(blocked.status, 429);
   });
-  assert.equal(calls, 5);
+  assert.equal(calls, 0);
 });
 
 test('stores valid feedback and returns its ticket number', async () => {

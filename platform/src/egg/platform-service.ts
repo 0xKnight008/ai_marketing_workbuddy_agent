@@ -284,6 +284,10 @@ export class PlatformService {
     return this.admin.feedback(actor, adminToken, query);
   }
 
+  async adminNewsletter(actor: ActorContext, adminToken: string | undefined, query: unknown): Promise<unknown[]> {
+    return this.admin.newsletter(actor, adminToken, query);
+  }
+
   async adminUpdateFeedback(actor: ActorContext, adminToken: string | undefined, ticketNo: unknown, body: unknown): Promise<unknown> {
     return this.admin.updateFeedback(actor, adminToken, ticketNo, body);
   }

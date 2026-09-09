@@ -159,6 +159,10 @@ export default class PlatformController extends Controller {
     this.ctx.set('Cache-Control', 'no-store');
     this.ctx.body = await this.app.platform.service.adminFeedback(this.actor(), this.adminToken(), this.ctx.query);
   }
+  async adminNewsletter(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.adminNewsletter(this.actor(), this.adminToken(), this.ctx.query);
+  }
   async adminUpdateFeedback(): Promise<void> {
     this.ctx.set('Cache-Control', 'no-store');
     this.ctx.body = await this.app.platform.service.adminUpdateFeedback(

@@ -122,4 +122,5 @@ describe('Egg production gateway', () => {
     it(`requires authentication for ${route}`, () => app.httpRequest().post(route).send({}).expect(401));
   }
   it('requires authentication for the billing dashboard', () => app.httpRequest().get('/api/billing/dashboard').expect(401));
+  it('protects newsletter subscriber PII and disables caching', () => app.httpRequest().get('/api/admin/newsletter').expect('Cache-Control', 'no-store').expect(401));
 });

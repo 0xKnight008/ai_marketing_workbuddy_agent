@@ -7,6 +7,7 @@ COPY server/package*.json ./
 RUN npm ci --omit=dev --ignore-scripts
 COPY server/subscribe-server.mjs ./subscribe-server.mjs
 COPY server/feedback-delivery.mjs ./feedback-delivery.mjs
+COPY server/newsletter.mjs ./newsletter.mjs
 
 EXPOSE 3001
 CMD ["node", "subscribe-server.mjs"]

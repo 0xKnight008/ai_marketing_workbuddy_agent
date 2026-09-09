@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react';
 import { readSessionAccessToken } from '../lib/auth-session';
 
 const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
-type AdminTab = 'workspaces' | 'feedback' | 'jobs' | 'referrals';
+type AdminTab = 'workspaces' | 'feedback' | 'jobs' | 'referrals' | 'newsletter';
+interface NewsletterView { id: string; email: string; createdAt: string; welcomeStatus: string; attempts: number; welcomeError: string | null; providerId: string | null; acceptedAt: string | null; }
 
 interface UsageView {
   plan: 'creator' | 'growth' | 'agency';
@@ -67,6 +68,7 @@ interface ReferralView {
 const tabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'workspaces', label: 'Workspaces' },
   { id: 'feedback', label: 'Support tickets' },
+  { id: 'newsletter', label: 'Newsletter subscribers' },
   { id: 'jobs', label: 'Dead-letter jobs' },
   { id: 'referrals', label: 'Referral ledger' },
 ];
@@ -90,6 +92,8 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(false);
   const [workspaces, setWorkspaces] = useState<WorkspaceView[]>([]);
   const [feedback, setFeedback] = useState<FeedbackView[]>([]);
+  const [newsletter, setNewsletter] = useState<NewsletterView[]>([]);
+  const [newsletterOffset, setNewsletterOffset] = useState(0);
   const [jobs, setJobs] = useState<JobView[]>([]);
   const [referrals, setReferrals] = useState<ReferralView[]>([]);
   const [plans, setPlans] = useState<Record<string, UsageView['plan']>>({});
@@ -107,14 +111,14 @@ export default function AdminDashboard() {
     return fetch(`${gatewayUrl}${path}`, { ...init, headers: { ...headers(Boolean(init?.body)), ...init?.headers } });
   }
 
-  async function load(nextTab: AdminTab = tab) {
+  async function load(nextTab: AdminTab = tab, offset = 0) {
     if (!accessToken.trim() || !adminToken.trim()) {
       setMessage('Both the owner/admin session and platform admin secret are required.');
       return;
     }
     setLoading(true);
     setMessage('');
-    const query = `?q=${encodeURIComponent(search.trim())}`;
+    const query = `?q=${encodeURIComponent(search.trim())}&offset=${offset}`;
     const response = await request(`/api/admin/${nextTab}${query}`);
     const result = await response.json().catch(() => ({})) as unknown;
     setLoading(false);
@@ -129,6 +133,7 @@ export default function AdminDashboard() {
       setPlans(Object.fromEntries(rows.map((workspace) => [workspace.id, workspace.usage.plan])));
       setCredits(Object.fromEntries(rows.map((workspace) => [workspace.id, '0'])));
     } else if (nextTab === 'feedback') setFeedback(result as FeedbackView[]);
+    else if (nextTab === 'newsletter') { setNewsletter(result as NewsletterView[]); setNewsletterOffset(offset); }
     else if (nextTab === 'jobs') setJobs(result as JobView[]);
     else setReferrals(result as ReferralView[]);
     setMessage(`${(result as unknown[]).length} ${nextTab} record(s) loaded.`);
@@ -183,6 +188,7 @@ export default function AdminDashboard() {
       </section>
 
       <section className="mx-auto mt-6 max-w-7xl overflow-x-auto rounded-xl border border-ink/20 bg-paper-card p-5">
+        {tab === 'newsletter' && <><p className="mb-4 text-sm">Welcome status “accepted” means Resend accepted the email, not confirmed inbox delivery. Check the provider ID in Resend for delivery or bounce details.</p><table className="w-full text-left text-sm"><thead><tr>{['Email', 'Subscribed', 'Welcome status', 'Attempts', 'Last error', 'Resend ID'].map(label => <th key={label} className="p-3">{label}</th>)}</tr></thead><tbody>{newsletter.map(row => <tr key={row.id} className="border-t border-ink/10"><td className="p-3">{row.email}</td><td className="p-3">{new Date(row.createdAt).toLocaleString()}</td><td className="p-3">{row.welcomeStatus}</td><td className="p-3">{row.attempts}</td><td className="p-3">{row.welcomeError ?? '—'}</td><td className="p-3">{row.providerId ?? '—'}</td></tr>)}</tbody></table>{!newsletter.length && <p>No subscribers found.</p>}<div className="mt-4 flex gap-4"><button disabled={loading || newsletterOffset === 0} onClick={() => void load('newsletter', Math.max(0, newsletterOffset - 100))}>Previous</button><span>Page {newsletterOffset / 100 + 1}</span><button disabled={loading || newsletter.length < 100} onClick={() => void load('newsletter', newsletterOffset + 100)}>Next</button></div></>}
         {tab === 'workspaces' && <WorkspaceTable rows={workspaces} plans={plans} credits={credits} setPlans={setPlans} setCredits={setCredits} disabled={loading} update={(workspace) => mutate(`/api/admin/workspaces/${workspace.id}/entitlements`, entitlementChange(workspace, plans, credits), `Updated ${workspace.name}.`)} />}
         {tab === 'feedback' && <FeedbackTable rows={feedback} disabled={loading} update={(ticket, status) => mutate(`/api/admin/feedback/${ticket.ticketNo}`, { status }, `${ticket.ticketNo} moved to ${status}.`)} />}
         {tab === 'jobs' && <JobsTable rows={jobs} disabled={loading} replay={(job) => mutate(`/api/admin/jobs/${job.id}/replay`, { workspaceId: job.workspaceId }, `Requeued ${job.kind}.`)} />}

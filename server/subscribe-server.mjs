@@ -3,13 +3,12 @@ import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 
 import pg from 'pg';
+import { createNewsletterStore, deliverNewsletterWelcomes } from './newsletter.mjs';
 
-import { createReplyStore, deliverDiscordReplies, supportReplyConfiguration } from './feedback-delivery.mjs';
+import { createReplyStore, deliverDiscordReplies } from './feedback-delivery.mjs';
 export { deliverDiscordReplies } from './feedback-delivery.mjs';
 
 const { Pool } = pg;
-const DEFAULT_FORM_ID = '1FAIpQLSf0snTCY6aXd-eREWUYHvfHUPsdAxRLiCW2KxJanUQomT0ncA';
-const DEFAULT_EMAIL_ENTRY = '1237653730';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SUBSCRIBE_MAX_BODY_BYTES = 4_096;
 const FEEDBACK_MAX_BODY_BYTES = 8_192;
@@ -107,8 +106,9 @@ function createTicketNumber() {
 }
 
 export function createFeedbackStore(databaseUrl) {
-  const pool = new Pool({ connectionString: databaseUrl });
+  const pool = new Pool({ connectionString: databaseUrl, connectionTimeoutMillis: 5000, query_timeout: 10000 });
   return {
+    newsletter: createNewsletterStore(pool),
     async create(feedback) {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         const ticketId = createTicketNumber();
@@ -171,9 +171,6 @@ async function notifyDiscord(env, fetchImpl, feedbackStore, feedback) {
 }
 
 export function createSubscriptionServer({ env = process.env, fetchImpl = fetch, now = Date.now, feedbackStore = env.DATABASE_URL ? createFeedbackStore(env.DATABASE_URL) : undefined } = {}) {
-  const formId = env.GOOGLE_FORM_ID ?? DEFAULT_FORM_ID;
-  const emailEntry = env.GOOGLE_FORM_EMAIL_ENTRY ?? DEFAULT_EMAIL_ENTRY;
-  if (!/^[A-Za-z0-9_-]{20,}$/.test(formId) || !/^\d+$/.test(emailEntry)) throw new Error('Google Form configuration is invalid');
   const allowSubscribe = createRateLimiter(now, SUBSCRIBE_RATE_LIMIT);
   const allowFeedback = createRateLimiter(now, FEEDBACK_RATE_LIMIT);
   const allowReferral = createRateLimiter(now, { windowMs: 60_000, maxRequests: 30 });
@@ -198,18 +195,13 @@ export function createSubscriptionServer({ env = process.env, fetchImpl = fetch,
     try {
       if (request.method === 'POST' && pathname === '/api/subscribe') {
         const body = await readJson(request, SUBSCRIBE_MAX_BODY_BYTES);
-        const email = typeof body?.email === 'string' ? body.email.trim() : '';
-        if (!EMAIL_RE.test(email)) throw new RequestError(400, 'invalid_email');
+        if (typeof body?.website === 'string' && body.website.trim()) return sendJson(reply, 201, { accepted: true });
+        const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
+        if (!EMAIL_RE.test(email) || email.length > 254) throw new RequestError(400, 'invalid_email');
         if (!allowSubscribe(clientIp(request))) throw new RequestError(429, 'rate_limited');
-        const providerResponse = await fetchImpl(`https://docs.google.com/forms/d/e/${formId}/formResponse`, {
-          body: new URLSearchParams({ [`entry.${emailEntry}`]: email }),
-          headers: { Accept: 'text/html', 'Accept-Language': 'en', 'Content-Type': 'application/x-www-form-urlencoded' },
-          method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(10_000),
-        });
-        if (providerResponse.status < 200 || providerResponse.status >= 400) {
-          console.error('Google Forms rejected subscription', { status: providerResponse.status });
-          return sendJson(reply, 502, { error: 'subscription_unavailable' });
-        }
+        await verifyTurnstile(env, fetchImpl, body?.turnstileToken, clientIp(request));
+        if (!feedbackStore?.newsletter) throw new RequestError(503, 'subscription_unavailable');
+        await feedbackStore.newsletter.subscribe(email);
         return sendJson(reply, 201, { accepted: true });
       }
 
@@ -235,8 +227,8 @@ export function createSubscriptionServer({ env = process.env, fetchImpl = fetch,
       return sendJson(reply, 404, { error: 'not_found' });
     } catch (error) {
       if (error instanceof RequestError) return sendJson(reply, error.statusCode, { error: error.code });
-      console.error('Public API request failed', { message: error instanceof Error ? error.message : 'unknown_error' });
-      return sendJson(reply, pathname === '/api/feedback' ? 503 : 502, { error: pathname === '/api/feedback' ? 'feedback_unavailable' : 'subscription_unavailable' });
+      console.error('Public API request failed', { route: pathname, code: 'request_failed' });
+      return sendJson(reply, 503, { error: pathname === '/api/feedback' ? 'feedback_unavailable' : 'subscription_unavailable' });
     }
   });
   if (feedbackStore?.close) server.on('close', () => { void feedbackStore.close(); });
@@ -248,19 +240,22 @@ export function startSubscriptionServer(options = {}) {
   const port = Number.parseInt(env.PORT ?? '3001', 10);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error('PORT is invalid');
   const feedbackStore = options.feedbackStore ?? (env.DATABASE_URL ? createFeedbackStore(env.DATABASE_URL) : undefined);
-  supportReplyConfiguration(env);
   const server = createSubscriptionServer({ ...options, env, feedbackStore });
   let polling = false;
   const poll = async () => {
     if (polling) return;
     polling = true;
-    try { await deliverDiscordReplies({ env, fetchImpl: options.fetchImpl ?? fetch, feedbackStore }); }
-    catch (error) { console.error('Discord reply delivery failed', { message: error instanceof Error ? error.message : 'unknown_error' }); }
+    try { await Promise.all([
+      deliverDiscordReplies({ env, fetchImpl: options.fetchImpl ?? fetch, feedbackStore })
+        .catch(() => console.error('Discord reply polling failed', { code: 'discord_poll_failed' })),
+      deliverNewsletterWelcomes({ env, fetchImpl: options.fetchImpl ?? fetch, newsletterStore: feedbackStore?.newsletter })
+        .catch(() => console.error('Newsletter welcome polling failed', { code: 'newsletter_poll_failed' })),
+    ]); }
     finally { polling = false; }
   };
   const pollMs = Number.parseInt(env.DISCORD_REPLY_POLL_MS ?? String(DEFAULT_DISCORD_REPLY_POLL_MS), 10);
   if (!Number.isInteger(pollMs) || pollMs < 5_000) throw new Error('DISCORD_REPLY_POLL_MS must be at least 5000');
-  const timer = supportReplyConfiguration(env) ? setInterval(() => { void poll(); }, pollMs) : undefined;
+  const timer = feedbackStore ? setInterval(() => { void poll(); }, pollMs) : undefined;
   if (timer) { timer.unref(); void poll(); }
   server.on('close', () => { if (timer) clearInterval(timer); });
   server.listen({ host: '0.0.0.0', port }, () => console.log(`Public API server listening on ${port}`));

@@ -16,6 +16,22 @@ const targetWorkspaceId = '33333333-3333-4333-8333-333333333333';
 const adminToken = 'platform-admin-secret-at-least-32-characters';
 const config = { BILLING_ADMIN_TOKEN: adminToken } as GatewayConfig;
 
+test('newsletter directory requires both admin factors and uses bounded parameterized pagination', async () => {
+  let reached = false;
+  const database = { withAdmin: async (operation: (tx: TenantTransaction) => Promise<unknown>) => {
+    reached = true;
+    return operation({ query: async (sql: string, values: unknown[]) => {
+      assert.match(sql, /FROM newsletter_subscription/); assert.match(sql, /LIMIT 100 OFFSET \$2/);
+      assert.deepEqual(values, ['example', 100]); return { rows: [], rowCount: 0 };
+    } } as TenantTransaction);
+  } } as unknown as Database;
+  const service = new AdminService(config, database);
+  await assert.rejects(service.newsletter(actor, undefined, {}), /platform_admin_required/);
+  await assert.rejects(service.newsletter({ ...actor, role: 'viewer' }, adminToken, {}), /platform_admin_required/);
+  assert.equal(reached, false);
+  assert.deepEqual(await service.newsletter(actor, adminToken, { q: 'example', offset: '100' }), []);
+});
+
 test('admin access requires both a privileged session and the private secret', async () => {
   const database = { withAdmin() { throw new Error('database should not be reached'); } } as unknown as Database;
   const service = new AdminService(config, database);

@@ -259,6 +259,10 @@ app.get('/api/admin/feedback', async (request, reply) => {
   reply.header('cache-control', 'no-store');
   return platformService.adminFeedback(actorFrom(request), adminTokenFrom(request), request.query);
 });
+app.get('/api/admin/newsletter', async (request, reply) => {
+  reply.header('cache-control', 'no-store');
+  return platformService.adminNewsletter(actorFrom(request), adminTokenFrom(request), request.query);
+});
 
 app.patch('/api/admin/feedback/:ticketNo', async (request, reply) => {
   reply.header('cache-control', 'no-store');
