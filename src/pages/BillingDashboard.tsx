@@ -14,6 +14,13 @@ export default function BillingDashboard({ token, gatewayUrl, onUsage }: { token
   const [data, setData] = useState<BillingView | null>(null);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [subscriptionId, setSubscriptionId] = useState('');
+  async function recoverSubscription() {
+    setBusy(true); setMessage('');
+    try { await request('subscription/recover', { subscriptionId: subscriptionId.trim() }); await refresh(); setMessage('Stripe subscription verified. Original trial dates and usage limits apply.'); }
+    catch (error) { setMessage(error instanceof Error ? error.message : 'Recovery failed.'); }
+    finally { setBusy(false); }
+  }
   const request = useCallback(async (path: string, body?: object) => {
     const response = await fetch(`${gatewayUrl}/api/billing/${path}`, { method: body ? 'POST' : 'GET', cache: 'no-store',
       headers: { authorization: `Bearer ${token}`, ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
@@ -55,6 +62,7 @@ export default function BillingDashboard({ token, gatewayUrl, onUsage }: { token
     {message && <p role="status" className="rounded-lg bg-sky-pale p-4">{message}</p>}
     {!data ? <p>Loading billing details…</p> : <>
       {data.syncError && <p role="alert">Stripe details are temporarily unavailable. The usage below is your last recorded entitlement; refresh to verify subscription changes.</p>}
+      {data.usage.subscriptionStatus === 'inactive' && <div className={card}><h3 className="text-xl font-semibold">Already subscribed?</h3><p className="my-3 text-sm">The workspace owner can verify an existing Stripe subscription without purchasing again. Enter its sub_… ID; the server checks ownership, current status and original trial dates.</p><label className="block text-sm">Stripe subscription ID<input value={subscriptionId} onChange={event => setSubscriptionId(event.target.value)} className="my-3 block w-full rounded-md border border-ink/20 p-3" placeholder="sub_…" /></label><button className={button} disabled={busy || !subscriptionId.trim()} onClick={() => void recoverSubscription()}>Verify existing subscription</button></div>}
       <div className="grid gap-6 lg:grid-cols-2">
         <div className={card}><h3 className="text-xl font-semibold capitalize">{data.usage.plan} plan</h3><p className="mt-3">Subscription: {data.subscription?.status ?? data.usage.subscriptionStatus}</p><p>Automation: {data.usage.status}</p>
           {data.subscription && <div className="mt-3 space-y-2 text-sm"><p>{data.subscription.cancelAtPeriodEnd ? 'Ends on' : 'Next billing date'}: {when(data.subscription.renewsAt)}</p>{data.subscription.status === 'trialing' && <p>Trial ends: {when(data.subscription.trialEndsAt)}</p>}{data.subscription.amountCents != null && <p>{(data.subscription.amountCents / 100).toLocaleString(undefined, { style: 'currency', currency: data.subscription.currency })} / {data.subscription.interval}</p>}</div>}

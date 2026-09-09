@@ -69,6 +69,10 @@ export default class PlatformController extends Controller {
     this.ctx.set('Cache-Control', 'no-store');
     this.ctx.body = await this.app.platform.service.recoverStripeCheckout(this.actor());
   }
+  async recoverStripeSubscription(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.recoverStripeSubscription(this.actor(), this.ctx.request.body);
+  }
 
   async stripeWebhook(): Promise<void> {
     const rawBody = (this.ctx.state as { rawBody?: Buffer }).rawBody;

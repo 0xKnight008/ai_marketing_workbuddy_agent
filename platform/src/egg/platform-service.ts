@@ -244,12 +244,36 @@ export class PlatformService {
     const recorded = await this.database.withWorkspace(actor.workspaceId, (tx) => tx.query<{ sessionId: string }>(`
       SELECT payload->>'stripeCheckoutSessionId' AS "sessionId" FROM audit_event
       WHERE workspace_id = current_setting('app.workspace_id')::uuid AND event_type = 'billing.stripe_checkout_started'
-      ORDER BY created_at DESC LIMIT 1`));
-    const sessionId = recorded.rows[0]?.sessionId;
-    if (!sessionId) return { state: 'not_found' };
-    const checkout = await inspectRecordedCheckout(this.config, sessionId, actor);
-    if (checkout.state !== 'complete') return checkout;
-    return { state: 'confirmed', usage: await this.reconcileStripeCheckout(actor, { sessionId }) };
+      ORDER BY created_at DESC LIMIT 10`));
+    if (!recorded.rows.length) return { state: 'not_found' };
+    // A later abandoned checkout must not hide an earlier completed purchase.
+    const checkouts = await Promise.all(recorded.rows.map(async ({ sessionId }) => ({ sessionId, checkout: await inspectRecordedCheckout(this.config, sessionId, actor) })));
+    const complete = checkouts.find(value => value.checkout.state === 'complete');
+    if (complete) return { state: 'confirmed', usage: await this.reconcileStripeCheckout(actor, { sessionId: complete.sessionId }) };
+    return checkouts[0]!.checkout;
+  }
+
+  async recoverStripeSubscription(actor: ActorContext, body: unknown): Promise<unknown> {
+    if (actor.role !== 'owner') throw new HttpError(403, 'owner_required');
+    const { subscriptionId } = z.object({ subscriptionId: z.string().regex(/^sub_[A-Za-z0-9]+$/).max(255) }).parse(body);
+    const subscription = await retrieveStripeSubscription(this.config, subscriptionId);
+    if (subscription.id !== subscriptionId || subscription.workspaceId !== actor.workspaceId || !subscription.customerId) throw new HttpError(403, 'stripe_workspace_mismatch');
+    if (!['active', 'trialing'].includes(subscription.status) || (subscription.status === 'trialing' && !(Date.parse(subscription.trialEndsAt ?? '') > Date.now()))) throw new HttpError(409, 'stripe_subscription_not_active');
+    const plan = this.customerBilling.planForPrice(subscription.priceId);
+    if (!plan) throw new HttpError(503, 'stripe_price_not_mapped');
+    return this.database.withWorkspace(actor.workspaceId, async tx => {
+      await usageSnapshot(tx);
+      const current = await tx.query<{ subscriptionId: string | null; customerId: string | null }>(`SELECT stripe_subscription_id AS "subscriptionId", stripe_customer_id AS "customerId"
+        FROM workspace_billing WHERE workspace_id = current_setting('app.workspace_id')::uuid FOR UPDATE`);
+      const row = current.rows[0];
+      if ((row?.subscriptionId && row.subscriptionId !== subscription.id) || (row?.customerId && row.customerId !== subscription.customerId)) throw new HttpError(409, 'stripe_subscription_mismatch');
+      const result = await activateStripeSubscription(tx, { eventId: `subscription-recovery:${subscription.id}`, eventType: 'subscription.recovered', plan,
+        subscriptionId: subscription.id, customerId: subscription.customerId, priceId: subscription.priceId, subscriptionStatus: subscription.status,
+        trialEndsAt: subscription.trialEndsAt, trialStartsAt: subscription.trialStartsAt });
+      if (result.applied) await tx.query('INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)',
+        [actor.workspaceId, actor.actorId, 'billing.subscription_recovered', { subscriptionId }]);
+      return usageSnapshot(tx);
+    });
   }
 
   async billingUsage(actor: ActorContext): Promise<unknown> {

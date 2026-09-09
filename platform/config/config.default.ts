@@ -17,13 +17,13 @@ export default (appInfo: EggAppInfo) => ({
       ignore: (ctx: { path: string }) =>
         ctx.path.startsWith('/api/') ||
         ctx.path === '/internal/ai-runtime-events' ||
-        ctx.path === '/webhooks/stripe',
+        ctx.path === '/webhooks/stripe' || ctx.path === '/api/webhooks/stripe',
     },
   },
   bodyParser: {
     // Signed runtime and Stripe events cover original bytes, so these endpoints
     // are parsed by runtimeRawBody before the standard JSON parser sees them.
-    ignore: (ctx: { path: string }) => ctx.path === '/internal/ai-runtime-events' || ctx.path === '/webhooks/stripe',
+    ignore: (ctx: { path: string }) => ctx.path === '/internal/ai-runtime-events' || ctx.path === '/webhooks/stripe' || ctx.path === '/api/webhooks/stripe',
     jsonLimit: '1mb',
   },
   middleware: ['platformError', 'platformCors', 'runtimeRawBody'],

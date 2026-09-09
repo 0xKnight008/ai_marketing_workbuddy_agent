@@ -123,4 +123,6 @@ describe('Egg production gateway', () => {
   }
   it('requires authentication for the billing dashboard', () => app.httpRequest().get('/api/billing/dashboard').expect(401));
   it('protects newsletter subscriber PII and disables caching', () => app.httpRequest().get('/api/admin/newsletter').expect('Cache-Control', 'no-store').expect(401));
+  it('routes the API-prefixed Stripe webhook through signature validation', () => app.httpRequest().post('/api/webhooks/stripe').send({}).expect(401).expect({ error: 'stripe_signature_missing' }));
+  it('protects subscription recovery', () => app.httpRequest().post('/api/billing/subscription/recover').send({ subscriptionId: 'sub_test' }).expect(401));
 });
