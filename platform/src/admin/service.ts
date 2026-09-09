@@ -76,6 +76,16 @@ interface AdminReferralRow {
 export class AdminService {
   constructor(private readonly config: GatewayConfig, private readonly database: Database) {}
 
+  async newsletter(actor: ActorContext, adminToken: string | undefined, query: unknown): Promise<unknown[]> {
+    this.authorize(actor, adminToken);
+    const { q, offset } = searchSchema.extend({ offset: z.coerce.number().int().min(0).max(1000000).default(0) }).parse(query ?? {});
+    return this.database.withAdmin(async (tx) => (await tx.query(`SELECT id, email, created_at::text AS "createdAt",
+      welcome_status AS "welcomeStatus", welcome_attempts AS attempts, welcome_error AS "welcomeError",
+      welcome_provider_id AS "providerId", welcome_accepted_at::text AS "acceptedAt"
+      FROM newsletter_subscription WHERE ($1 = '' OR email ILIKE '%' || $1 || '%')
+      ORDER BY created_at DESC, id DESC LIMIT 100 OFFSET $2`, [q, offset])).rows);
+  }
+
   async workspaces(actor: ActorContext, adminToken: string | undefined, query: unknown): Promise<AdminWorkspaceView[]> {
     this.authorize(actor, adminToken);
     const { q } = searchSchema.parse(query ?? {});

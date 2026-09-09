@@ -15,7 +15,7 @@ type TurnstileApi = {
 declare global { interface Window { turnstile?: TurnstileApi } }
 
 let turnstileScript: Promise<TurnstileApi> | undefined;
-function loadTurnstile(): Promise<TurnstileApi> {
+export function loadTurnstile(): Promise<TurnstileApi> {
   if (window.turnstile) return Promise.resolve(window.turnstile);
   if (turnstileScript) return turnstileScript;
   turnstileScript = new Promise((resolve, reject) => {

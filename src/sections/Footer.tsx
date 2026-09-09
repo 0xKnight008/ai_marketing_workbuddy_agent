@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { loadTurnstile } from '../components/ContactSupport';
 import { Piggy, SpritePuff } from "../components/ghibli/Piggy";
 import { Moon, NightHills, Fireflies, TwinkleStar } from "../components/ghibli/Scenery";
 import { Reveal } from "../components/Reveal";
 import { useT } from "../i18n/LangContext";
-import { GOOGLE_FORM_EMBED_URL, GOOGLE_FORM_EMAIL_ENTRY, gatewayApiUrl } from "../config";
 
 const STARS = [
   { left: "6%", top: "10%" }, { left: "14%", top: "26%" }, { left: "23%", top: "8%" },
@@ -21,6 +21,20 @@ function SubscribeForm() {
   const f = t.footer;
   const [email, setEmail] = useState("");
   const [state, setState] = useState<SubscribeState>("idle");
+  const [challenge, setChallenge] = useState('');
+  const challengeContainer = useRef<HTMLDivElement>(null);
+  const widget = useRef<string | undefined>(undefined);
+  const siteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim();
+  useEffect(() => {
+    if (!siteKey || !challengeContainer.current) return;
+    let cancelled = false;
+    void loadTurnstile().then(api => {
+      if (!cancelled && challengeContainer.current) widget.current = api.render(challengeContainer.current, {
+        sitekey: siteKey, callback: setChallenge, 'expired-callback': () => setChallenge(''), 'error-callback': () => setChallenge(''),
+      });
+    }).catch(() => setState('error'));
+    return () => { cancelled = true; };
+  }, [siteKey]);
 
   async function subscribe(event: React.FormEvent) {
     event.preventDefault();
@@ -33,15 +47,18 @@ function SubscribeForm() {
 
     setState("sending");
     try {
-      const response = await fetch(gatewayApiUrl('/api/subscribe'), {
+      const response = await fetch('/api/subscribe', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: value }),
+        body: JSON.stringify({ email: value, turnstileToken: challenge, website: new FormData(event.currentTarget as HTMLFormElement).get('website') }),
+        signal: AbortSignal.timeout(15000),
       });
-      if (!response.ok) throw new Error('Subscription was not accepted');
+      if (!response.ok || (await response.json()).accepted !== true) throw new Error('Subscription was not accepted');
       setState("done");
     } catch {
       setState("error");
+      if (widget.current) window.turnstile?.reset(widget.current);
+      setChallenge('');
     }
   }
 
@@ -72,12 +89,14 @@ function SubscribeForm() {
         />
         <button
           type="submit"
-          disabled={state === "sending"}
+          disabled={state === "sending" || Boolean(siteKey && !challenge)}
           className="shrink-0 px-6 py-3.5 bg-sunset text-[#FFF9EC] font-display sketch wobble shadow-paint transition-all hover:-translate-y-0.5 disabled:opacity-60 disabled:hover:translate-y-0"
         >
           {state === "sending" ? f.signupLoading : f.signupButton}
         </button>
       </div>
+      <input name="website" tabIndex={-1} autoComplete="off" className="hidden" aria-hidden="true" />
+      {siteKey && <div ref={challengeContainer} className="mt-3" />}
       {(state === "invalid" || state === "error") && (
         <p className="mt-2.5 text-sm font-bold text-[#F4B8A0]" role="alert">
           {state === "invalid" ? f.signupInvalid : f.signupError}
@@ -124,18 +143,7 @@ export function Footer() {
           <p className="font-hand text-2xl text-sky mt-2 -rotate-1">{f.tagline}</p>
           <p className="mt-4 text-[#C8CFDF] leading-relaxed">{f.sub}</p>
 
-          {GOOGLE_FORM_EMAIL_ENTRY ? (
-            <SubscribeForm />
-          ) : (
-            <iframe
-              title={f.signupFormTitle}
-              src={GOOGLE_FORM_EMBED_URL}
-              className="mt-8 h-[409px] w-full max-w-[640px] rounded-xl bg-paper-card"
-              style={{ border: 0 }}
-            >
-              正在加载…
-            </iframe>
-          )}
+          <SubscribeForm />
         </Reveal>
 
         {/* 夜丘 */}
