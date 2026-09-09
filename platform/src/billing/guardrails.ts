@@ -78,7 +78,6 @@ async function billingRow(tx: TenantTransaction): Promise<BillingRow> {
     VALUES (current_setting('app.workspace_id')::uuid, date_trunc('month', now())::date, 'creator', 0)
     ON CONFLICT (workspace_id) DO UPDATE
       SET period_start = EXCLUDED.period_start,
-          purchased_ai_credits = CASE WHEN workspace_billing.period_start < EXCLUDED.period_start THEN 0 ELSE workspace_billing.purchased_ai_credits END,
           updated_at = now()
     RETURNING plan, purchased_ai_credits AS "purchasedCredits", subscription_status AS "subscriptionStatus", trial_ends_at::text AS "trialEndsAt", payment_grace_ends_at::text AS "paymentGraceEndsAt"`, []);
   const value = row.rows[0];
@@ -117,7 +116,7 @@ export async function usageSnapshot(tx: TenantTransaction): Promise<UsageSnapsho
     taskUsed,
     taskQuota: entitlement.taskQuota,
     aiCreditsUsed: isTrial ? number(trialUsage?.rows[0]?.trialCreditsUsed) : aiCreditsUsed,
-    aiCreditsAvailable: isTrial ? (trialActive ? trialCreditsRemaining! : 0) : Math.max(0, entitlement.aiCredits + number(billing.purchasedCredits) - aiCreditsUsed),
+    aiCreditsAvailable: isTrial ? (trialActive ? trialCreditsRemaining! : 0) : Math.max(0, entitlement.aiCredits - aiCreditsUsed) + number(billing.purchasedCredits),
     trialCreditsRemaining,
     supplierSpendMicros,
     supplierSpendLimitMicros,
@@ -152,9 +151,15 @@ export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: s
   const provider = resourceStatus === 'degraded' ? 'fallback' as const : 'primary' as const;
   const effectiveSpend = current.supplierSpendMicros + effectivePolicy.supplierCostMicros;
   const effectiveGuardrail = { ...projected, supplierSpendMicros: effectiveSpend, status: executionStatus(current, guardrailStatus(current.taskUsed, current.taskQuota, effectiveSpend, current.supplierSpendLimitMicros)) };
-  if (projected.status === 'paused') return { band: effectiveBand, provider, credits, supplierCostMicros: effectivePolicy.supplierCostMicros, guardrail: projected };
-  await tx.query(`INSERT INTO task_event (workspace_id, run_id, action_type, billable_units, ai_credits, supplier_cost_micros, supplier, status)
-    VALUES (current_setting('app.workspace_id')::uuid, $1, $2, 0, $3, $4, $5, 'succeeded') ON CONFLICT DO NOTHING`, [runId, `ai.${effectiveBand}.${provider}`, credits, effectivePolicy.supplierCostMicros, provider]);
+  if (projected.status === 'paused' || current.aiCreditsAvailable <= 0) return { band: effectiveBand, provider, credits: 0, supplierCostMicros: effectivePolicy.supplierCostMicros, guardrail: { ...projected, status: 'paused' } };
+  const recorded = await tx.query(`INSERT INTO task_event (workspace_id, run_id, action_type, billable_units, ai_credits, supplier_cost_micros, supplier, status)
+    VALUES (current_setting('app.workspace_id')::uuid, $1, $2, 0, $3, $4, $5, 'succeeded') ON CONFLICT DO NOTHING RETURNING id`, [runId, `ai.${effectiveBand}.${provider}`, credits, effectivePolicy.supplierCostMicros, provider]);
+  if (recorded.rowCount && current.subscriptionStatus !== 'trialing') {
+    const includedRemaining = Math.max(0, PLAN_CATALOG[current.plan].aiCredits - current.aiCreditsUsed);
+    const purchasedSpent = Math.max(0, credits - includedRemaining);
+    if (purchasedSpent) await tx.query(`UPDATE workspace_billing SET purchased_ai_credits = purchased_ai_credits - $1
+      WHERE workspace_id = current_setting('app.workspace_id')::uuid`, [purchasedSpent]);
+  }
   return { band: effectiveBand, provider, credits, supplierCostMicros: effectivePolicy.supplierCostMicros, guardrail: effectiveGuardrail };
 }
 
@@ -246,6 +251,8 @@ export async function activateStripeSubscription(tx: TenantTransaction, activati
 }
 
 export interface StripeSubscriptionStatusUpdate {
+  plan?: PlanKey;
+  priceId?: string;
   eventId: string;
   eventType: string;
   subscriptionId?: string;
@@ -267,7 +274,7 @@ export async function updateStripeSubscriptionStatus(
   if (!recorded.rows[0]) return { applied: false };
   await billingRow(tx);
   const updated = await tx.query(`UPDATE workspace_billing
-    SET subscription_status = $1,
+    SET subscription_status = $1, plan = COALESCE($5, plan), stripe_price_id = COALESCE($6, stripe_price_id),
         payment_grace_ends_at = CASE WHEN $1 = 'past_due' THEN COALESCE($2::timestamptz, payment_grace_ends_at) ELSE NULL END,
         updated_at = now()
     WHERE workspace_id = current_setting('app.workspace_id')::uuid
@@ -277,6 +284,8 @@ export async function updateStripeSubscriptionStatus(
     update.paymentGraceEndsAt ?? null,
     update.subscriptionId ?? null,
     update.customerId ?? null,
+    update.plan ?? null,
+    update.priceId ?? null,
   ]);
   if (updated.rowCount !== 1) throw new Error('Stripe subscription does not match workspace billing record');
   return { applied: true, usage: await usageSnapshot(tx) };

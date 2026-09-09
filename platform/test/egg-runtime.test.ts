@@ -117,4 +117,9 @@ describe('Egg production gateway', () => {
     .expect('Access-Control-Allow-Headers', /X-Billing-Admin-Token/)
     .expect('Access-Control-Allow-Methods', /PATCH/)
     .expect(204));
+
+  for (const route of ['/api/billing/portal', '/api/billing/credit-topup', '/api/billing/credit-topup/confirm']) {
+    it(`requires authentication for ${route}`, () => app.httpRequest().post(route).send({}).expect(401));
+  }
+  it('requires authentication for the billing dashboard', () => app.httpRequest().get('/api/billing/dashboard').expect(401));
 });

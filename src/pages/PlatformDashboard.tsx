@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 
 import { clearSessionAccessToken, readSessionAccessToken, storeSessionAccessToken } from '../lib/auth-session';
 import { safeNextPath } from '../lib/auth-navigation';
+import BillingDashboard from './BillingDashboard';
 
 const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
 
-type Section = 'pipelines' | 'accounts' | 'activity' | 'settings';
+type Section = 'dashboard' | 'pipelines' | 'accounts' | 'activity' | 'settings';
 type WizardStep = 'start' | 'configure' | 'accounts' | 'review' | 'saved';
 type TemplateId = 'repurpose' | 'weekly_report' | 'comment_lead';
 
@@ -71,7 +72,7 @@ export default function PlatformDashboard() {
   const [token, setToken] = useState(readSessionAccessToken);
   const [me, setMe] = useState<MeView | null>(null);
   const [sessionError, setSessionError] = useState('');
-  const [section, setSection] = useState<Section>('pipelines');
+  const [section, setSection] = useState<Section>('dashboard');
   const [templates, setTemplates] = useState<PipelineTemplate[]>(fallbackTemplates);
   const [pipelines, setPipelines] = useState<PipelineView[]>([]);
   const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
@@ -96,6 +97,10 @@ export default function PlatformDashboard() {
   const [newPassword, setNewPassword] = useState('');
   const [passwordStatus, setPasswordStatus] = useState('');
   const [recoveringCheckout, setRecoveringCheckout] = useState(false);
+  const applyBillingUsage = useCallback((next: UsageView) => {
+    setUsage(next);
+    setMe((current) => current ? { ...current, plan: next.plan, subscriptionStatus: next.subscriptionStatus } : current);
+  }, []);
 
   const selectedTemplate = useMemo(() => templates.find((template) => template.id === draft.templateId), [draft.templateId, templates]);
   const healthyAccounts = accounts.filter((account) => account.status === 'connected');
@@ -352,7 +357,7 @@ export default function PlatformDashboard() {
         <div className="mx-auto flex max-w-7xl flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div><p className="font-hand text-lg text-sky-deep">Piggybot Platform</p><h1 className="font-display text-3xl">{me?.workspace.name ?? 'Marketing workspace'}</h1>{me && <p className="mt-1 text-sm text-ink-soft">Signed in as {me.user.email} · {me.role} · plan {me.plan}</p>}</div>
           <nav className="flex flex-wrap gap-2" aria-label="Workspace navigation">
-            {([['pipelines', 'Pipelines'], ['accounts', 'Accounts'], ['activity', 'Activity'], ['settings', 'Settings']] as const).map(([id, label]) => <button key={id} onClick={() => setSection(id)} className={`rounded-full px-4 py-2 text-sm font-medium ${section === id ? 'bg-sky-deep text-white' : 'bg-paper text-ink-soft hover:bg-sky-pale'}`}>{label}</button>)}
+            {([['dashboard', 'Dashboard'], ['pipelines', 'Pipelines'], ['accounts', 'Accounts'], ['activity', 'Activity'], ['settings', 'Settings']] as const).map(([id, label]) => <button key={id} onClick={() => setSection(id)} className={`rounded-full px-4 py-2 text-sm font-medium ${section === id ? 'bg-sky-deep text-white' : 'bg-paper text-ink-soft hover:bg-sky-pale'}`}>{label}</button>)}
           </nav>
           <div className="flex items-center gap-4 text-sm"><a className="text-ink-soft hover:text-ink" href="/contact">Help</a><a className="text-ink-soft hover:text-ink" href="/">Website</a><button onClick={signOut} className="rounded-md border border-ink/20 px-3 py-1.5 text-ink-soft hover:text-ink">Sign out</button></div>
         </div>
@@ -360,7 +365,8 @@ export default function PlatformDashboard() {
 
       {locked && <section className="mx-auto mt-8 max-w-7xl rounded-xl border-2 border-sunset/50 bg-sunset/10 p-5"><h2 className="text-lg font-semibold">Automation is paused</h2><p className="mt-1 text-sm text-ink-soft">Complete your subscription or review your usage limits. A free trial pauses after 7 days or 30 AI credits, whichever comes first.</p><div className="mt-4 flex flex-wrap gap-3">{me.role === 'owner' && <button disabled={recoveringCheckout} onClick={() => void recoverCheckout()} className="rounded-md bg-sky-deep px-5 py-3 font-medium text-white disabled:opacity-50">{recoveringCheckout ? 'Checking Stripe…' : 'Check / resume checkout'}</button>}<a href="/activate?plan=growth" className="inline-block rounded-md bg-sunset px-5 py-3 font-medium text-white shadow-paint-sm">View plans</a></div></section>}
 
-      <div className={`mx-auto max-w-7xl p-6 md:p-10 ${locked && section !== 'settings' ? 'pointer-events-none select-none opacity-40 grayscale' : ''}`} aria-disabled={locked && section !== 'settings'} inert={locked && section !== 'settings'}>
+      <div className={`mx-auto max-w-7xl p-6 md:p-10 ${locked && section !== 'settings' && section !== 'dashboard' ? 'pointer-events-none select-none opacity-40 grayscale' : ''}`} aria-disabled={locked && section !== 'settings' && section !== 'dashboard'} inert={locked && section !== 'settings' && section !== 'dashboard'}>
+        {section === 'dashboard' && <BillingDashboard token={token} gatewayUrl={gatewayUrl} onUsage={applyBillingUsage} />}
         {message && <div className="mb-6 rounded-xl border border-sky-deep/20 bg-sky-pale p-4 text-sm text-sky-deep" role="status">{message}</div>}
         {section === 'pipelines' && <PipelinesSection templates={templates} pipelines={pipelines} usage={usage} loading={loading} onNew={() => { setDraft(freshDraft()); setSavedPipeline(null); setReadiness(null); setWizardStep('start'); }} onTemplate={startTemplate} onContinue={continuePipeline} onActivity={() => setSection('activity')} />}
         {section === 'accounts' && <AccountsSection accounts={accounts} connecting={connecting} onConnect={connectSocial} onRefresh={() => void refreshAccounts(true)} />}

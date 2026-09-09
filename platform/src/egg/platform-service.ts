@@ -38,6 +38,7 @@ import {
   type ZernioSelectionOption,
 } from '../zernio/client';
 import { HttpError } from '../http/errors';
+import { CustomerBillingService } from '../billing/customer-billing';
 import { activeReferralLink, referralSummary } from '../referral/service';
 
 /** Framework-neutral orchestration used by Egg controllers and scheduled work. */
@@ -46,6 +47,7 @@ export class PlatformService {
   private readonly activationDelivery: ActivationDeliveryService;
   private readonly admin: AdminService;
   private readonly emailAuth: EmailAuthService;
+  readonly customerBilling: CustomerBillingService;
 
   constructor(
     private readonly config: GatewayConfig,
@@ -55,6 +57,7 @@ export class PlatformService {
     this.activationDelivery = new ActivationDeliveryService(config, database);
     this.admin = new AdminService(config, database);
     this.emailAuth = new EmailAuthService(config, database);
+    this.customerBilling = new CustomerBillingService(config, database);
   }
 
   actorFrom(authorization: string | undefined): ActorContext {
@@ -119,6 +122,10 @@ export class PlatformService {
   async createStripeCheckout(actor: ActorContext, body: unknown): Promise<{ id: string; url: string }> {
     if (actor.role !== 'owner') throw new HttpError(403, 'owner_required');
     const parsed = z.object({ plan: z.enum(PLAN_KEYS), billingInterval: billingIntervalSchema.default('month'), referralCode: z.string().regex(/^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$/).optional() }).parse(body);
+    const existing = await this.database.withWorkspace(actor.workspaceId, (tx) => tx.query(`SELECT stripe_subscription_id FROM workspace_billing
+      WHERE workspace_id = current_setting('app.workspace_id')::uuid AND stripe_subscription_id IS NOT NULL
+        AND subscription_status NOT IN ('canceled', 'inactive', 'incomplete_expired')`));
+    if (existing.rows[0]) throw new HttpError(409, 'subscription_already_exists_use_billing_dashboard');
     const checkout = await createStripeCheckoutSession(this.config, {
       workspaceId: actor.workspaceId,
       actorId: actor.actorId,
@@ -136,6 +143,7 @@ export class PlatformService {
   async ingestStripeWebhook(rawBody: string, signature: string | undefined): Promise<{ received: true; activated: boolean }> {
     if (!this.config.STRIPE_WEBHOOK_SECRET) throw new HttpError(503, 'stripe_not_configured');
     verifyStripeWebhookSignature(rawBody, signature, this.config.STRIPE_WEBHOOK_SECRET, this.config.STRIPE_WEBHOOK_TOLERANCE_SECONDS);
+    if (await this.customerBilling.webhook(rawBody)) return { received: true, activated: false };
     const activation = stripeActivationFromWebhook(rawBody);
     if (activation) {
       const subscription = activation.subscriptionId
@@ -190,12 +198,18 @@ export class PlatformService {
 
     const statusEvent = stripeSubscriptionStatusFromWebhook(rawBody, this.config.STRIPE_PAYMENT_GRACE_DAYS);
     if (!statusEvent) return { received: true, activated: false };
-    const subscription = statusEvent.workspaceId ? undefined : await retrieveStripeSubscription(this.config, statusEvent.subscriptionId);
+    const subscription = await retrieveStripeSubscription(this.config, statusEvent.subscriptionId);
     const workspaceId = statusEvent.workspaceId ?? subscription?.workspaceId;
     if (!workspaceId) throw new HttpError(400, 'stripe_workspace_metadata_missing');
+    if (subscription.workspaceId !== workspaceId || subscription.id !== statusEvent.subscriptionId) throw new HttpError(409, 'stripe_workspace_mismatch');
+    const currentPlan = this.customerBilling.planForPrice(subscription.priceId);
+    if (!currentPlan) throw new HttpError(503, 'stripe_price_not_mapped');
     const result = await this.database.withWorkspace(workspaceId, async (tx) => {
       const applied = await updateStripeSubscriptionStatus(tx, {
         ...statusEvent,
+        plan: currentPlan,
+        priceId: subscription.priceId,
+        subscriptionStatus: subscription.status,
         customerId: subscription?.customerId ?? statusEvent.customerId,
         subscriptionId: subscription?.id ?? statusEvent.subscriptionId,
       });

@@ -12,7 +12,8 @@ import { EmailAuthService } from '../src/identity/email-auth';
 import { verifyAccessToken } from '../src/identity/token';
 import { PlatformService } from '../src/egg/platform-service';
 import type { PlatformOrm } from '../src/foundation/sequelize';
-import { requireAutomationAccess, type UsageSnapshot } from '../src/billing/guardrails';
+import { requireAutomationAccess, reserveAiRun, usageSnapshot, type UsageSnapshot } from '../src/billing/guardrails';
+import { applyCreditTopup, applyCreditRefund } from '../src/billing/customer-billing';
 
 test('migration 0013 upgrades missing auth columns and enables register/login/me on PostgreSQL', async (t) => {
   const url = process.env.TEST_DATABASE_URL;
@@ -89,6 +90,34 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
       await assert.rejects(database.withWorkspace(registered.workspaceId, requireAutomationAccess), /automation_paused/);
       await client.query('UPDATE workspace_billing SET stripe_subscription_id = $1 WHERE workspace_id = $2', ['sub_newer', registered.workspaceId]);
       await assert.rejects(service.reconcileStripeCheckout(registered, { sessionId: 'cs_test_trial' }), /stripe_subscription_mismatch/);
+    });
+    await t.test('credit wallet survives rollover, consumes once and reconciles cumulative refunds', async () => {
+      await database.withWorkspace(registered.workspaceId, async (tx) => {
+        await tx.query(`UPDATE workspace_billing SET plan = 'creator', subscription_status = 'active', purchased_ai_credits = 0,
+          period_start = date_trunc('month', now()) - interval '1 month' WHERE workspace_id = $1`, [registered.workspaceId]);
+        const input = { sessionId: 'cs_topup_pg', paymentIntentId: 'pi_topup_pg', amountCents: 1000 };
+        assert.equal(await applyCreditTopup(tx, input), true);
+        assert.equal(await applyCreditTopup(tx, input), false);
+        // The earlier trial fixture used 30 credits; complete the 400 included credits.
+        const existing = await tx.query<{ workflow_id: string }>('SELECT workflow_id FROM workflow_run WHERE workspace_id = $1 LIMIT 1', [registered.workspaceId]);
+        const run = await tx.query<{ id: string }>(`INSERT INTO workflow_run (workspace_id, workflow_id, workflow_version, idempotency_key, input, context_snapshot, requested_by)
+          VALUES ($1, $2, 1, 'credit-wallet', '{}', '{}', $3) RETURNING id`, [registered.workspaceId, existing.rows[0]!.workflow_id, registered.actorId]);
+        await tx.query(`INSERT INTO task_event (workspace_id, run_id, action_type, billable_units, ai_credits, status)
+          VALUES ($1, $2, 'test.included', 0, 370, 'succeeded')`, [registered.workspaceId, run.rows[0]!.id]);
+        assert.equal((await usageSnapshot(tx)).aiCreditsAvailable, 1000);
+        await reserveAiRun(tx, ['eco'], run.rows[0]!.id);
+        await reserveAiRun(tx, ['eco'], run.rows[0]!.id);
+        assert.equal((await usageSnapshot(tx)).aiCreditsAvailable, 999);
+        await applyCreditRefund(tx, 'pi_topup_pg', 500);
+        await applyCreditRefund(tx, 'pi_topup_pg', 500);
+        await applyCreditRefund(tx, 'pi_topup_pg', 200);
+        assert.equal((await usageSnapshot(tx)).aiCreditsAvailable, 499);
+        await applyCreditRefund(tx, 'pi_topup_pg', 1000);
+        assert.equal((await usageSnapshot(tx)).aiCreditsAvailable, 0);
+        assert.equal((await reserveAiRun(tx, ['eco'], run.rows[0]!.id)).guardrail.status, 'paused');
+        await applyCreditTopup(tx, { sessionId: 'cs_topup_pg2', paymentIntentId: 'pi_topup_pg2', amountCents: 1000 });
+        assert.equal((await usageSnapshot(tx)).aiCreditsAvailable, 999, 'spent refund debt is settled before new credits are available');
+      });
     });
   } finally { await Promise.all([database.close(), client.end()]); }
 });
