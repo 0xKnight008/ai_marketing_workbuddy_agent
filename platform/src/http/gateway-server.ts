@@ -217,6 +217,11 @@ app.get('/api/billing/usage', async (request) => {
   return database.withWorkspace(actor.workspaceId, usageSnapshot);
 });
 
+app.get('/api/billing/dashboard', async (request) => platformService.customerBilling.overview(actorFrom(request)));
+app.post('/api/billing/portal', async (request) => platformService.customerBilling.portal(actorFrom(request)));
+app.post('/api/billing/credit-topup', async (request) => platformService.customerBilling.startTopup(actorFrom(request)));
+app.post('/api/billing/credit-topup/confirm', async (request) => platformService.customerBilling.confirmTopup(actorFrom(request), request.body));
+
 app.post('/api/billing/checkout-session', async (request) => {
   const actor = actorFrom(request);
   return platformService.createStripeCheckout(actor, request.body);

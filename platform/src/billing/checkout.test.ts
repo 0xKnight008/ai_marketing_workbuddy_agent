@@ -81,7 +81,7 @@ test('unknown/unavailable annual Price stops before Checkout creation', async (t
 
 test('gateway validates interval and owner before external calls; ignores client-supplied Price IDs', async (t) => {
   const audit: unknown[][] = [];
-  const database = { withWorkspace: async (_id: string, op: (tx: unknown) => Promise<unknown>) => op({ query: async (_sql: string, values: unknown[]) => { audit.push(values); return { rows: [], rowCount: 1 }; } }) } as unknown as Database;
+  const database = { withWorkspace: async (_id: string, op: (tx: unknown) => Promise<unknown>) => op({ query: async (sql: string, values: unknown[]) => { if (sql.includes('INSERT INTO audit_event')) audit.push(values); return { rows: [], rowCount: 1 }; } }) } as unknown as Database;
   const service = new PlatformService(config, database, {} as PlatformOrm);
   const actor = { ...identity, role: 'owner' as const };
   let requests = 0;
