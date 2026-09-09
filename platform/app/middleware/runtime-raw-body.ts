@@ -3,7 +3,7 @@ import type { Context } from 'egg';
 import { HttpError } from '../../src/http/errors';
 
 const MAX_SIGNED_BODY_BYTES = 1_048_576;
-const SIGNED_BODY_PATHS = new Set(['/internal/ai-runtime-events', '/webhooks/stripe']);
+const SIGNED_BODY_PATHS = new Set(['/internal/ai-runtime-events', '/webhooks/stripe', '/api/webhooks/stripe']);
 
 export default () => async (ctx: Context, next: () => Promise<void>) => {
   if (!SIGNED_BODY_PATHS.has(ctx.path)) return next();

@@ -114,6 +114,12 @@ app.post('/webhooks/stripe', async (request, reply) => {
   if (!raw || typeof signature !== 'string') throw new HttpError(401, 'stripe_signature_missing');
   return reply.code(200).send(await platformService.ingestStripeWebhook(raw, signature));
 });
+app.post('/api/webhooks/stripe', async (request, reply) => {
+  const raw = rawBodies.get(request);
+  const signature = request.headers['stripe-signature'];
+  if (!raw || typeof signature !== 'string') throw new HttpError(401, 'stripe_signature_missing');
+  return reply.code(200).send(await platformService.ingestStripeWebhook(raw, signature));
+});
 
 app.post('/api/activation/exchange', async (request, reply) => {
   reply.header('Cache-Control', 'no-store');
@@ -235,6 +241,10 @@ app.post('/api/billing/checkout-session/confirm', async (request, reply) => {
 app.post('/api/billing/checkout-session/recover', async (request, reply) => {
   reply.header('cache-control', 'no-store');
   return platformService.recoverStripeCheckout(actorFrom(request));
+});
+app.post('/api/billing/subscription/recover', async (request, reply) => {
+  reply.header('cache-control', 'no-store');
+  return platformService.recoverStripeSubscription(actorFrom(request), request.body);
 });
 
 // This endpoint is intended to be called by the verified payment webhook or

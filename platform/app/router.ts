@@ -6,6 +6,7 @@ export default (app: Application) => {
   router.get('/internal/ready', controller.platform.ready);
   router.post('/internal/ai-runtime-events', controller.platform.runtimeEvent);
   router.post('/webhooks/stripe', controller.platform.stripeWebhook);
+  router.post('/api/webhooks/stripe', controller.platform.stripeWebhook);
   router.post('/api/activation/exchange', controller.platform.exchangeActivationTicket);
   router.post('/api/auth/register', controller.platform.registerWithEmail);
   router.post('/api/auth/login', controller.platform.loginWithEmail);
@@ -15,6 +16,7 @@ export default (app: Application) => {
   router.post('/api/billing/checkout-session', controller.platform.createStripeCheckout);
   router.post('/api/billing/checkout-session/confirm', controller.platform.reconcileStripeCheckout);
   router.post('/api/billing/checkout-session/recover', controller.platform.recoverStripeCheckout);
+  router.post('/api/billing/subscription/recover', controller.platform.recoverStripeSubscription);
   router.post('/api/workflow-templates/:templateId/publish', controller.platform.publishTemplate);
   router.get('/api/pipeline-templates', controller.platform.pipelineTemplates);
   router.get('/api/pipelines', controller.platform.pipelines);

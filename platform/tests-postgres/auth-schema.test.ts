@@ -52,6 +52,18 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
     await assertAuthSchema(database);
     const registration = await auth.register(credentials, 'test-client');
     const registered = verifyAccessToken(registration.accessToken, secret);
+    await t.test('unlinked historical trial recovers by verified subscription ID with exactly thirty credits', async recovery => {
+      const owner = verifyAccessToken((await auth.register({ email: 'trial-recovery@example.invalid', password: 'test-only-password' }, 'recovery-test')).accessToken, secret);
+      const end = Math.floor(Date.now()/1000) + 86400;
+      recovery.mock.method(globalThis, 'fetch', async () => Response.json({ id: 'sub_recovery', customer: 'cus_recovery', status: 'trialing', trial_end: end,
+        metadata: { workspaceId: owner.workspaceId }, items: { data: [{ price: { id: 'price_recovery' } }] } }));
+      const service = new PlatformService({ STRIPE_SECRET_KEY: 'test', STRIPE_PRICE_CREATOR: 'price_recovery' } as GatewayConfig, database, {} as PlatformOrm);
+      for (let i=0;i<2;i++) {
+        const usage = await service.recoverStripeSubscription(owner, { subscriptionId: 'sub_recovery' }) as UsageSnapshot;
+        assert.equal(usage.aiCreditsAvailable, 30); assert.equal(usage.status, 'normal'); assert.equal(Date.parse(usage.trialEndsAt!), end*1000);
+      }
+      await assert.rejects(service.recoverStripeSubscription(registered, { subscriptionId: 'sub_recovery' }), /stripe_workspace_mismatch/);
+    });
     assert.equal((await auth.me(registered)).user.passwordSet, true);
     assert.equal((await auth.me(registered)).subscriptionStatus, 'inactive');
     const session = await auth.login(credentials, 'test-client');
