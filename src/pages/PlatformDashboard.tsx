@@ -60,8 +60,10 @@ const ACTIVE_SUBSCRIPTIONS = new Set(['active', 'trialing', 'manual']);
 
 const socialPlatforms = [
   ['facebook', 'Facebook'], ['instagram', 'Instagram'], ['linkedin', 'LinkedIn'],
-  ['pinterest', 'Pinterest'], ['googlebusiness', 'Google Business'], ['snapchat', 'Snapchat'],
-  ['whatsapp', 'WhatsApp'], ['tiktok', 'TikTok'], ['youtube', 'YouTube'], ['twitter', 'X / Twitter'],
+  ['pinterest', 'Pinterest'], ['googlebusiness', 'Google Business'],
+  ['tiktok', 'TikTok'], ['youtube', 'YouTube'], ['twitter', 'X / Twitter'],
+  ['threads', 'Threads'], ['bluesky', 'Bluesky'], ['reddit', 'Reddit'],
+  ['discord', 'Discord'], ['slack', 'Slack'], ['telegram', 'Telegram'],
 ] as const;
 
 function freshDraft(): PipelineDraft {
@@ -89,6 +91,8 @@ export default function PlatformDashboard() {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [connecting, setConnecting] = useState('');
+  const [telegram, setTelegram] = useState<{ code: string; expiresAt: string; instructions: string[] } | null>(null);
+  useEffect(() => { setTelegram(null); }, [token]);
   const [feedbackCategory, setFeedbackCategory] = useState('other');
   const [feedbackMessage, setFeedbackMessage] = useState('');
   const [feedbackStatus, setFeedbackStatus] = useState('');
@@ -208,12 +212,23 @@ export default function PlatformDashboard() {
   }, [refreshAccounts]);
 
   async function connectSocial(platform: typeof socialPlatforms[number][0]) {
-    setMessage(''); setConnecting(platform);
-    const response = await fetch(`${gatewayUrl}/api/zernio/connect?platform=${encodeURIComponent(platform)}`, { headers: headers() });
-    const result = await response.json().catch(() => ({})) as { url?: string };
-    setConnecting('');
-    if (!response.ok || !result.url) { setMessage('The connection could not be started. Check your session and connector configuration.'); return; }
-    window.open(result.url, 'piggybot-zernio-connect', 'popup,width=720,height=820');
+    // Reserve the popup while the click still has browser user activation.
+    const popup = platform === 'telegram' ? null : window.open('about:blank', 'piggybot-zernio-connect', 'popup,width=720,height=820');
+    if (platform !== 'telegram' && !popup) { setMessage('Allow pop-ups for Piggybot, then click Connect again.'); return; }
+    setMessage(''); setConnecting(platform); setTelegram(null);
+    try {
+      const response = await fetch(`${gatewayUrl}/api/zernio/connect?platform=${encodeURIComponent(platform)}`, { headers: headers(), cache: 'no-store' });
+      const result = await response.json().catch(() => ({})) as { url?: string; error?: string; telegram?: typeof telegram };
+      if (!response.ok) throw new Error(result.error === 'zernio_x_billing_required'
+        ? 'X connection requires a payment method on the platform’s Zernio account. Contact Piggybot support; buying AI credits will not resolve this.'
+        : result.error === 'zernio_billing_required' ? 'The platform’s Zernio account has a billing or capacity restriction. Contact support.'
+        : 'The connection could not be started. Check your session and connector configuration, then retry.');
+      if (result.telegram) { setTelegram(result.telegram); return; }
+      if (!result.url || new URL(result.url).protocol !== 'https:') throw new Error('Invalid connector redirect. Contact support.');
+      if (popup?.closed) throw new Error('The connection window was closed. Click Connect to try again.');
+      if (popup) popup.location.replace(result.url);
+    } catch (error) { popup?.close(); setMessage(error instanceof Error ? error.message : 'Connection failed. Please retry.'); }
+    finally { setConnecting(''); }
   }
 
   function startTemplate(template: PipelineTemplate) {
@@ -369,7 +384,7 @@ export default function PlatformDashboard() {
         {section === 'dashboard' && <BillingDashboard token={token} gatewayUrl={gatewayUrl} onUsage={applyBillingUsage} />}
         {message && <div className="mb-6 rounded-xl border border-sky-deep/20 bg-sky-pale p-4 text-sm text-sky-deep" role="status">{message}</div>}
         {section === 'pipelines' && <PipelinesSection templates={templates} pipelines={pipelines} usage={usage} loading={loading} onNew={() => { setDraft(freshDraft()); setSavedPipeline(null); setReadiness(null); setWizardStep('start'); }} onTemplate={startTemplate} onContinue={continuePipeline} onActivity={() => setSection('activity')} />}
-        {section === 'accounts' && <AccountsSection accounts={accounts} connecting={connecting} onConnect={connectSocial} onRefresh={() => void refreshAccounts(true)} />}
+        {section === 'accounts' && <><AccountsSection accounts={accounts.filter(account => !['snapchat', 'whatsapp'].includes(account.platform))} connecting={connecting} onConnect={connectSocial} onRefresh={() => void refreshAccounts(true)} />{telegram && <section className="mt-6 rounded-xl border border-ink/20 p-6"><h3 className="text-lg font-semibold">Connect Telegram</h3><p className="my-3">Code: <strong>{telegram.code}</strong> · Expires: {new Date(telegram.expiresAt).toLocaleString()}</p><ol className="space-y-2">{telegram.instructions.map((instruction, index) => <li key={index}>{instruction}</li>)}</ol><p className="mt-4">After the bot confirms, select Sync account health above to verify the connection.</p><button onClick={() => setTelegram(null)} className="mt-3 underline">Dismiss code</button></section>}</>}
         {section === 'activity' && <ActivitySection approvals={approvals} taskEvents={taskEvents} auditEvents={auditEvents} runId={runId} setRunId={setRunId} run={run} onLoadRun={() => void loadRun()} onDecision={decideApproval} />}
         {section === 'settings' && <SettingsSection me={me} locked={locked} newPassword={newPassword} setNewPassword={setNewPassword} passwordStatus={passwordStatus} onSavePassword={() => void savePassword()} onSignOut={signOut} feedbackCategory={feedbackCategory} setFeedbackCategory={setFeedbackCategory} feedbackMessage={feedbackMessage} setFeedbackMessage={setFeedbackMessage} feedbackStatus={feedbackStatus} onFeedback={() => void sendFeedback()} referralUrl={referralUrl} referralStatus={referralStatus} onReferral={() => void createReferralLink()} />}
       </div>
