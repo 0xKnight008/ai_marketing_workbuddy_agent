@@ -8,7 +8,7 @@ The old “Platform admin secret” is the operator-configured `BILLING_ADMIN_TO
 2. Set these **platform backend** environment values:
 
    ```dotenv
-   PLATFORM_ADMIN_EMAILS=parastate.io@gmail.com
+   PLATFORM_ADMIN_EMAILS=
    PUBLIC_SITE_URL=https://www.piggybot.me
    ```
 
