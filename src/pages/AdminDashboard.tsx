@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { readSessionAccessToken } from '../lib/auth-session';
+import AdminEmailGate from '../components/AdminEmailGate';
 
 const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
 type AdminTab = 'workspaces' | 'feedback' | 'jobs' | 'referrals' | 'newsletter';
@@ -74,6 +74,10 @@ const tabs: Array<{ id: AdminTab; label: string }> = [
 ];
 
 export default function AdminDashboard() {
+  return <AdminEmailGate>{(email, logout, expired) => <AdminConsole email={email} logout={logout} expired={expired} />}</AdminEmailGate>;
+}
+
+function AdminConsole({ email, logout, expired }: { email: string; logout: () => void; expired: () => void }) {
   // Internal console: reachable only by direct URL, never linked or indexed.
   useEffect(() => {
     document.title = 'Piggybot internal admin';
@@ -84,11 +88,9 @@ export default function AdminDashboard() {
     return () => { document.head.removeChild(meta); };
   }, []);
 
-  const [accessToken, setAccessToken] = useState(readSessionAccessToken);
-  const [adminToken, setAdminToken] = useState('');
   const [tab, setTab] = useState<AdminTab>('workspaces');
   const [search, setSearch] = useState('');
-  const [message, setMessage] = useState('Enter both credentials to unlock the platform admin console.');
+  const [message, setMessage] = useState('Select a section or refresh to load records.');
   const [loading, setLoading] = useState(false);
   const [workspaces, setWorkspaces] = useState<WorkspaceView[]>([]);
   const [feedback, setFeedback] = useState<FeedbackView[]>([]);
@@ -101,21 +103,17 @@ export default function AdminDashboard() {
 
   function headers(json = false): HeadersInit {
     return {
-      authorization: `Bearer ${accessToken}`,
-      'x-billing-admin-token': adminToken,
       ...(json ? { 'content-type': 'application/json' } : {}),
     };
   }
 
   async function request(path: string, init?: RequestInit): Promise<Response> {
-    return fetch(`${gatewayUrl}${path}`, { ...init, headers: { ...headers(Boolean(init?.body)), ...init?.headers } });
+    const response = await fetch(`${gatewayUrl}${path}`, { ...init, credentials: 'include', headers: { ...headers(Boolean(init?.body)), ...init?.headers } });
+    if (response.status === 401) expired();
+    return response;
   }
 
   async function load(nextTab: AdminTab = tab, offset = 0) {
-    if (!accessToken.trim() || !adminToken.trim()) {
-      setMessage('Both the owner/admin session and platform admin secret are required.');
-      return;
-    }
     setLoading(true);
     setMessage('');
     const query = `?q=${encodeURIComponent(search.trim())}&offset=${offset}`;
@@ -124,7 +122,7 @@ export default function AdminDashboard() {
     setLoading(false);
     if (!response.ok) {
       const error = result as { error?: string };
-      setMessage(error.error === 'platform_admin_required' ? 'Admin access was denied. Check both credentials.' : `Could not load ${nextTab}.`);
+      setMessage(error.error === 'platform_admin_required' ? 'Admin access was denied.' : `Could not load ${nextTab}.`);
       return;
     }
     if (nextTab === 'workspaces') {
@@ -166,14 +164,9 @@ export default function AdminDashboard() {
       </header>
 
       <section className="mx-auto mt-8 grid max-w-7xl gap-4 rounded-xl border border-ink/20 bg-paper-card p-5 lg:grid-cols-[1fr_1fr_auto]">
-        <label className="text-sm text-ink-soft">Owner/admin access token
-          <input type="password" value={accessToken} onChange={(event) => setAccessToken(event.target.value)} autoComplete="off" className="mt-2 w-full rounded-md border border-ink/20 bg-paper p-3 text-xs text-ink" placeholder="Short-lived signed session" />
-        </label>
-        <label className="text-sm text-ink-soft">Platform admin secret
-          <input type="password" value={adminToken} onChange={(event) => setAdminToken(event.target.value)} autoComplete="off" className="mt-2 w-full rounded-md border border-ink/20 bg-paper p-3 text-xs text-ink" placeholder="Never stored in the browser" />
-        </label>
-        <button disabled={loading} onClick={() => void load()} className="h-fit self-end rounded-md bg-sunset px-6 py-3 font-semibold text-white disabled:opacity-50">{loading ? 'Working…' : 'Unlock'}</button>
-        <p className="text-xs text-ink-soft lg:col-span-3">Both factors are required for every request. The admin secret remains only in this page’s memory and is cleared when the tab closes.</p>
+        <p className="text-sm">Signed in as {email}. Session expires after 30 minutes.</p>
+        <button onClick={logout} className="rounded border border-ink/20 px-4 py-2">Sign out</button>
+        <button disabled={loading} onClick={() => void load()} className="rounded-md bg-sunset px-6 py-3 font-semibold text-white disabled:opacity-50">{loading ? 'Working…' : 'Refresh'}</button>
       </section>
 
       <section className="mx-auto mt-6 max-w-7xl">

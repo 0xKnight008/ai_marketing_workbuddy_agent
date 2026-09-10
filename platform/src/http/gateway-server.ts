@@ -18,6 +18,7 @@ import { verifyAccessToken } from '../identity/token';
 import { createWorkflowRun } from '../gateway/run-request';
 import { createDurableRun, decideApproval, ingestAiRuntimeEvent } from '../run-service/repository';
 import { HttpError, publicError } from './errors';
+import { ADMIN_COOKIE, adminPrincipal } from '../admin/email-login';
 
 async function main(): Promise<void> {
 
@@ -28,6 +29,35 @@ try { await assertAuthSchema(database); } catch (error) { await database.close()
 const platformService = new PlatformService(config, database, {} as PlatformOrm);
 const app = Fastify({ logger: true });
 const rawBodies = new WeakMap<FastifyRequest, string>();
+const adminActors = new WeakMap<FastifyRequest, ActorContext>();
+const adminCookie = (request: FastifyRequest) => request.headers.cookie?.split(';').map(s => s.trim()).find(s => s.startsWith(`${ADMIN_COOKIE}=`))?.slice(ADMIN_COOKIE.length + 1) ?? '';
+const setAdminCookie = (token: string, seconds: number) => `${ADMIN_COOKIE}=${token}; Path=/; Max-Age=${seconds}; HttpOnly; Secure; SameSite=Strict`;
+app.addHook('onRequest', async (request, reply) => {
+  const path = request.url.split('?')[0]!;
+  if (!path.startsWith('/api/admin/')) return;
+  reply.header('Cache-Control', 'no-store').header('Referrer-Policy', 'no-referrer');
+  const session = adminCookie(request);
+  const authRoute = path.startsWith('/api/admin/auth/');
+  if ((session || authRoute) && !['GET', 'HEAD', 'OPTIONS'].includes(request.method)) platformService.adminEmailLogin.assertOrigin(request.headers.origin);
+  if (session && (!authRoute || path === '/api/admin/auth/session')) adminActors.set(request, await platformService.adminEmailLogin.authenticate(session));
+});
+app.post('/api/admin/auth/request', async (request, reply) => {
+  await platformService.adminEmailLogin.requestLink(request.body, request.ip);
+  return reply.code(202).send({ message: 'If this email is authorized, a sign-in link will be sent.' });
+});
+app.post('/api/admin/auth/exchange', async (request, reply) => {
+  const session = await platformService.adminEmailLogin.exchange(request.body);
+  return reply.header('Set-Cookie', setAdminCookie(session, 1800)).send({ ok: true });
+});
+app.get('/api/admin/auth/session', async request => {
+  const actor = adminActors.get(request);
+  if (!actor) throw new HttpError(401, 'admin_session_required');
+  return { email: adminPrincipal(actor)!.email };
+});
+app.post('/api/admin/auth/logout', async (request, reply) => {
+  await platformService.adminEmailLogin.logout(adminCookie(request));
+  return reply.header('Set-Cookie', setAdminCookie('', 0)).send({ ok: true });
+});
 
 app.removeContentTypeParser('application/json');
 app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, body, done) => {
@@ -55,6 +85,8 @@ app.setErrorHandler((error, request, reply) => {
 });
 
 function actorFrom(request: FastifyRequest): ActorContext {
+  const admin = adminActors.get(request);
+  if (admin) return admin;
   const authorization = request.headers.authorization;
   if (!authorization?.startsWith('Bearer ')) throw new HttpError(401, 'unauthorized');
   try {

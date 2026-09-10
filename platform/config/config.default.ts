@@ -11,9 +11,8 @@ export default (appInfo: EggAppInfo) => ({
   proxy: process.env.TRUST_PROXY === 'true',
   security: {
     csrf: {
-      // These routes use explicit Bearer or HMAC credentials rather than
-      // browser cookies. Keep Egg CSRF protection enabled for every other
-      // route, especially any future cookie/session endpoint.
+      // Workspace APIs use Bearer/HMAC credentials. Cookie-based admin APIs
+      // enforce an exact trusted Origin in adminEmailSession for all writes.
       ignore: (ctx: { path: string }) =>
         ctx.path.startsWith('/api/') ||
         ctx.path === '/internal/ai-runtime-events' ||
@@ -26,7 +25,7 @@ export default (appInfo: EggAppInfo) => ({
     ignore: (ctx: { path: string }) => ctx.path === '/internal/ai-runtime-events' || ctx.path === '/webhooks/stripe' || ctx.path === '/api/webhooks/stripe',
     jsonLimit: '1mb',
   },
-  middleware: ['platformError', 'platformCors', 'runtimeRawBody'],
+  middleware: ['platformError', 'platformCors', 'runtimeRawBody', 'adminEmailSession'],
   platformCors: {
     origins: (process.env.CORS_ORIGINS ?? 'http://localhost:5173')
       .split(',').map((origin) => origin.trim()).filter(Boolean),
