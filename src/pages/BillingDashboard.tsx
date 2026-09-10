@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 interface BillingView {
   usage: { plan: string; subscriptionStatus: string; status: string; aiCreditsUsed: number; aiCreditsAvailable: number; taskUsed: number; taskQuota: number };
   subscription: null | { status: string; renewsAt: string | null; trialEndsAt: string | null; cancelAtPeriodEnd: boolean; amountCents: number | null; currency: string; interval: string };
-  syncError: boolean; creditBalance: number; refundDebt: number; includedCredits: number; canManage: boolean; canTopup: boolean;
+  syncError: boolean; creditBalance: number; refundDebt: number; includedCredits: number; canManage: boolean; canUpgrade: boolean; canTopup: boolean; topupUnavailableReason: string | null;
   topups: { id: string; amountCents: number; credits: number; refundedCents: number; createdAt: string }[];
 }
 const button = 'rounded-md border border-ink/20 bg-paper-card px-4 py-3 text-sm font-medium disabled:opacity-50';
@@ -45,11 +45,11 @@ export default function BillingDashboard({ token, gatewayUrl, onUsage }: { token
     window.addEventListener('focus', focus);
     return () => window.removeEventListener('focus', focus);
   }, [refresh]);
-  async function act(path?: string) {
+  async function act(path?: string, body: Record<string, unknown> = {}) {
     setBusy(true); setMessage('');
     try {
       if (path) {
-        const result = await request(path, {});
+        const result = await request(path, body);
         const target = new URL(result.url);
         if (target.protocol !== 'https:' || !['billing.stripe.com', 'checkout.stripe.com'].includes(target.hostname)) throw new Error('Invalid payment redirect. Contact support.');
         window.location.assign(target.href);
@@ -64,7 +64,7 @@ export default function BillingDashboard({ token, gatewayUrl, onUsage }: { token
       {data.syncError && <p role="alert">Stripe details are temporarily unavailable. The usage below is your last recorded entitlement; refresh to verify subscription changes.</p>}
       {data.usage.subscriptionStatus === 'inactive' && <div className={card}><h3 className="text-xl font-semibold">Already subscribed?</h3><p className="my-3 text-sm">The workspace owner can verify an existing Stripe subscription without purchasing again. Enter its sub_… ID; the server checks ownership, current status and original trial dates.</p><label className="block text-sm">Stripe subscription ID<input value={subscriptionId} onChange={event => setSubscriptionId(event.target.value)} className="my-3 block w-full rounded-md border border-ink/20 p-3" placeholder="sub_…" /></label><button className={button} disabled={busy || !subscriptionId.trim()} onClick={() => void recoverSubscription()}>Verify existing subscription</button></div>}
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className={card}><h3 className="text-xl font-semibold capitalize">{data.usage.plan} plan</h3><p className="mt-3">Subscription: {data.subscription?.status ?? data.usage.subscriptionStatus}</p><p>Automation: {data.usage.status}</p>
+        <div className={card}><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="text-xl font-semibold capitalize">{data.usage.plan} plan</h3><button className={button} disabled={busy || !data.canUpgrade} onClick={() => void act('portal', { action: 'upgrade' })}>Upgrade Plan</button></div><p className="mt-3">Subscription: {data.subscription?.status ?? data.usage.subscriptionStatus}</p><p>Automation: {data.usage.status}</p>
           {data.subscription && <div className="mt-3 space-y-2 text-sm"><p>{data.subscription.cancelAtPeriodEnd ? 'Ends on' : 'Next billing date'}: {when(data.subscription.renewsAt)}</p>{data.subscription.status === 'trialing' && <p>Trial ends: {when(data.subscription.trialEndsAt)}</p>}{data.subscription.amountCents != null && <p>{(data.subscription.amountCents / 100).toLocaleString(undefined, { style: 'currency', currency: data.subscription.currency })} / {data.subscription.interval}</p>}</div>}
           <p className="my-4 text-sm text-ink-soft">Manage payment details, invoices, cancellation, renewal and available plan changes securely in Stripe. Only the workspace owner can make changes.</p>
           <button className={button} disabled={busy || !data.canManage} onClick={() => void act('portal')}>Manage subscription in Stripe</button>
@@ -73,7 +73,9 @@ export default function BillingDashboard({ token, gatewayUrl, onUsage }: { token
           <label className="block text-sm">Included credits used: {Math.min(data.usage.aiCreditsUsed, data.includedCredits).toLocaleString()} / {data.includedCredits.toLocaleString()}<progress className="my-3 h-3 w-full" value={Math.min(data.usage.aiCreditsUsed, data.includedCredits)} max={data.includedCredits} /></label>
           <p>Purchased balance: {data.creditBalance.toLocaleString()} credits</p>{data.refundDebt > 0 && <p>Refund adjustment: {data.refundDebt} credits will be deducted from future top-ups.</p>}
           <p className="my-4 text-sm text-ink-soft">$1 = 100 AI credits. Choose $10–$1000 at checkout. Purchased credits carry over month to month. Top-ups do not extend a trial or reactivate a canceled subscription.</p>
-          <button className={button} disabled={busy || !data.canTopup} onClick={() => void act('credit-topup')}>Add AI credits</button>
+          <button className={button} disabled={busy || !data.canTopup} onClick={() => void act('credit-topup')}>Add AI Credits</button>
+          {!data.canTopup && <p className="mt-3 text-sm" role="status">{data.topupUnavailableReason === 'owner_required' ? 'Only the workspace owner can purchase credits.' : data.topupUnavailableReason === 'stripe_customer_not_linked' ? 'Verify your existing subscription above to link your Stripe customer before adding credits.' : 'Credit checkout is not configured. Contact support.'}</p>}
+          {data.usage.subscriptionStatus === 'trialing' && <p className="mt-3 text-sm">Trial accounts can purchase credits. Purchases stay in your wallet; they do not extend the 7-day / 30-credit trial or unlock paused automation. Upgrade your plan to use credits beyond the trial limit.</p>}
         </div>
       </div>
       <div className={card}><h3 className="text-xl font-semibold">Usage status</h3><p className="mt-3">{data.usage.subscriptionStatus === 'trialing' ? 'Trial AI usage is cumulative: 7 days or 30 AI credits, whichever comes first.' : 'Included allowances reset each calendar month; purchased credits do not reset.'}</p><p className="mt-2">Tasks this month: {data.usage.taskUsed.toLocaleString()} / {data.usage.taskQuota.toLocaleString()}</p><p className="mt-2 text-sm text-ink-soft">Task and supplier safety limits still apply even when you have purchased AI credits.</p></div>

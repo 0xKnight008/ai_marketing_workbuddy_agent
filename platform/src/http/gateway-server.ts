@@ -256,7 +256,7 @@ app.get('/api/billing/usage', async (request) => {
 });
 
 app.get('/api/billing/dashboard', async (request) => platformService.customerBilling.overview(actorFrom(request)));
-app.post('/api/billing/portal', async (request) => platformService.customerBilling.portal(actorFrom(request)));
+app.post('/api/billing/portal', async (request) => platformService.customerBilling.portal(actorFrom(request), request.body));
 app.post('/api/billing/credit-topup', async (request) => platformService.customerBilling.startTopup(actorFrom(request)));
 app.post('/api/billing/credit-topup/confirm', async (request) => platformService.customerBilling.confirmTopup(actorFrom(request), request.body));
 
