@@ -372,8 +372,16 @@ export class PlatformService {
   async connectUrl(actor: ActorContext, requestedPlatform: unknown): Promise<string> {
     requirePermission(actor.role, 'connection:manage');
     const platform = z.enum(ZERNIO_PLATFORMS).parse(requestedPlatform) as ZernioPlatform;
+    if (['snapchat', 'whatsapp', 'telegram'].includes(platform)) throw new HttpError(400, 'zernio_platform_unavailable');
     const profileId = await this.ensureZernioProfile(actor.workspaceId);
     return this.zernioClient().connectUrl(actor.workspaceId, profileId, platform);
+  }
+
+  async startZernioConnection(actor: ActorContext, platform: unknown): Promise<unknown> {
+    if (platform !== 'telegram') return { url: await this.connectUrl(actor, platform) };
+    requirePermission(actor.role, 'connection:manage');
+    const profileId = await this.ensureZernioProfile(actor.workspaceId);
+    return { telegram: await this.zernioClient().telegramCode(actor.workspaceId, profileId) };
   }
 
   async completeZernioOAuth(query: Record<string, unknown>): Promise<
@@ -404,6 +412,10 @@ export class PlatformService {
     }
     if (typeof query.profileId === 'string' && query.profileId !== state.profileId) throw new HttpError(403, 'zernio_tenant_mismatch');
     const accounts = await provider.listAccounts(state.profileId, state.workspaceId);
+    if (!accounts.some(account => account.platform === state.platform &&
+      (typeof query.accountId !== 'string' || account.externalId === query.accountId))) {
+      throw new HttpError(409, 'zernio_account_not_connected');
+    }
     await this.storeZernioAccounts(state.workspaceId, state.profileId, accounts);
     return { kind: 'connected' };
   }

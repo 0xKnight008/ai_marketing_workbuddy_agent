@@ -118,7 +118,8 @@ export default class PlatformController extends Controller {
   async connectedAccounts(): Promise<void> { this.ctx.body = await this.app.platform.service.connectedAccounts(this.actor()); }
 
   async connectZernio(): Promise<void> {
-    this.ctx.body = { url: await this.app.platform.service.connectUrl(this.actor(), this.ctx.query.platform) };
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.startZernioConnection(this.actor(), this.ctx.query.platform);
   }
 
   async zernioCallback(): Promise<void> {

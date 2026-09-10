@@ -187,10 +187,11 @@ app.post('/api/pipelines/:pipelineId/activate', async (request) => {
   return platformService.activatePipeline(actorFrom(request), pipelineId);
 });
 
-app.get('/api/zernio/connect', async (request) => {
+app.get('/api/zernio/connect', async (request, reply) => {
+  reply.header('Cache-Control', 'no-store');
   const actor = actorFrom(request);
   const query = z.object({ platform: z.string() }).parse(request.query);
-  return { url: await platformService.connectUrl(actor, query.platform) };
+  return platformService.startZernioConnection(actor, query.platform);
 });
 
 app.get('/api/zernio/callback', async (request, reply) => {

@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 export const ZERNIO_PLATFORMS = [
   'facebook', 'instagram', 'linkedin', 'pinterest', 'googlebusiness', 'snapchat',
   'whatsapp', 'tiktok', 'youtube', 'twitter', 'threads', 'bluesky', 'reddit',
+  'discord', 'slack', 'telegram',
 ] as const;
 
 export type ZernioPlatform = typeof ZERNIO_PLATFORMS[number];
@@ -65,7 +66,7 @@ export class SupplierUnavailableError extends Error {
 }
 
 export class SupplierBillingError extends Error {
-  constructor(message = 'Zernio account capacity requires attention') {
+  constructor(message = 'Zernio account capacity requires attention', readonly reason?: string) {
     super(message);
     this.name = 'SupplierBillingError';
   }
@@ -155,8 +156,8 @@ export class ZernioClient {
             signal: AbortSignal.timeout(10_000),
           });
           if (response.status === 402) {
-            const body = await response.json().catch(() => ({})) as { error?: unknown };
-            throw new SupplierBillingError(typeof body.error === 'string' ? body.error : undefined);
+            const body = await response.json().catch(() => ({})) as { reason?: unknown };
+            throw new SupplierBillingError(undefined, typeof body.reason === 'string' ? body.reason : undefined);
           }
           if (response.status !== 429 && response.status < 500) {
             this.consecutiveFailures = 0;
@@ -213,12 +214,20 @@ export class ZernioClient {
     const state = this.createState(workspaceId, profileId, platform);
     const redirect = new URL(this.options.oauthRedirectUri);
     redirect.searchParams.set('state', state);
-    const path = `/v1/connect/${platform}?${new URLSearchParams({ profileId, headless: 'true', redirect_url: redirect.toString() })}`;
+    const headless = ['facebook', 'instagram', 'linkedin', 'pinterest', 'googlebusiness'].includes(platform);
+    const path = `/v1/connect/${platform}?${new URLSearchParams({ profileId, headless: String(headless), redirect_url: redirect.toString() })}`;
     const response = await this.request(path, {}, 1, workspaceId);
     const value = await response.json().catch(() => ({})) as { authUrl?: unknown; url?: unknown };
     const authUrl = string(value.authUrl) ?? string(value.url);
     if (!response.ok || !authUrl) throw new Error(`Zernio connect initialization failed: ${response.status}`);
     return authUrl;
+  }
+
+  async telegramCode(workspaceId: string, profileId: string): Promise<{ code: string; expiresAt: string; instructions: string[] }> {
+    const response = await this.request(`/v1/connect/telegram?${new URLSearchParams({ profileId })}`, {}, 0, workspaceId);
+    const value = object(await response.json());
+    if (!response.ok || !string(value.code) || !string(value.expiresAt) || !Array.isArray(value.instructions)) throw new SupplierUnavailableError();
+    return { code: String(value.code), expiresAt: String(value.expiresAt), instructions: value.instructions.filter((item): item is string => typeof item === 'string') };
   }
 
   parseHeadlessCallback(query: Record<string, unknown>): Omit<ZernioSelectionContext, 'workspaceId' | 'expiresAt'> | undefined {
