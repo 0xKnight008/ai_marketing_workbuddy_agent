@@ -33,7 +33,9 @@ export const gatewayConfigSchema = databaseConfigSchema.extend({
   STRIPE_PRICE_CREATOR_YEARLY: z.string().trim().min(1).optional(),
   STRIPE_PRICE_GROWTH_YEARLY: z.string().trim().min(1).optional(),
   STRIPE_PRICE_AGENCY_YEARLY: z.string().trim().min(1).optional(),
-  STRIPE_PRICE_AI_CREDITS: z.string().trim().min(1).optional(),
+  // Existing Piggybot top-up Price, validated against Stripe before every checkout.
+  STRIPE_PRICE_AI_CREDITS: z.preprocess(value => typeof value === 'string' && !value.trim() ? undefined : value,
+    z.string().trim().min(1).default('price_1U6pKsRuamqOc0mslHnpODAJ')),
   STRIPE_TRIAL_DAYS: z.coerce.number().int().min(1).max(30).default(7),
   STRIPE_PAYMENT_GRACE_DAYS: z.coerce.number().int().min(1).max(30).default(7),
   STRIPE_WEBHOOK_TOLERANCE_SECONDS: z.coerce.number().int().min(1).max(3600).default(300),

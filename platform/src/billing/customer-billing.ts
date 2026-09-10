@@ -91,7 +91,10 @@ export class CustomerBillingService {
         FROM credit_topup WHERE workspace_id = current_setting('app.workspace_id')::uuid ORDER BY created_at DESC LIMIT 20`);
       return { usage, subscription, syncError, creditBalance: Number(binding.balance), refundDebt: Number(binding.debt),
         includedCredits: usage.subscriptionStatus === 'trialing' ? 30 : PLAN_CATALOG[usage.plan].aiCredits, topups: history.rows,
-        canManage: actor.role === 'owner' && !!binding.customerId, canTopup: actor.role === 'owner' && !!binding.customerId && !!this.config.STRIPE_PRICE_AI_CREDITS };
+        canManage: actor.role === 'owner' && !!binding.customerId,
+        canUpgrade: actor.role === 'owner' && !!binding.customerId && !!binding.subscriptionId,
+        canTopup: actor.role === 'owner' && !!binding.customerId && !!this.config.STRIPE_PRICE_AI_CREDITS,
+        topupUnavailableReason: actor.role !== 'owner' ? 'owner_required' : !binding.customerId ? 'stripe_customer_not_linked' : !this.config.STRIPE_PRICE_AI_CREDITS ? 'credit_topup_not_configured' : null };
     });
   }
 
@@ -100,11 +103,20 @@ export class CustomerBillingService {
     return typeof priceId === 'string' ? ids.find(([, id]) => id === priceId)?.[0] : undefined;
   }
 
-  async portal(actor: ActorContext): Promise<{ url: string }> {
+  async portal(actor: ActorContext, input: unknown = {}): Promise<{ url: string }> {
     this.owner(actor);
+    const { action } = z.object({ action: z.enum(['manage', 'upgrade']).default('manage') }).parse(input ?? {});
     const binding = await this.database.withWorkspace(actor.workspaceId, (tx) => this.binding(tx));
     if (!binding.customerId) throw new HttpError(409, 'stripe_customer_not_linked');
-    const value = await this.stripe('billing_portal/sessions', new URLSearchParams({ customer: binding.customerId, return_url: `${this.config.PUBLIC_SITE_URL.replace(/\/$/, '')}/app?section=dashboard` }));
+    const body = new URLSearchParams({ customer: binding.customerId, return_url: `${this.config.PUBLIC_SITE_URL.replace(/\/$/, '')}/app?section=dashboard` });
+    if (action === 'upgrade') {
+      if (!binding.subscriptionId) throw new HttpError(409, 'stripe_subscription_not_linked');
+      body.set('flow_data[type]', 'subscription_update');
+      body.set('flow_data[subscription_update][subscription]', binding.subscriptionId);
+      body.set('flow_data[after_completion][type]', 'redirect');
+      body.set('flow_data[after_completion][redirect][return_url]', body.get('return_url')!);
+    }
+    const value = await this.stripe('billing_portal/sessions', body);
     return { url: this.redirect(value.url, 'billing.stripe.com') };
   }
 

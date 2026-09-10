@@ -8,16 +8,16 @@ import type { ActorContext } from '../contracts/domain';
 const workspaceId = '00000000-0000-4000-8000-000000000001';
 const actor = { workspaceId, actorId: '00000000-0000-4000-8000-000000000002', role: 'owner' } as ActorContext;
 const config = gatewayConfigSchema.parse({ DATABASE_URL: 'postgres://localhost/test', AUTH_TOKEN_SECRET: 'x'.repeat(32), AI_RUNTIME_EVENT_SIGNING_SECRET: 'x'.repeat(32), STRIPE_SECRET_KEY: 'test-only', STRIPE_PRICE_AI_CREDITS: 'price_topup', STRIPE_PRICE_CREATOR: 'price_creator' });
-function fixture() {
+function fixture(subscriptionStatus = 'active', subscriptionId: string | null = null) {
   let balance = 0;
   let debt = 0;
   let refunded = 0;
   let inserted = false;
   const query = async (sql: string, values: unknown[] = []) => {
-    if (sql.includes('INSERT INTO workspace_billing')) return { rows: [{ plan: 'creator', purchasedCredits: String(balance), subscriptionStatus: 'active', trialEndsAt: null }], rowCount: 1 };
+    if (sql.includes('INSERT INTO workspace_billing')) return { rows: [{ plan: 'creator', purchasedCredits: String(balance), subscriptionStatus, trialEndsAt: subscriptionStatus === 'trialing' ? new Date(Date.now() + 86400000).toISOString() : null }], rowCount: 1 };
     if (sql.includes('AS "aiCreditsUsed"')) return { rows: [{ aiCreditsUsed: 0, taskUsed: 0, supplierSpendMicros: 0 }], rowCount: 1 };
     if (sql.includes('AS "connectedAccounts"')) return { rows: [{ connectedAccounts: 0 }], rowCount: 1 };
-    if (sql.includes('AS "customerId"')) return { rows: [{ customerId: 'cus_owner', subscriptionId: null, balance: String(balance), debt: String(debt) }], rowCount: 1 };
+    if (sql.includes('AS "customerId"')) return { rows: [{ customerId: 'cus_owner', subscriptionId, balance: String(balance), debt: String(debt) }], rowCount: 1 };
     if (sql.includes('INSERT INTO credit_topup')) { if (inserted) return { rows: [], rowCount: 0 }; inserted = true; return { rows: [{}], rowCount: 1 }; }
     if (sql.includes('purchased_ai_credits = purchased_ai_credits +')) { const amount = Number(values[0]); balance += Math.max(0, amount - debt); debt = Math.max(0, debt - amount); }
     if (sql.includes('SELECT refunded_cents')) return { rows: inserted ? [{ refunded, amount: 1000 }] : [], rowCount: inserted ? 1 : 0 };
@@ -69,6 +69,38 @@ test('top-up creates a bound one-time checkout with the configured amount limits
 test('misconfigured price stops checkout creation', async (t) => {
   const mock = t.mock.method(globalThis, 'fetch', async () => Response.json({ active: true, type: 'recurring', currency: 'usd' }));
   await assert.rejects(fixture().service.startTopup(actor), /credit_topup_price_invalid/); assert.equal(mock.mock.callCount(), 1);
+});
+
+test('trial owners can top up without changing trial status or expiry', async t => {
+  const f = fixture('trialing');
+  const overview = await f.service.overview(actor) as { canTopup: boolean; usage: { subscriptionStatus: string }; topupUnavailableReason: string | null };
+  assert.equal(overview.canTopup, true); assert.equal(overview.topupUnavailableReason, null); assert.equal(overview.usage.subscriptionStatus, 'trialing');
+  t.mock.method(globalThis, 'fetch', async (_url: unknown, options?: RequestInit) => options?.body
+    ? Response.json({ url: 'https://checkout.stripe.com/c/pay/trial' })
+    : Response.json({ active: true, type: 'one_time', currency: 'usd', custom_unit_amount: { minimum: 1000, maximum: 100000 } }));
+  assert.equal((await f.service.startTopup(actor)).url, 'https://checkout.stripe.com/c/pay/trial');
+  assert.equal((await f.service.overview(actor) as typeof overview).usage.subscriptionStatus, 'trialing');
+  assert.equal(f.state().balance, 0, 'starting checkout must not grant credits before verified payment');
+});
+test('upgrade deep link uses only the current workspace subscription and does not create a second subscription', async t => {
+  const calls: URLSearchParams[] = [];
+  t.mock.method(globalThis, 'fetch', async (url: unknown, options?: RequestInit) => {
+    assert.equal(String(url), 'https://api.stripe.com/v1/billing_portal/sessions');
+    calls.push(options!.body as URLSearchParams); return Response.json({ url: 'https://billing.stripe.com/p/session/test' });
+  });
+  await fixture('trialing', 'sub_owned').service.portal(actor, { action: 'upgrade', subscriptionId: 'sub_attacker' });
+  assert.equal(calls[0]!.get('customer'), 'cus_owner');
+  assert.equal(calls[0]!.get('flow_data[type]'), 'subscription_update');
+  assert.equal(calls[0]!.get('flow_data[subscription_update][subscription]'), 'sub_owned');
+  await assert.rejects(fixture().service.portal(actor, { action: 'upgrade' }), /stripe_subscription_not_linked/);
+  await assert.rejects(fixture().service.portal({ ...actor, role: 'viewer' }, { action: 'upgrade' }), /owner_required/);
+  assert.equal(calls.length, 1);
+});
+test('the approved Piggybot topup Price is available when deployment omits the optional override', () => {
+  const input = { DATABASE_URL: 'postgres://localhost/test', AUTH_TOKEN_SECRET: 'x'.repeat(32), AI_RUNTIME_EVENT_SIGNING_SECRET: 'x'.repeat(32) };
+  assert.equal(gatewayConfigSchema.parse(input).STRIPE_PRICE_AI_CREDITS, 'price_1U6pKsRuamqOc0mslHnpODAJ');
+  assert.equal(gatewayConfigSchema.parse({ ...input, STRIPE_PRICE_AI_CREDITS: ' ' }).STRIPE_PRICE_AI_CREDITS, 'price_1U6pKsRuamqOc0mslHnpODAJ');
+  assert.equal(gatewayConfigSchema.parse({ ...input, STRIPE_PRICE_AI_CREDITS: 'price_test_override' }).STRIPE_PRICE_AI_CREDITS, 'price_test_override');
 });
 test('refunds are cumulative, idempotent and carry spent credits as debt', async () => {
   const f = fixture(); await applyCreditTopup(f.tx, { sessionId: 'cs_test', paymentIntentId: 'pi_test', amountCents: 1000 }); f.spend(900);
