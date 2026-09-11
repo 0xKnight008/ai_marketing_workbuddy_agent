@@ -12,6 +12,9 @@ export default (app: Application) => {
   router.post('/api/auth/login', controller.platform.loginWithEmail);
   router.get('/api/auth/me', controller.platform.me);
   router.post('/api/auth/password', controller.platform.setPassword);
+  router.post('/api/imports', controller.platform.createImport);
+  router.get('/api/imports', controller.platform.listImports);
+  router.get('/api/imports/:batchId', controller.platform.importDetail);
   router.post('/api/workflow-runs', controller.platform.createRun);
   router.post('/api/billing/checkout-session', controller.platform.createStripeCheckout);
   router.post('/api/billing/checkout-session/confirm', controller.platform.reconcileStripeCheckout);

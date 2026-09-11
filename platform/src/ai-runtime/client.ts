@@ -39,4 +39,16 @@ export class AiRuntimeClient {
     if (!response.ok) throw new Error(`AI runtime poll failed: ${response.status}`);
     return await response.json() as AiRuntimeRun;
   }
+
+  /** Synchronous batch classification for imported items (iteration-1 tagging). */
+  async classifyItems(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const response = await this.fetchImpl(new URL('/internal/classify', this.options.baseUrl), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-internal-token': this.options.internalToken },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!response.ok) throw new Error(`AI runtime classify failed: ${response.status}`);
+    return await response.json() as Record<string, unknown>;
+  }
 }

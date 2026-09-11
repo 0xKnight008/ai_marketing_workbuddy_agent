@@ -135,9 +135,13 @@ export interface AiReservation {
   guardrail: UsageSnapshot;
 }
 
-export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: string[], runId: string): Promise<AiReservation> {
+export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: string[], runId: string, requestedBand?: ModelBand): Promise<AiReservation> {
   const current = await usageSnapshot(tx);
-  const requested = requestedModelBand(allowedModelClasses);
+  // 用户显式选择的档位（对话框 eco/standard/flagship 选择器）在策略允许时优先生效；
+  // 未选择或超出 allowedModelClasses 时维持原默认（取允许的最高档）。
+  const requested = requestedBand && allowedModelClasses.includes(requestedBand)
+    ? requestedBand
+    : requestedModelBand(allowedModelClasses);
   const requestedPolicy = MODEL_BAND_POLICIES[requested];
   const useFallbackEco = requested !== 'eco' && current.aiCreditsAvailable < requestedPolicy.credits;
   const band = useFallbackEco ? 'eco' : requested;

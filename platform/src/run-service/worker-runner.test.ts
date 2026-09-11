@@ -24,6 +24,7 @@ for (const kind of ['prepare_ai_run', 'execute_approved_actions']) {
     }, aiRuntime: {
       prepareAnnouncement: async () => { calls++; return { aiRunId: 'ai-run-1', status: 'accepted' }; },
       getAnnouncementRun: async () => { throw new Error('unexpected'); },
+      classifyItems: async () => { throw new Error('unexpected'); },
     }, zernio: { executeAction: async () => { calls++; } } });
     await worker.runOne();
     assert.equal(calls, 0);
@@ -54,6 +55,7 @@ test('RunWorker drains a bounded batch and requeues unsupported work safely', as
     aiRuntime: {
       async prepareAnnouncement() { return { aiRunId: 'unused', status: 'accepted' as const }; },
       async getAnnouncementRun() { return { aiRunId: 'unused', platformRunId: 'unused', workspaceId: 'workspace-1', status: 'running' as const }; },
+      async classifyItems() { return {}; },
     },
   });
 
@@ -123,10 +125,110 @@ test('RunWorker reconciles a completed AI run when its callback was lost', async
           },
         };
       },
+      async classifyItems() { return {}; },
     },
   });
 
   assert.equal(await worker.runOne(), true);
   assert.ok(statements.some((sql) => sql.includes('INSERT INTO approval_request')));
   assert.ok(statements.some((sql) => sql.includes("UPDATE job SET status = 'succeeded'")));
+});
+
+test('import.classify writes evidence-verified tags and drops hallucinated citations', async () => {
+  const items = [
+    { id: 'item-1', text: 'Love this serum, where can I buy it?', author: 'Ann', platform: 'instagram' },
+    { id: 'item-2', text: 'The new packaging leaks everywhere', author: null, platform: 'rednote' },
+  ];
+  let pendingCalls = 0;
+  const statements: string[] = [];
+  const insertedTags: unknown[][] = [];
+  const auditEvents: unknown[] = [];
+  const tx: TenantTransaction = {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
+      statements.push(sql);
+      if (sql.startsWith('INSERT INTO audit_event')) auditEvents.push(values?.[1]);
+      if (sql.includes("UPDATE import_batch SET status = 'classifying'")) {
+        return { rows: [{ status: 'classifying', modelBand: 'standard' }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.includes('classified_at IS NULL')) {
+        pendingCalls += 1;
+        return { rows: (pendingCalls === 1 ? items : []) as unknown as Row[], rowCount: 0 };
+      }
+      if (sql.startsWith('INSERT INTO item_tag')) {
+        insertedTags.push([...(values ?? [])]);
+        return { rows: [] as Row[], rowCount: 1 };
+      }
+      return { rows: [] as Row[], rowCount: 1 };
+    },
+  } as TenantTransaction;
+  const jobs: ClaimedJob[] = [{ id: 'job-9', workspaceId: 'workspace-1', runId: null, kind: 'import.classify', payload: { batchId: 'batch-1' }, attempt: 1 }];
+  const worker = new RunWorker({
+    workerName: 'test-worker',
+    database: {
+      claimNextJob: async () => jobs.shift(),
+      withWorkspace: async (_workspaceId, operation) => operation(tx),
+    },
+    aiRuntime: {
+      async prepareAnnouncement() { throw new Error('unexpected'); },
+      async getAnnouncementRun() { throw new Error('unexpected'); },
+      async classifyItems(payload) {
+        assert.equal((payload as { modelBand: string }).modelBand, 'standard');
+        return {
+          assignments: [
+            // 合法：evidence 是原文逐字子串。
+            { itemIndex: 0, tags: [{ tag: 'purchase_intent', confidence: 0.92, evidence: 'where can I buy it' }] },
+            // 幻觉引用：不在原文中，必须被平台侧丢弃并审计。
+            { itemIndex: 1, tags: [{ tag: 'complaint', confidence: 0.9, evidence: 'terrible quality control' }] },
+          ],
+        };
+      },
+    },
+  });
+
+  assert.equal(await worker.runOne(), true);
+  assert.equal(insertedTags.length, 1);
+  assert.equal(insertedTags[0]?.[0], 'item-1');
+  assert.equal(insertedTags[0]?.[1], 'purchase_intent');
+  assert.ok(auditEvents.includes('import.classify_evidence_dropped'));
+  assert.ok(statements.some((sql) => sql.includes('UPDATE import_item SET classified_at')));
+  assert.ok(statements.some((sql) => sql.includes("UPDATE import_batch SET status = 'classified'")));
+  assert.ok(statements.some((sql) => sql.includes("UPDATE job SET status = 'succeeded'")));
+});
+
+test('import.classify retries when the AI runtime returns a schema-invalid result', async () => {
+  const statements: string[] = [];
+  const tx: TenantTransaction = {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string): Promise<{ rows: Row[]; rowCount: number }> {
+      statements.push(sql);
+      if (sql.includes("UPDATE import_batch SET status = 'classifying'")) {
+        return { rows: [{ status: 'classifying', modelBand: 'eco' }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.includes('classified_at IS NULL')) {
+        return { rows: [{ id: 'item-1', text: 'hello', author: null, platform: 'unknown' }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.startsWith('UPDATE job SET status')) {
+        return { rows: [{ status: 'queued' }] as unknown as Row[], rowCount: 1 };
+      }
+      return { rows: [] as Row[], rowCount: 1 };
+    },
+  } as TenantTransaction;
+  const jobs: ClaimedJob[] = [{ id: 'job-10', workspaceId: 'workspace-1', runId: null, kind: 'import.classify', payload: { batchId: 'batch-1' }, attempt: 1 }];
+  const worker = new RunWorker({
+    workerName: 'test-worker',
+    database: {
+      claimNextJob: async () => jobs.shift(),
+      withWorkspace: async (_workspaceId, operation) => operation(tx),
+    },
+    aiRuntime: {
+      async prepareAnnouncement() { throw new Error('unexpected'); },
+      async getAnnouncementRun() { throw new Error('unexpected'); },
+      async classifyItems() { return { nonsense: true }; },
+    },
+  });
+
+  // Schema-invalid AI output must not be persisted; the job is requeued for retry.
+  assert.equal(await worker.runOne(), true);
+  assert.equal(statements.some((sql) => sql.startsWith('INSERT INTO item_tag')), false);
+  assert.equal(statements.some((sql) => sql.includes("UPDATE import_batch SET status = 'classified'")), false);
+  assert.ok(statements.some((sql) => sql.startsWith('UPDATE job SET status')));
 });

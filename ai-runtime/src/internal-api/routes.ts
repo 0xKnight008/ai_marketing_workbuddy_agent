@@ -1,5 +1,9 @@
 import { registerApiRoute } from '@mastra/core/server';
 
+import { createItemClassifierAgent } from '../agents/item-classifier-agent';
+import { config } from '../config';
+import { modelForBand } from '../lib/model-routing';
+import { classifyRequestSchema, classifyResultSchema } from '../schemas/classify';
 import { RunServiceEventEmitter, registerEmitter, removeEmitter } from '../events/emitter';
 import { prepareAnnouncementRequestSchema } from '../schemas/announcement';
 import { internalAuth } from './auth';
@@ -135,6 +139,35 @@ export const internalApiRoutes = [
 
       // §4.1：accepted { aiRunId }
       return c.json({ aiRunId, status: 'accepted' }, 202);
+    },
+  }),
+
+  registerApiRoute('/internal/classify', {
+    method: 'POST',
+    middleware: [internalAuth],
+    handler: async (c) => {
+      let body: unknown;
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.json({ error: 'invalid_request', message: 'Request body must be valid JSON' }, 400);
+      }
+      const parsed = classifyRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
+      }
+      const { items, modelBand, language } = parsed.data;
+      try {
+        const agent = createItemClassifierAgent(modelForBand(config, modelBand, 'primary'));
+        const { object } = await agent.generate(
+          `Classify each of the following ${items.length} item(s)${language === 'auto' ? '' : ` (expected language: ${language})`}. Items as JSON:\n${JSON.stringify(items)}`,
+          { structuredOutput: { schema: classifyResultSchema } },
+        );
+        return c.json(object, 200);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return c.json({ error: 'classify_failed', message }, 502);
+      }
     },
   }),
 

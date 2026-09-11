@@ -1,6 +1,9 @@
+import { z } from 'zod';
+
 import { actionPlanSchema, type ActionPlan, type AiRuntimeEvent } from '../contracts/ai-runtime-event';
+import { classifyResultSchema, type TagAssignment } from '../contracts/tagging';
 import type { BrandContextSnapshot } from '../contracts/domain';
-import { MODEL_BAND_POLICIES } from '../billing/plans';
+import { MODEL_BAND_POLICIES, MODEL_BANDS } from '../billing/plans';
 import { projectedActionUsage, recordSuccessfulAction, reserveAiRun, type AiReservation, type UsageSnapshot } from '../billing/guardrails';
 import { isAnnouncementWorkflow } from '../contracts/workflow-definition';
 import { assertExecutableAction, type ConnectedAccountView } from '../connector-service/actions';
@@ -32,6 +35,7 @@ export interface RunWorkerAiRuntime {
     result?: Record<string, unknown>;
     error?: string;
   }>;
+  classifyItems(payload: Record<string, unknown>): Promise<Record<string, unknown>>;
 }
 
 export interface RunWorkerZernio {
@@ -63,6 +67,7 @@ export class RunWorker {
       else if (job.kind === 'execute_approved_actions') await this.executeApprovedActions(job);
       else if (job.kind === 'issue_referral_credit') await this.issueReferralCredit(job);
       else if (job.kind === 'clawback_referral_credit') await this.clawbackReferralCredit(job);
+      else if (job.kind === 'import.classify') await this.classifyImport(job);
       else throw new Error(`Unsupported job: ${job.kind}`);
     } catch (error) {
       if (error instanceof SupplierUnavailableError) await this.deferForSupplier(job, error);
@@ -89,7 +94,10 @@ export class RunWorker {
       const found = result.rows[0];
       if (!found) throw new Error('Run not found');
       if (!isAnnouncementWorkflow(found.definition)) throw new Error('Workflow execution is not supported');
-      const reservation = await reserveAiRun(tx, found.context.allowedModelClasses, found.id);
+      // 对话框档位选择：run input 可携带 modelBand（eco/standard/flagship），
+      // 合法且在品牌策略允许范围内时优先于默认档位。
+      const requestedBand = z.enum(MODEL_BANDS).safeParse(found.input?.modelBand);
+      const reservation = await reserveAiRun(tx, found.context.allowedModelClasses, found.id, requestedBand.success ? requestedBand.data : undefined);
       if (reservation.guardrail.status === 'paused') {
         await this.pauseForBilling(tx, job, reservation.guardrail, 'ai_run');
         return undefined;
@@ -295,6 +303,88 @@ export class RunWorker {
     await this.options.database.withWorkspace(job.workspaceId, (tx) => tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]));
   }
 
+  private async classifyImport(job: ClaimedJob): Promise<void> {
+    const batchId = job.payload.batchId;
+    if (typeof batchId !== 'string' || !batchId) throw new Error('import.classify is missing batchId');
+
+    // Chunked synchronous classification; each chunk writes tags transactionally
+    // so a mid-batch failure can be retried without duplicating rows (UNIQUE item+tag).
+    const CLASSIFY_CHUNK = 50;
+    for (;;) {
+      const items = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+        const batch = await tx.query<{ status: string; modelBand: string }>(
+          `UPDATE import_batch SET status = 'classifying'
+            WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND status IN ('pending', 'classifying')
+            RETURNING status, model_band AS "modelBand"`,
+          [batchId],
+        );
+        if (!batch.rows[0]) throw new Error('import batch not found or already terminal');
+        const pending = await tx.query<{ id: string; text: string; author: string | null; platform: string }>(
+          `SELECT i.id, i.text, i.author, i.platform
+             FROM import_item i
+            WHERE i.batch_id = $1 AND i.workspace_id = current_setting('app.workspace_id')::uuid
+              AND i.classified_at IS NULL
+            ORDER BY i.created_at, i.id
+            LIMIT $2`,
+          [batchId, CLASSIFY_CHUNK],
+        );
+        return { modelBand: batch.rows[0].modelBand, rows: pending.rows };
+      });
+
+      if (!items.rows.length) {
+        await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+          await tx.query(
+            "UPDATE import_batch SET status = 'classified', classified_at = now() WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid",
+            [batchId],
+          );
+          await tx.query(
+            'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
+            [job.workspaceId, 'import.classified', { batchId }],
+          );
+          await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
+        });
+        return;
+      }
+
+      const result = await this.options.aiRuntime.classifyItems({
+        modelBand: items.modelBand,
+        items: items.rows.map((row, index) => ({ index, text: row.text, author: row.author ?? undefined, platform: row.platform })),
+      });
+
+      await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+        let written = 0;
+        let dropped = 0;
+        for (const assignment of parsedAssignments(result)) {
+          const item = items.rows[assignment.itemIndex];
+          if (!item) { dropped += 1; continue; }
+          for (const tag of assignment.tags) {
+            // 证据引用硬校验：LLM 必须给出原文逐字摘录，否则该标签作废。
+            if (!item.text.includes(tag.evidence)) { dropped += 1; continue; }
+            const inserted = await tx.query(
+              `INSERT INTO item_tag (workspace_id, item_id, tag, confidence, evidence, model_band)
+               VALUES (current_setting('app.workspace_id')::uuid, $1, $2, $3, $4, $5)
+               ON CONFLICT (item_id, tag) DO NOTHING`,
+              [item.id, tag.tag, tag.confidence, tag.evidence, items.modelBand],
+            );
+            written += inserted.rowCount;
+          }
+        }
+        // 无论是否有标签都标记已处理；无标签是合法结果（无信号评论）。
+        await tx.query(
+          `UPDATE import_item SET classified_at = now()
+            WHERE batch_id = $1 AND id = ANY($2::uuid[])`,
+          [batchId, items.rows.map((row) => row.id)],
+        );
+        if (dropped > 0) {
+          await tx.query(
+            'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
+            [job.workspaceId, 'import.classify_evidence_dropped', { batchId, dropped, written }],
+          );
+        }
+      });
+    }
+  }
+
   private async pauseForBilling(tx: TenantTransaction, job: ClaimedJob, guardrail: UsageSnapshot, stage: 'ai_run' | 'publish'): Promise<void> {
     if (!job.runId) throw new Error('Billing pause is missing runId');
     const payload = { stage, guardrail, jobKind: job.kind, jobPayload: job.payload };
@@ -349,4 +439,15 @@ function toAiExecutionContext(context: BrandContextSnapshot, reservation: AiRese
       maxTargets: policy.maxTargets,
     },
   };
+}
+
+/**
+ * Validates the ai-runtime classify payload. A malformed response throws so the
+ * durable job retries (and dead-letters for admin replay) instead of silently
+ * marking the chunk classified without tags.
+ */
+function parsedAssignments(result: Record<string, unknown>): TagAssignment[] {
+  const parsed = classifyResultSchema.safeParse(result);
+  if (!parsed.success) throw new Error(`classify result failed schema validation: ${parsed.error.issues.length} issue(s)`);
+  return parsed.data.assignments;
 }
