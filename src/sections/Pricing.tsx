@@ -1,6 +1,4 @@
 import { Check, Coins, Sparkles } from "lucide-react";
-import { useState } from 'react';
-import { billingCopy, type BillingInterval } from '../lib/billing-interval';
 import { SectionTitle } from "../components/SectionTitle";
 import { Reveal } from "../components/Reveal";
 import { SpritePuff } from "../components/ghibli/Piggy";
@@ -31,8 +29,6 @@ export function Pricing() {
   const { lang, t } = useT();
   const p = t.pricing;
   const activationBase = `/${lang}/activate`;
-  const [billingInterval, setBillingInterval] = useState<BillingInterval>('month');
-  const billing = billingCopy[lang];
 
   return (
     <section id="pricing" className="relative py-20 sm:py-28 bg-gradient-to-b from-paper via-[#FBF0D9] to-paper overflow-hidden">
@@ -64,10 +60,6 @@ export function Pricing() {
           </p>
         </Reveal>
 
-        <div role="group" aria-label={billing.label} className="mt-8 flex justify-center gap-3">
-          {(['month', 'year'] as const).map((interval) => <button key={interval} type="button" aria-pressed={billingInterval === interval} onClick={() => setBillingInterval(interval)} className={`sketch px-5 py-2 font-bold ${billingInterval === interval ? 'bg-sky-deep text-white' : 'bg-paper-card text-ink'}`}>{billing[interval]}</button>)}
-        </div>
-        {billingInterval === 'year' && <p className="mt-4 text-center text-sm text-ink-soft">{billing.annualNote}</p>}
         <div className="mt-12 grid gap-7 md:grid-cols-3 items-stretch max-w-5xl mx-auto">
           {p.plans.map((plan, i) => {
             const highlight = i === 1;
@@ -90,8 +82,8 @@ export function Pricing() {
                     <h3 className="font-display text-2xl text-ink">{plan.name}</h3>
                   </div>
                   <p className="mt-4 flex items-baseline gap-1">
-                    <span className={`font-display text-ink ${billingInterval === 'year' ? 'text-xl' : 'text-5xl'}`}>{billingInterval === 'year' ? billing.annualPrice : plan.price}</span>
-                    {billingInterval === 'month' && <span className="text-ink-faint font-bold text-sm">{p.per}</span>}
+                    <span className="font-display text-ink text-5xl">{plan.price}</span>
+                    <span className="text-ink-faint font-bold text-sm">{p.per}</span>
                   </p>
                   <p className="mt-1.5 text-sm font-bold text-ink-soft">{plan.target}</p>
 
@@ -109,7 +101,7 @@ export function Pricing() {
                     ))}
                   </ul>
                   <a
-                    href={`${activationBase}?plan=${plan.name.toLowerCase()}&billingInterval=${billingInterval}`}
+                    href={`${activationBase}?plan=${plan.name.toLowerCase()}`}
                     className={`mt-6 inline-flex justify-center items-center px-5 py-3 font-display sketch transition-all hover:-translate-y-0.5 ${
                       highlight ? "bg-sunset text-[#FFF9EC] wobble shadow-paint" : "bg-paper-deep text-ink wobble-2 shadow-paint-sm"
                     }`}

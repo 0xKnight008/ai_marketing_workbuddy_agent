@@ -1,10 +1,10 @@
-import { Workflow, Sparkles, LayoutTemplate, Inbox, CalendarDays, Gauge } from "lucide-react";
+import { Workflow, FileUp, FileBarChart, MailCheck, Inbox, Gauge } from "lucide-react";
 import { SectionTitle } from "../components/SectionTitle";
 import { Reveal } from "../components/Reveal";
 import { SpritePuff } from "../components/ghibli/Piggy";
 import { useT } from "../i18n/LangContext";
 
-const ICONS = [Workflow, Sparkles, LayoutTemplate, Inbox, CalendarDays, Gauge];
+const ICONS = [Workflow, FileUp, FileBarChart, MailCheck, Inbox, Gauge];
 const COLORS = ["bg-sky-light", "bg-sun", "bg-piggy-light", "bg-meadow-light", "bg-sky-light", "bg-piggy-light"];
 
 export function Features() {

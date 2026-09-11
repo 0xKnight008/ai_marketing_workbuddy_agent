@@ -4,6 +4,7 @@ import { CONTENT, type Lang } from "../i18n/content";
 import { Nav } from "../sections/Nav";
 import { Hero } from "../sections/Hero";
 import { Marquee } from "../sections/Marquee";
+import { Audiences } from "../sections/Audiences";
 import { Features } from "../sections/Features";
 import { CopilotDemo } from "../sections/CopilotDemo";
 import { Workflows } from "../sections/Workflows";
@@ -39,6 +40,7 @@ export default function Home({ lang }: { lang: Lang }) {
         <main>
           <Hero />
           <Marquee />
+          <Audiences />
           <Features />
           <CopilotDemo />
           <Workflows />
