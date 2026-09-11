@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { billingCopy, selectedBillingInterval } from '../src/lib/billing-interval';
+import { selectedBillingInterval } from '../src/lib/billing-interval';
 import { checkoutAuthPath, safeNextPath } from '../src/lib/auth-navigation';
 
 test('annual selection survives initial sign-in and expired-session reauthentication', () => {
@@ -20,11 +20,4 @@ test('monthly remains the default and explicit monthly selection overwrites a pr
   assert.equal(selectedBillingInterval('?billingInterval=week'), 'month');
   const redirect = new URL(checkoutAuthPath('/activate', '?billingInterval=year', 'growth', 'month'), 'https://www.piggybot.me');
   assert.equal(selectedBillingInterval(new URL(redirect.searchParams.get('next')!, redirect.origin).search), 'month');
-});
-
-test('all locales explain annual price confirmation without invented prices', () => {
-  for (const copy of Object.values(billingCopy)) {
-    assert.ok(copy.month && copy.year && copy.annualPrice && copy.annualNote);
-    assert.doesNotMatch(copy.annualPrice, /\$/);
-  }
 });

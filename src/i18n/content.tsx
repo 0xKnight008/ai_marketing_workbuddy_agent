@@ -21,6 +21,13 @@ export interface SiteContent {
     scroll: string;
   };
   marquee: string[];
+  audiences: {
+    badge: string;
+    pre: string;
+    hi: string;
+    subtitle: string;
+    items: { persona: string; title: string; desc: string; points: string[]; cta: string; href: string }[];
+  };
   features: {
     badge: string;
     pre: string;
@@ -141,6 +148,7 @@ const zh: SiteContent = {
     featuresOverview: "能力总览",
     menu: "导航菜单",
     featureLinks: [
+      { label: "三种村民", href: "#audiences" },
       { label: "咒语演示", href: "#copilot" },
       { label: "工作流剧场", href: "#workflows" },
       { label: "修行模式", href: "#modes" },
@@ -175,11 +183,55 @@ const zh: SiteContent = {
     "任务精灵计费",
     "品牌声音记忆",
   ],
+  audiences: {
+    badge: "三种村民 · 各走各的小路",
+    pre: "三种村民，",
+    hi: "三条进村小路",
+    subtitle: "Piggybot 不按功能列表卖软件，而是围着你的日常把戏台搭好。找到属于你的那条小路，看看精灵替你干什么。",
+    items: [
+      {
+        persona: "创作者",
+        title: "把灵感养成一片森林",
+        desc: "你只管创作，复盘、选题、排期的杂活全部交给精灵。",
+        points: [
+          "爆款内容复盘：成功因素 + 下周选题 + 草稿标题",
+          "粉丝评论洞察：高频问题与需求排行",
+          "一条内容变出全平台版本，按点自动排期发布",
+        ],
+        cta: "看创作者的一天",
+        href: "#workflows",
+      },
+      {
+        persona: "卖家",
+        title: "让每条评价都变成订单",
+        desc: "评论、差评、商品反馈自动归拢，精灵帮你找到下一个好卖的品。",
+        points: [
+          "差评归因：问题聚类 + 优先修复清单",
+          "商品机会发现：需求证据 + 预售投票草稿",
+          "购买意图一出现，线索自动写入 CRM",
+        ],
+        cta: "看卖家的增长闭环",
+        href: "#features",
+      },
+      {
+        persona: "社群主",
+        title: "再热闹的群也不怕漏消息",
+        desc: "热点、疑问、待办自动摘要，报告经你审批后直发邮箱或 Discord。",
+        points: [
+          "社群摘要：热点话题 + 未解答的问题",
+          "每日运营任务清单，按优先级排好",
+          "报告审批通过后，一键发到邮箱 / Discord",
+        ],
+        cta: "看社群主的一天",
+        href: "#copilot",
+      },
+    ],
+  },
   features: {
     badge: "精灵的六种超能力",
     pre: "你负责创意，",
     hi: "杂活交给精灵",
-    subtitle: "从一条内容到一整个增长闭环，Piggybot 把繁琐的平台对接全部藏在幕后——你看到的只有业务场景和结果。",
+    subtitle: "从导入数据、生成洞察，到审批外发——Piggybot 把繁琐的平台对接全部藏在幕后，你看到的只有业务场景和结果。",
     items: [
       {
         title: "可视化 Flow Builder",
@@ -187,14 +239,19 @@ const zh: SiteContent = {
         tag: "No-code 画布",
       },
       {
-        title: "AI Copilot 建造者",
-        desc: "说一句人话，精灵为你生成工作流草图，并一步一步解释它打算怎么做。",
-        tag: "自然语言建流",
+        title: "数据导入 + AI 证据打标",
+        desc: "粘贴文本或上传 CSV，把评论、商品、内容素材倒进村子；AI 按批打标分类，每条结论都带逐字核对的证据引用。",
+        tag: "导入即打标",
       },
       {
-        title: "模板画廊",
-        desc: "内容改写、线索捕获、每周报告、评论自动回复……从模板出发，绝不面对空白画布。",
-        tag: "开箱即用",
+        title: "六类洞察报告",
+        desc: "爆款复盘、评论洞察、商品机会、差评归因、社群摘要、每日运营任务——一句话召唤，精灵基于你的真实数据写报告。",
+        tag: "6 大模板",
+      },
+      {
+        title: "报告审批与外发",
+        desc: "报告生成后先进入审批队列，你点头之后才发往邮箱或 Discord；发送目标在申请时快照冻结——你看到什么，就发什么。",
+        tag: "人机闭环",
       },
       {
         title: "统一收件箱",
@@ -202,14 +259,9 @@ const zh: SiteContent = {
         tag: "评论 / DM 聚合",
       },
       {
-        title: "社交日历",
-        desc: "多平台内容排期一眼看全，拖拽调整，精灵按点替你发布。",
-        tag: "排期视图",
-      },
-      {
-        title: "用量仪表盘",
-        desc: "任务额度、连接账号、运行成功率、错误率——每一分花费都明明白白。",
-        tag: "透明计量",
+        title: "AI credits 透明计量",
+        desc: "Eco / Standard / Flagship 三档按 1 / 6 / 20 credits 计量；额度用尽自动降级 Eco 或延后运行，仪表盘上每一分都可查。",
+        tag: "按档计量",
       },
     ],
   },
@@ -488,6 +540,7 @@ const en: SiteContent = {
     featuresOverview: "Overview",
     menu: "Navigation menu",
     featureLinks: [
+      { label: "Who it's for", href: "#audiences" },
       { label: "Copilot Demo", href: "#copilot" },
       { label: "Workflows", href: "#workflows" },
       { label: "Agent Modes", href: "#modes" },
@@ -522,11 +575,55 @@ const en: SiteContent = {
     "Task-based billing",
     "Brand voice memory",
   ],
+  audiences: {
+    badge: "Three villagers · three little paths",
+    pre: "Three villagers,",
+    hi: "three paths into the village",
+    subtitle: "Piggybot isn't sold as a feature list — the stage is set around your daily routine. Find your path and see what the sprites take off your plate.",
+    items: [
+      {
+        persona: "Creators",
+        title: "Grow one spark into a forest",
+        desc: "You create; sprites handle the recaps, topic picks and scheduling.",
+        points: [
+          "Viral-content recap: success factors, next topics & draft titles",
+          "Comment insights: frequent questions & demand ranking",
+          "One idea becomes native versions on every platform, scheduled for you",
+        ],
+        cta: "A creator's day",
+        href: "#workflows",
+      },
+      {
+        persona: "Sellers",
+        title: "Turn every review into orders",
+        desc: "Comments, bad reviews and product feedback flow together — sprites surface your next bestseller.",
+        points: [
+          "Review attribution: issue clusters + a priority fix list",
+          "Product opportunities: demand evidence + pre-sale poll drafts",
+          "Buying intent lands in your CRM the moment it appears",
+        ],
+        cta: "A seller's growth loop",
+        href: "#features",
+      },
+      {
+        persona: "Community hosts",
+        title: "Never miss a message again",
+        desc: "Hot topics, open questions and to-dos get summarized; approved reports ship straight to email or Discord.",
+        points: [
+          "Community digest: hot topics + unanswered questions",
+          "Daily ops task list, sorted by priority",
+          "Reports ship to email / Discord after your approval",
+        ],
+        cta: "A host's day",
+        href: "#copilot",
+      },
+    ],
+  },
   features: {
     badge: "The sprites' six superpowers",
     pre: "You create,",
     hi: "sprites do the chores",
-    subtitle: "From a single post to a full growth loop, Piggybot hides all the plumbing — you only see business scenarios and results.",
+    subtitle: "From importing data to generating insights to approval-gated delivery — Piggybot hides all the plumbing, so you only see business scenarios and results.",
     items: [
       {
         title: "Visual Flow Builder",
@@ -534,14 +631,19 @@ const en: SiteContent = {
         tag: "No-code canvas",
       },
       {
-        title: "AI Copilot Builder",
-        desc: "Say it in plain words — your sprite drafts the workflow and explains every step it plans to take.",
-        tag: "Natural-language building",
+        title: "Import & AI Evidence Tagging",
+        desc: "Paste text or drop in a CSV of comments, products or content; AI tags every batch, and each conclusion carries verbatim-checked evidence citations.",
+        tag: "Import → tagged",
       },
       {
-        title: "Template Gallery",
-        desc: "Repurposing, lead capture, weekly reports, auto-replies… start from a template, never a blank canvas.",
-        tag: "Ready to use",
+        title: "Six Insight Reports",
+        desc: "Content recap, comment insights, product opportunities, review attribution, community digest, daily ops — ask in one sentence and sprites write from your real data.",
+        tag: "6 templates",
+      },
+      {
+        title: "Approval-Gated Delivery",
+        desc: "Reports land in your approval queue first; only after your nod do they ship to email or Discord. The target freezes as a snapshot at request time — what you approve is what gets sent.",
+        tag: "Human in the loop",
       },
       {
         title: "Unified Inbox",
@@ -549,14 +651,9 @@ const en: SiteContent = {
         tag: "Comments / DMs",
       },
       {
-        title: "Social Calendar",
-        desc: "Every scheduled post across platforms at a glance. Drag to adjust, sprites publish on time.",
-        tag: "Scheduling view",
-      },
-      {
-        title: "Usage Dashboard",
-        desc: "Task credits, connected accounts, run success and error rates — every penny accounted for.",
-        tag: "Transparent metering",
+        title: "Transparent AI Credits",
+        desc: "Eco / Standard / Flagship meter at 1 / 6 / 20 credits; exhausted budgets fall back to Eco or defer automatically, and the dashboard shows every credit spent.",
+        tag: "Metered by band",
       },
     ],
   },
@@ -835,6 +932,7 @@ const es: SiteContent = {
     featuresOverview: "Vista general",
     menu: "Menú de navegación",
     featureLinks: [
+      { label: "Para quién", href: "#audiences" },
       { label: "Demo Copilot", href: "#copilot" },
       { label: "Flujos", href: "#workflows" },
       { label: "Modos", href: "#modes" },
@@ -869,11 +967,55 @@ const es: SiteContent = {
     "Facturación por tareas",
     "Memoria de voz de marca",
   ],
+  audiences: {
+    badge: "Tres aldeanos · tres senderos",
+    pre: "Tres aldeanos,",
+    hi: "tres senderos a la aldea",
+    subtitle: "Piggybot no se vende como una lista de funciones: el escenario se monta alrededor de tu rutina. Encuentra tu sendero y mira lo que los duendes quitan de tu mesa.",
+    items: [
+      {
+        persona: "Creadores",
+        title: "Convierte una chispa en un bosque",
+        desc: "Tú creas; los duendes se encargan de resúmenes, temas y programación.",
+        points: [
+          "Resumen de éxitos: factores, próximos temas y títulos borrador",
+          "Insights de comentarios: preguntas frecuentes y demandas",
+          "Una idea se vuelve versión nativa en cada plataforma, programada sola",
+        ],
+        cta: "Un día de creador",
+        href: "#workflows",
+      },
+      {
+        persona: "Vendedores",
+        title: "Convierte cada reseña en pedidos",
+        desc: "Comentarios, malas reseñas y feedback de producto confluyen: los duendes encuentran tu próximo éxito de ventas.",
+        points: [
+          "Atribución de reseñas: clústeres de problemas + lista de arreglos",
+          "Oportunidades de producto: evidencia de demanda + borrador de preventa",
+          "La intención de compra entra sola a tu CRM",
+        ],
+        cta: "El ciclo del vendedor",
+        href: "#features",
+      },
+      {
+        persona: "Anfitriones de comunidad",
+        title: "Ni un mensaje se escapa",
+        desc: "Temas calientes, dudas y tareas se resumen solos; los informes aprobados salen directo a email o Discord.",
+        points: [
+          "Resumen de comunidad: temas calientes + preguntas sin responder",
+          "Tareas diarias de operación, ordenadas por prioridad",
+          "Informes a email / Discord tras tu aprobación",
+        ],
+        cta: "Un día de anfitrión",
+        href: "#copilot",
+      },
+    ],
+  },
   features: {
     badge: "Los seis superpoderes de los duendes",
     pre: "Tú creas,",
     hi: "los duendes trabajan",
-    subtitle: "De una sola publicación a un ciclo de crecimiento completo: Piggybot oculta toda la fontanería técnica — tú solo ves escenarios y resultados.",
+    subtitle: "De importar datos a generar insights y entregarlos con aprobación: Piggybot oculta toda la fontanería técnica — tú solo ves escenarios y resultados.",
     items: [
       {
         title: "Constructor visual de flujos",
@@ -881,14 +1023,19 @@ const es: SiteContent = {
         tag: "Lienzo no-code",
       },
       {
-        title: "Copilot constructor",
-        desc: "Dilo con palabras simples: tu duende dibuja el flujo y explica cada paso que piensa dar.",
-        tag: "Lenguaje natural",
+        title: "Importación con etiquetado IA",
+        desc: "Pega texto o sube un CSV con comentarios, productos o contenido; la IA etiqueta cada lote y cada conclusión lleva citas de evidencia verificadas al pie de la letra.",
+        tag: "Importar → etiquetar",
       },
       {
-        title: "Galería de plantillas",
-        desc: "Reutilización de contenido, captura de leads, informes semanales, respuestas automáticas… empieza desde una plantilla, nunca desde cero.",
-        tag: "Listo para usar",
+        title: "Seis informes de insights",
+        desc: "Resumen de contenido, insights de comentarios, oportunidades de producto, atribución de reseñas, resumen de comunidad y tareas diarias — pídelo en una frase y los duendes escriben con tus datos reales.",
+        tag: "6 plantillas",
+      },
+      {
+        title: "Entrega con aprobación",
+        desc: "Los informes pasan primero por tu cola de aprobación; solo tras tu visto bueno salen hacia email o Discord. El destino se congela al solicitarlo: lo que apruebas es lo que se envía.",
+        tag: "Humano al mando",
       },
       {
         title: "Bandeja unificada",
@@ -896,14 +1043,9 @@ const es: SiteContent = {
         tag: "Comentarios / DMs",
       },
       {
-        title: "Calendario social",
-        desc: "Todas las publicaciones programadas de un vistazo; arrastra para ajustar y los duendes publican a tiempo.",
-        tag: "Vista de agenda",
-      },
-      {
-        title: "Panel de uso",
-        desc: "Créditos de tareas, cuentas conectadas, tasas de éxito y error — cada centavo contabilizado.",
-        tag: "Medición transparente",
+        title: "Créditos de IA transparentes",
+        desc: "Eco / Standard / Flagship miden 1 / 6 / 20 créditos; al agotarse el saldo, se degrada a Eco o se difiere automáticamente, y el panel muestra cada crédito gastado.",
+        tag: "Medición por nivel",
       },
     ],
   },

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Lang } from '../i18n/content';
 import { clearSessionAccessToken, readSessionAccessToken, storeSessionAccessToken } from '../lib/auth-session';
 import { checkoutAuthPath, requiresReauthentication } from '../lib/auth-navigation';
-import { billingCopy, selectedBillingInterval, type BillingInterval } from '../lib/billing-interval';
+import { selectedBillingInterval } from '../lib/billing-interval';
 import { confirmCheckout, confirmationCopy } from '../lib/checkout-confirmation';
 
 const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
@@ -44,8 +44,9 @@ function selectedPlan(): Plan {
 export default function Activation({ lang }: { lang: Lang }) {
   const t = copy[lang];
   const [plan, setPlan] = useState<Plan>(selectedPlan);
-  const [billingInterval, setBillingInterval] = useState<BillingInterval>(() => selectedBillingInterval(window.location.search));
-  const billing = billingCopy[lang];
+  // 年付入口已移至 Stripe 结账内的 upsell；这里只解析 URL 参数，
+  // 让改版前外发的 ?billingInterval=year 链接继续生效。
+  const billingInterval = useMemo(() => selectedBillingInterval(window.location.search), []);
   const [state, setState] = useState<'idle' | 'sending' | 'error'>('idle');
   const [message, setMessage] = useState('');
   const result = useMemo(() => new URLSearchParams(window.location.search).get('checkout'), []);
@@ -140,12 +141,8 @@ export default function Activation({ lang }: { lang: Lang }) {
 
         {!ticket && result !== 'success' && <>
           <label className="mt-7 block text-sm font-bold">Plan</label>
-          <div role="group" aria-label={billing.label} className="mt-3 flex gap-2">
-            {(['month', 'year'] as const).map((interval) => <button key={interval} type="button" disabled={state === 'sending'} aria-pressed={billingInterval === interval} onClick={() => setBillingInterval(interval)} className={`sketch px-4 py-2 text-sm font-bold ${billingInterval === interval ? 'bg-sky-deep text-white' : 'bg-paper text-ink'}`}>{billing[interval]}</button>)}
-          </div>
-          {billingInterval === 'year' && <p className="mt-3 text-sm text-ink-soft">{billing.annualNote}</p>}
           <div className="mt-2 grid gap-2 sm:grid-cols-3">
-            {plans.map((candidate) => <button key={candidate} type="button" disabled={state === 'sending'} aria-pressed={candidate === plan} onClick={() => setPlan(candidate)} className={`sketch px-3 py-3 text-sm font-bold transition ${candidate === plan ? 'bg-sunset text-white shadow-paint-sm' : 'bg-paper text-ink-soft hover:bg-sun/30'}`}>{billingInterval === 'year' ? `${candidate[0].toUpperCase()}${candidate.slice(1)} · ${billing.year}` : t.plans[candidate]}</button>)}
+            {plans.map((candidate) => <button key={candidate} type="button" disabled={state === 'sending'} aria-pressed={candidate === plan} onClick={() => setPlan(candidate)} className={`sketch px-3 py-3 text-sm font-bold transition ${candidate === plan ? 'bg-sunset text-white shadow-paint-sm' : 'bg-paper text-ink-soft hover:bg-sun/30'}`}>{t.plans[candidate]}</button>)}
           </div>
 
           {!publicCheckoutEnabled && <Notice tone="neutral">{t.unavailable}</Notice>}
