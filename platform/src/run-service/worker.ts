@@ -11,12 +11,14 @@ const aiRuntime = new AiRuntimeClient({ baseUrl: config.AI_RUNTIME_URL, internal
 const zernio = config.ZERNIO_BASE_URL && config.ZERNIO_API_KEY
   ? new ZernioClient({ baseUrl: config.ZERNIO_BASE_URL, apiKey: config.ZERNIO_API_KEY, oauthRedirectUri: 'http://localhost/unused', oauthStateSecret: 'worker-not-used', globalRequestsPerMinute: config.ZERNIO_CLIENT_RPM })
   : undefined;
+const emailFrom = config.RESEND_FROM_EMAIL ?? config.FEEDBACK_FROM_EMAIL;
 const worker = new RunWorker({
   workerName: config.WORKER_NAME,
   database,
   aiRuntime,
   zernio,
   stripeSecretKey: config.STRIPE_SECRET_KEY,
+  email: config.RESEND_API_KEY && emailFrom ? { apiKey: config.RESEND_API_KEY, from: emailFrom } : undefined,
 });
 
 let stopping = false;

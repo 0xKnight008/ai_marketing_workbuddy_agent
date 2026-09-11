@@ -62,6 +62,10 @@ export const workerConfigSchema = databaseConfigSchema.extend({
   WORKER_IDLE_MS: z.coerce.number().int().min(100).max(60_000).default(1_000),
   WORKER_BATCH_SIZE: z.coerce.number().int().min(1).max(1_000).default(100),
   STRIPE_SECRET_KEY: z.string().min(1).optional(),
+  // 迭代 4 报告外发（邮箱渠道）：与 gateway 同一组 Resend 变量。
+  RESEND_API_KEY: z.string().min(1).optional(),
+  RESEND_FROM_EMAIL: z.string().min(3).optional(),
+  FEEDBACK_FROM_EMAIL: z.string().min(3).optional(),
 });
 
 export type GatewayConfig = z.infer<typeof gatewayConfigSchema>;

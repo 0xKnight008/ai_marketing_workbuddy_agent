@@ -29,7 +29,8 @@ interface ImportItemView { id: string; platform: string; author: string | null; 
 interface ImportDetailView { batch: ImportBatchView; items: ImportItemView[]; }
 type InsightTemplate = 'content_recap' | 'comment_insights' | 'product_opportunities' | 'review_attribution' | 'community_digest' | 'daily_ops';
 interface ReportCitation { ref: string; snippet: string }
-interface InsightReportView { id: string; template: InsightTemplate; title: string; status: 'pending' | 'generating' | 'generated' | 'failed'; modelBand: string; batchIds: string[]; itemCount: number; droppedCitations: number; error: string | null; createdAt: string; generatedAt: string | null; report: Record<string, unknown> | null; }
+interface ReportDeliveryView { status: 'awaiting_approval' | 'approved' | 'delivered' | 'rejected' | 'failed'; channel: 'email' | 'discord'; targetLabel: string; requestedAt: string; deliveredAt?: string; error?: string }
+interface InsightReportView { id: string; template: InsightTemplate; title: string; status: 'pending' | 'generating' | 'generated' | 'failed'; modelBand: string; batchIds: string[]; itemCount: number; droppedCitations: number; error: string | null; createdAt: string; generatedAt: string | null; report: Record<string, unknown> | null; delivery: ReportDeliveryView | null; }
 
 const INSIGHT_TEMPLATES: { id: InsightTemplate; name: string; tagline: string }[] = [
   { id: 'content_recap', name: 'Content recap', tagline: 'What went viral, why, and what to post next' },
@@ -43,7 +44,7 @@ interface ConnectedAccount { id: string; externalAccountId: string; displayName:
 interface PipelineCheck { id: string; label: string; passed: boolean; detail: string; }
 interface PipelineReadiness { ready: boolean; checks: PipelineCheck[]; }
 interface RunView { id: string; status: string; workflowId: string; createdAt: string; }
-interface ApprovalView { id: string; runId: string; requestedAction: { summary?: string }; requestedAt: string; }
+interface ApprovalView { id: string; runId: string | null; requestedAction: { summary?: string }; requestedAt: string; }
 interface TaskEventView { id: string; runId: string; actionType: string; billableUnits: string; status: string; createdAt: string; }
 interface AuditEventView { id: string; runId?: string; eventType: string; createdAt: string; }
 interface UsageView { status: string; taskUsed: number; taskQuota: number; subscriptionStatus: string; plan: string; }
@@ -483,6 +484,27 @@ export default function PlatformDashboard() {
     }
   }
 
+  async function deliverInsight(reportId: string, input: { channel: 'email' | 'discord'; email?: string; connectedAccountId?: string }) {
+    setMessage('');
+    const response = await fetch(`${gatewayUrl}/api/insights/${reportId}/deliver`, {
+      method: 'POST',
+      headers: headers(true),
+      body: JSON.stringify(input),
+    });
+    const result = await response.json().catch(() => ({})) as InsightReportView & { error?: string };
+    if (!response.ok) {
+      setMessage(result.error === 'insight_delivery_pending' ? 'A delivery for this report is already awaiting approval.'
+        : result.error === 'insight_not_generated' ? 'Only a finished report can be sent.'
+        : result.error === 'insight_delivery_target_invalid' ? 'Pick a connected Discord account with posting permission.'
+        : result.error === 'insight_delivery_target_missing' ? 'No workspace owner email found — enter an email address.'
+        : result.error ?? 'The delivery request could not be created.');
+      return;
+    }
+    setInsightDetail(result);
+    setMessage('Delivery queued — approve it in the Activity tab to send.');
+    await loadWorkspace();
+  }
+
   const loadInsightDetail = useCallback(async (reportId: string) => {
     const response = await fetch(`${gatewayUrl}/api/insights/${reportId}`, { headers: headers() });
     if (!response.ok) { setInsightDetail(null); setMessage('Insight report not found or access is denied.'); return; }
@@ -551,7 +573,7 @@ export default function PlatformDashboard() {
         {message && <div className="mb-6 rounded-xl border border-sky-deep/20 bg-sky-pale p-4 text-sm text-sky-deep" role="status">{message}</div>}
         {section === 'pipelines' && <PipelinesSection templates={templates} pipelines={pipelines} usage={usage} loading={loading} onNew={() => { setDraft(freshDraft()); setSavedPipeline(null); setReadiness(null); setWizardStep('start'); }} onTemplate={startTemplate} onContinue={continuePipeline} onActivity={() => setSection('activity')} />}
         {section === 'imports' && <ImportsSection batches={importBatches} label={importLabel} setLabel={setImportLabel} band={importBand} setBand={setImportBand} content={importContent} setContent={setImportContent} busy={importBusy} detail={importDetail} onPasteImport={() => void createImport('paste', importContent)} onCsvFile={(file) => void importCsvFile(file)} onOpenDetail={(id) => void loadImportDetail(id)} onCloseDetail={() => setImportDetail(null)} />}
-        {section === 'insights' && <InsightsSection reports={insights} batches={importBatches.filter((batch) => batch.status === 'classified')} template={insightTemplate} setTemplate={setInsightTemplate} band={insightBand} setBand={setInsightBand} selectedBatchIds={insightBatchIds} setSelectedBatchIds={setInsightBatchIds} busy={insightBusy} detail={insightDetail} onGenerate={() => void createInsight()} onOpenDetail={(id) => void loadInsightDetail(id)} onCloseDetail={() => setInsightDetail(null)} />}
+        {section === 'insights' && <InsightsSection reports={insights} batches={importBatches.filter((batch) => batch.status === 'classified')} template={insightTemplate} setTemplate={setInsightTemplate} band={insightBand} setBand={setInsightBand} selectedBatchIds={insightBatchIds} setSelectedBatchIds={setInsightBatchIds} busy={insightBusy} detail={insightDetail} accounts={accounts} onGenerate={() => void createInsight()} onOpenDetail={(id) => void loadInsightDetail(id)} onCloseDetail={() => setInsightDetail(null)} onDeliver={(id, input) => void deliverInsight(id, input)} />}
         {section === 'accounts' && <><AccountsSection accounts={accounts.filter(account => !['snapchat', 'whatsapp'].includes(account.platform))} connecting={connecting} onConnect={connectSocial} onRefresh={() => void refreshAccounts(true)} />{telegram && <section className="mt-6 rounded-xl border border-ink/20 p-6"><h3 className="text-lg font-semibold">Connect Telegram</h3><p className="my-3">Code: <strong>{telegram.code}</strong> · Expires: {new Date(telegram.expiresAt).toLocaleString()}</p><ol className="space-y-2">{telegram.instructions.map((instruction, index) => <li key={index}>{instruction}</li>)}</ol><p className="mt-4">After the bot confirms, select Sync account health above to verify the connection.</p><button onClick={() => setTelegram(null)} className="mt-3 underline">Dismiss code</button></section>}</>}
         {section === 'activity' && <ActivitySection approvals={approvals} taskEvents={taskEvents} auditEvents={auditEvents} runId={runId} setRunId={setRunId} run={run} onLoadRun={() => void loadRun()} onDecision={decideApproval} />}
         {section === 'settings' && <SettingsSection me={me} locked={locked} newPassword={newPassword} setNewPassword={setNewPassword} passwordStatus={passwordStatus} onSavePassword={() => void savePassword()} onSignOut={signOut} feedbackCategory={feedbackCategory} setFeedbackCategory={setFeedbackCategory} feedbackMessage={feedbackMessage} setFeedbackMessage={setFeedbackMessage} feedbackStatus={feedbackStatus} onFeedback={() => void sendFeedback()} referralUrl={referralUrl} referralStatus={referralStatus} onReferral={() => void createReferralLink()} />}
@@ -694,7 +716,7 @@ function InsightReportBody({ report }: { report: InsightReportView }) {
   </div>;
 }
 
-function InsightsSection({ reports, batches, template, setTemplate, band, setBand, selectedBatchIds, setSelectedBatchIds, busy, detail, onGenerate, onOpenDetail, onCloseDetail }: { reports: InsightReportView[]; batches: ImportBatchView[]; template: InsightTemplate; setTemplate: (template: InsightTemplate) => void; band: ModelBand; setBand: (band: ModelBand) => void; selectedBatchIds: string[]; setSelectedBatchIds: (ids: string[]) => void; busy: boolean; detail: InsightReportView | null; onGenerate: () => void; onOpenDetail: (id: string) => void; onCloseDetail: () => void; }) {
+function InsightsSection({ reports, batches, template, setTemplate, band, setBand, selectedBatchIds, setSelectedBatchIds, busy, detail, accounts, onGenerate, onOpenDetail, onCloseDetail, onDeliver }: { reports: InsightReportView[]; batches: ImportBatchView[]; template: InsightTemplate; setTemplate: (template: InsightTemplate) => void; band: ModelBand; setBand: (band: ModelBand) => void; selectedBatchIds: string[]; setSelectedBatchIds: (ids: string[]) => void; busy: boolean; detail: InsightReportView | null; accounts: ConnectedAccount[]; onGenerate: () => void; onOpenDetail: (id: string) => void; onCloseDetail: () => void; onDeliver: (id: string, input: { channel: 'email' | 'discord'; email?: string; connectedAccountId?: string }) => void; }) {
   return <div className="space-y-8">
     <section className="sketch bg-paper-card p-6 shadow-paint-sm">
       <p className="font-hand text-lg text-sky-deep">Result templates</p>
@@ -723,7 +745,41 @@ function InsightsSection({ reports, batches, template, setTemplate, band, setBan
       {reports.length === 0 ? <EmptyState title="No reports yet" detail="Pick a template above and generate your first evidence-backed report." /> : <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{reports.map((report) => <article key={report.id} className="sketch bg-paper-card p-5 shadow-paint-sm"><div className="flex items-center justify-between gap-3"><StatusBadge status={report.status} /><span className="text-xs text-ink-soft">{report.modelBand}</span></div><h3 className="mt-4 text-lg font-semibold">{report.title}</h3><p className="mt-1 text-xs text-ink-soft">{INSIGHT_TEMPLATES.find((t) => t.id === report.template)?.name} · {report.itemCount} items · {new Date(report.createdAt).toLocaleString()}</p><button onClick={() => onOpenDetail(report.id)} className="mt-4 w-full rounded-md border border-ink/25 px-4 py-2 text-sm font-medium hover:bg-sky-pale">Open report</button></article>)}</div>}
     </section>
 
-    {detail && <div className="fixed inset-0 z-50 overflow-y-auto bg-ink/45 p-4 backdrop-blur-sm"><div className="mx-auto my-4 max-w-4xl rounded-2xl bg-paper shadow-2xl"><header className="flex items-start justify-between border-b border-ink/15 p-6"><div><p className="font-hand text-lg text-sky-deep">{INSIGHT_TEMPLATES.find((t) => t.id === detail.template)?.name} · {detail.itemCount} items</p><h2 className="font-display text-3xl">{detail.title}</h2></div><button onClick={onCloseDetail} className="rounded-full border border-ink/20 px-3 py-1 text-sm">Close</button></header><InsightReportBody report={detail} /></div></div>}
+    {detail && <div className="fixed inset-0 z-50 overflow-y-auto bg-ink/45 p-4 backdrop-blur-sm"><div className="mx-auto my-4 max-w-4xl rounded-2xl bg-paper shadow-2xl"><header className="flex items-start justify-between border-b border-ink/15 p-6"><div><p className="font-hand text-lg text-sky-deep">{INSIGHT_TEMPLATES.find((t) => t.id === detail.template)?.name} · {detail.itemCount} items</p><h2 className="font-display text-3xl">{detail.title}</h2></div><button onClick={onCloseDetail} className="rounded-full border border-ink/20 px-3 py-1 text-sm">Close</button></header><DeliveryPanel report={detail} accounts={accounts} onDeliver={onDeliver} /><InsightReportBody report={detail} /></div></div>}
+  </div>;
+}
+
+/** 报告外发（迭代 4）：生成完毕的报告可申请推送到邮箱/Discord，经人工审批后发送。 */
+function DeliveryPanel({ report, accounts, onDeliver }: { report: InsightReportView; accounts: ConnectedAccount[]; onDeliver: (id: string, input: { channel: 'email' | 'discord'; email?: string; connectedAccountId?: string }) => void; }) {
+  const [open, setOpen] = useState(false);
+  const [channel, setChannel] = useState<'email' | 'discord'>('email');
+  const [email, setEmail] = useState('');
+  const [accountId, setAccountId] = useState('');
+  if (report.status !== 'generated') return null;
+  const delivery = report.delivery;
+  const discordAccounts = accounts.filter((account) => account.platform === 'discord' && account.status === 'connected' && account.capabilities.includes('publish'));
+  const pending = delivery?.status === 'awaiting_approval' || delivery?.status === 'approved';
+  const statusLabel = delivery?.status === 'awaiting_approval' ? 'Awaiting approval' : delivery?.status === 'approved' ? 'Approved — sending' : delivery?.status === 'delivered' ? 'Delivered' : delivery?.status === 'rejected' ? 'Rejected' : 'Delivery failed';
+  return <div className="border-b border-ink/15 bg-sky-pale/40 p-6">
+    {delivery && <p className="mb-3 text-sm">
+      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${delivery.status === 'delivered' ? 'bg-meadow-light' : delivery.status === 'failed' || delivery.status === 'rejected' ? 'bg-sun/40' : 'bg-sky-pale'}`}>{statusLabel}</span>
+      <span className="ml-2 text-xs text-ink-soft">{delivery.channel === 'email' ? 'Email' : 'Discord'} → {delivery.targetLabel}{delivery.deliveredAt ? ` · ${new Date(delivery.deliveredAt).toLocaleString()}` : ''}{delivery.status === 'failed' && delivery.error ? ` · ${delivery.error}` : ''}</span>
+    </p>}
+    {pending && <p className="text-xs text-ink-soft">Approve or reject this delivery in the Activity tab — nothing is sent automatically.</p>}
+    {!open && !pending && <button onClick={() => setOpen(true)} className="rounded-md bg-sky-deep px-4 py-2 text-sm font-medium text-white hover:bg-sky">{delivery ? 'Send again…' : 'Send report…'}</button>}
+    {open && !pending && <div className="space-y-3">
+      <div className="flex gap-2">{(['email', 'discord'] as const).map((option) => <button key={option} onClick={() => setChannel(option)} className={`rounded-full px-3 py-1 text-xs font-medium ${channel === option ? 'bg-sky-deep text-white' : 'border border-ink/25'}`}>{option === 'email' ? 'Email' : 'Discord'}</button>)}</div>
+      {channel === 'email'
+        ? <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" className="w-full max-w-md rounded-md border border-ink/20 bg-paper p-2 text-sm" placeholder="Workspace owner's email (or type another address)" />
+        : discordAccounts.length === 0
+          ? <p className="text-xs text-ink-soft">No connected Discord account with posting permission — connect one in the Accounts tab.</p>
+          : <select value={accountId} onChange={(event) => setAccountId(event.target.value)} className="w-full max-w-md rounded-md border border-ink/20 bg-paper p-2 text-sm"><option value="">Pick a Discord account…</option>{discordAccounts.map((account) => <option key={account.id} value={account.id}>{account.displayName}</option>)}</select>}
+      <div className="flex gap-2">
+        <button disabled={channel === 'discord' && !accountId} onClick={() => { onDeliver(report.id, { channel, ...(channel === 'email' && email.trim() ? { email: email.trim() } : {}), ...(channel === 'discord' ? { connectedAccountId: accountId } : {}) }); setOpen(false); }} className="rounded-md bg-sunset px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40">Request approval</button>
+        <button onClick={() => setOpen(false)} className="rounded-md border border-ink/25 px-4 py-2 text-sm">Cancel</button>
+      </div>
+      <p className="text-xs text-ink-soft">Nothing is sent yet — a human approves every outbound delivery in the Activity tab.</p>
+    </div>}
   </div>;
 }
 

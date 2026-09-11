@@ -143,6 +143,11 @@ export class PlatformService {
     return this.insights.insightDetail(actor, reportId);
   }
 
+  /** 迭代 4：报告外发请求（创建人工审批）。 */
+  async requestInsightDelivery(actor: ActorContext, reportId: unknown, body: unknown): Promise<unknown> {
+    return this.insights.requestDelivery(actor, reportId, body);
+  }
+
   /** egg schedule 每日调用：为符合条件的订阅工作区入队 daily_ops 报告。 */
   async enqueueScheduledDailyOps(): Promise<number> {
     return this.insights.enqueueScheduledDailyOps();

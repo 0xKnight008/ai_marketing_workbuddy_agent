@@ -392,3 +392,177 @@ test('insight.generate daily_ops aggregates prior report summaries into the evid
   assert.equal(payload.template, 'daily_ops');
   assert.equal(payload.priorReports?.[0]?.summary, 'Fans want merch badly.');
 });
+
+// ---------- 迭代 4：报告外发（insight.deliver） ----------
+
+const DELIVERY_SNAPSHOT = {
+  status: 'approved', channel: 'email', target: 'owner@example.com', targetLabel: 'owner@example.com',
+  approvalId: '22222222-2222-4222-8222-222222222222', requestedBy: 'user-1', requestedAt: new Date().toISOString(),
+  decidedBy: 'user-1', decidedAt: new Date().toISOString(),
+};
+
+function insightDeliveryWorker(options: {
+  delivery?: unknown;
+  statements: string[];
+  auditEvents: unknown[];
+  deliveryPatches: unknown[];
+  email?: { apiKey: string; from: string };
+  zernio?: { executeAction: (key: string, action: Record<string, unknown>, workspaceId?: string) => Promise<unknown> };
+}) {
+  const tx: TenantTransaction = {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
+      options.statements.push(sql);
+      if (sql.startsWith('INSERT INTO audit_event')) options.auditEvents.push(values?.[1]);
+      if (sql.includes('FROM insight_report')) {
+        return { rows: [{
+          title: '每周复盘', template: 'daily_ops', itemCount: 42, droppedCitations: 1,
+          report: { summary: '摘要', tasks: [{ title: '回复差评', reason: 'r', suggestedAction: '联系买家', priority: 'urgent', dueHint: 'today', citations: [] }] },
+          delivery: options.delivery ?? DELIVERY_SNAPSHOT,
+        }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.includes('FROM connected_account')) {
+        return { rows: [{ id: 'acc-1', workspaceId: 'workspace-1', status: 'connected', capabilities: ['publish'], externalAccountId: 'ext-discord-1' }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.startsWith('UPDATE insight_report SET delivery = delivery ||')) {
+        options.deliveryPatches.push(JSON.parse(String(values?.[2])));
+        return { rows: [] as Row[], rowCount: 1 };
+      }
+      if (sql.startsWith('UPDATE job SET status')) {
+        return { rows: [{ status: 'queued' }] as unknown as Row[], rowCount: 1 };
+      }
+      return { rows: [] as Row[], rowCount: 1 };
+    },
+  } as TenantTransaction;
+  const aiRuntime = {
+    async prepareAnnouncement() { throw new Error('unexpected'); },
+    async getAnnouncementRun() { throw new Error('unexpected'); },
+    async classifyItems() { throw new Error('unexpected'); },
+    async generateInsightReport() { throw new Error('unexpected'); },
+  };
+  return new RunWorker({
+    workerName: 'delivery-test',
+    database: {
+      claimNextJob: async () => undefined,
+      withWorkspace: async (_workspaceId, operation) => operation(tx),
+    },
+    aiRuntime,
+    ...(options.email ? { email: options.email } : {}),
+    ...(options.zernio ? { zernio: options.zernio } : {}),
+  });
+}
+
+function deliveryJob(overrides: Partial<ClaimedJob> = {}): ClaimedJob {
+  return { id: 'job-d1', workspaceId: 'workspace-1', runId: null, kind: 'insight.deliver', payload: { reportId: '11111111-1111-4111-8111-111111111111' }, attempt: 1, ...overrides };
+}
+
+test('insight.deliver sends the digest email and marks the delivery delivered', async () => {
+  const statements: string[] = [];
+  const auditEvents: unknown[] = [];
+  const deliveryPatches: unknown[] = [];
+  const worker = insightDeliveryWorker({ statements, auditEvents, deliveryPatches, email: { apiKey: 'rk', from: 'reports@piggybot.app' } });
+
+  const sent: unknown[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    sent.push(JSON.parse(String(init?.body)));
+    return new Response(JSON.stringify({ id: 'email-1' }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    await (worker as unknown as { deliverInsight: (job: ClaimedJob) => Promise<void> }).deliverInsight(deliveryJob());
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(sent.length, 1);
+  const body = sent[0] as unknown as { to: string[]; subject: string; text: string };
+  assert.deepEqual(body.to, ['owner@example.com']);
+  assert.ok(body.subject.includes('每周复盘'));
+  assert.ok(body.text.includes('[urgent] 回复差评'));
+  assert.ok(body.text.includes('基于 42 条导入内容'));
+  const patch = deliveryPatches.at(-1) as { status?: string; deliveredAt?: string } | undefined;
+  assert.equal(patch?.status, 'delivered');
+  assert.equal(typeof patch?.deliveredAt, 'string');
+  assert.ok(auditEvents.includes('insight.delivered'));
+  assert.ok(statements.some((sql) => sql.includes("UPDATE job SET status = 'succeeded'")));
+});
+
+test('insight.deliver skips safely when the snapshot is not approved', async () => {
+  const statements: string[] = [];
+  const auditEvents: unknown[] = [];
+  const deliveryPatches: unknown[] = [];
+  let fetchCalled = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => { fetchCalled = true; return new Response('{}', { status: 200 }); }) as typeof fetch;
+  try {
+    const worker = insightDeliveryWorker({ statements, auditEvents, deliveryPatches, delivery: { ...DELIVERY_SNAPSHOT, status: 'awaiting_approval' }, email: { apiKey: 'rk', from: 'f@example.com' } });
+    await (worker as unknown as { deliverInsight: (job: ClaimedJob) => Promise<void> }).deliverInsight(deliveryJob());
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(fetchCalled, false);
+  assert.equal(deliveryPatches.length, 0);
+  assert.ok(statements.some((sql) => sql.includes("UPDATE job SET status = 'succeeded'")));
+});
+
+test('insight.deliver posts to Discord through the connected Zernio account', async () => {
+  const statements: string[] = [];
+  const auditEvents: unknown[] = [];
+  const deliveryPatches: unknown[] = [];
+  const executed: { key: string; action: Record<string, unknown> }[] = [];
+  const worker = insightDeliveryWorker({
+    statements, auditEvents, deliveryPatches,
+    delivery: { ...DELIVERY_SNAPSHOT, channel: 'discord', target: 'acc-1', targetLabel: 'Piggy Discord' },
+    zernio: { executeAction: async (key, action) => { executed.push({ key, action }); return { posted: true }; } },
+  });
+  await (worker as unknown as { deliverInsight: (job: ClaimedJob) => Promise<void> }).deliverInsight(deliveryJob());
+  assert.equal(executed.length, 1);
+  assert.equal(executed[0]?.key, 'insight-delivery:job-d1');
+  const action = executed[0]?.action as { type: string; platform: string; accountId: string; content: string };
+  assert.equal(action.type, 'social.create_post');
+  assert.equal(action.platform, 'discord');
+  assert.equal(action.accountId, 'ext-discord-1');
+  assert.ok(action.content.length <= 1_900);
+  assert.ok(auditEvents.includes('insight.delivered'));
+});
+
+test('insight.deliver dead-letters mark the delivery failed with an audit event', async () => {
+  const statements: string[] = [];
+  const auditEvents: unknown[] = [];
+  const tx: TenantTransaction = {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
+      statements.push(sql);
+      if (sql.startsWith('INSERT INTO audit_event')) auditEvents.push(values?.[1]);
+      if (sql.includes('FROM insight_report')) {
+        return { rows: [{ title: 'T', template: 'daily_ops', itemCount: 1, droppedCitations: 0, report: { summary: 's', tasks: [] }, delivery: DELIVERY_SNAPSHOT }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.startsWith('UPDATE job SET status')) {
+        return { rows: [{ status: 'dead_lettered' }] as unknown as Row[], rowCount: 1 };
+      }
+      return { rows: [] as Row[], rowCount: 1 };
+    },
+  } as TenantTransaction;
+  const worker = new RunWorker({
+    workerName: 'delivery-test',
+    database: {
+      claimNextJob: async () => undefined,
+      withWorkspace: async (_workspaceId, operation) => operation(tx),
+    },
+    aiRuntime: {
+      async prepareAnnouncement() { throw new Error('unexpected'); },
+      async getAnnouncementRun() { throw new Error('unexpected'); },
+      async classifyItems() { throw new Error('unexpected'); },
+      async generateInsightReport() { throw new Error('unexpected'); },
+    },
+    // 无 email 配置 → deliverInsight 抛错 → failJob → dead_lettered 分支。
+  });
+  const internals = worker as unknown as { deliverInsight: (job: ClaimedJob) => Promise<void>; failJob: (job: ClaimedJob, error: unknown) => Promise<void> };
+  const job = deliveryJob({ attempt: 5 });
+  try {
+    await internals.deliverInsight(job);
+    assert.fail('expected deliverInsight to throw when email is not configured');
+  } catch (error) {
+    await internals.failJob(job, error);
+  }
+  assert.ok(statements.some((sql) => sql.includes('UPDATE insight_report SET delivery = COALESCE')));
+  assert.ok(auditEvents.includes('insight.delivery_failed'));
+});
