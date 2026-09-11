@@ -6,7 +6,7 @@ import BillingDashboard from './BillingDashboard';
 
 const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
 
-type Section = 'dashboard' | 'pipelines' | 'imports' | 'accounts' | 'activity' | 'settings';
+type Section = 'dashboard' | 'pipelines' | 'imports' | 'insights' | 'accounts' | 'activity' | 'settings';
 type WizardStep = 'start' | 'configure' | 'accounts' | 'review' | 'saved';
 type TemplateId = 'repurpose' | 'weekly_report' | 'comment_lead';
 type ModelBand = 'eco' | 'standard' | 'flagship';
@@ -27,6 +27,15 @@ interface ImportBatchView { id: string; label: string; sourceType: 'csv' | 'past
 interface ImportItemTagView { tag: string; confidence: number; evidence: string; }
 interface ImportItemView { id: string; platform: string; author: string | null; text: string; metrics: Record<string, number>; tags: ImportItemTagView[]; }
 interface ImportDetailView { batch: ImportBatchView; items: ImportItemView[]; }
+type InsightTemplate = 'content_recap' | 'comment_insights' | 'product_opportunities';
+interface ReportCitation { ref: string; snippet: string }
+interface InsightReportView { id: string; template: InsightTemplate; title: string; status: 'pending' | 'generating' | 'generated' | 'failed'; modelBand: string; batchIds: string[]; itemCount: number; droppedCitations: number; error: string | null; createdAt: string; generatedAt: string | null; report: Record<string, unknown> | null; }
+
+const INSIGHT_TEMPLATES: { id: InsightTemplate; name: string; tagline: string }[] = [
+  { id: 'content_recap', name: 'Content recap', tagline: 'What went viral, why, and what to post next' },
+  { id: 'comment_insights', name: 'Comment insights', tagline: 'What your fans actually want, from their own words' },
+  { id: 'product_opportunities', name: 'Product opportunities', tagline: 'Merch your audience is already asking for' },
+];
 interface ConnectedAccount { id: string; externalAccountId: string; displayName: string; platform: string; capabilities: string[]; status: 'connected' | 'expired' | 'disconnected' | 'syncing'; lastSyncedAt?: string; }
 interface PipelineCheck { id: string; label: string; passed: boolean; detail: string; }
 interface PipelineReadiness { ready: boolean; checks: PipelineCheck[]; }
@@ -153,6 +162,12 @@ export default function PlatformDashboard() {
   const [importContent, setImportContent] = useState('');
   const [importDetail, setImportDetail] = useState<ImportDetailView | null>(null);
   const [importBusy, setImportBusy] = useState(false);
+  const [insights, setInsights] = useState<InsightReportView[]>([]);
+  const [insightTemplate, setInsightTemplate] = useState<InsightTemplate>('content_recap');
+  const [insightBand, setInsightBand] = useState<ModelBand>('standard');
+  const [insightBatchIds, setInsightBatchIds] = useState<string[]>([]);
+  const [insightDetail, setInsightDetail] = useState<InsightReportView | null>(null);
+  const [insightBusy, setInsightBusy] = useState(false);
   const applyBillingUsage = useCallback((next: UsageView) => {
     setUsage(next);
     setMe((current) => current ? { ...current, plan: next.plan, subscriptionStatus: next.subscriptionStatus } : current);
@@ -204,8 +219,9 @@ export default function PlatformDashboard() {
       fetch(`${gatewayUrl}/api/billing/task-events`, { headers: headers() }),
       fetch(`${gatewayUrl}/api/audit-events`, { headers: headers() }),
       fetch(`${gatewayUrl}/api/imports`, { headers: headers() }),
+      fetch(`${gatewayUrl}/api/insights`, { headers: headers() }),
     ]);
-      const [templatesResponse, pipelinesResponse, accountsResponse, approvalsResponse, usageResponse, tasksResponse, auditResponse, importsResponse] = requests;
+      const [templatesResponse, pipelinesResponse, accountsResponse, approvalsResponse, usageResponse, tasksResponse, auditResponse, importsResponse, insightsResponse] = requests;
       if (templatesResponse.ok) setTemplates(await templatesResponse.json() as PipelineTemplate[]);
       if (pipelinesResponse.ok) setPipelines(await pipelinesResponse.json() as PipelineView[]);
       if (accountsResponse.ok) setAccounts(await accountsResponse.json() as ConnectedAccount[]);
@@ -218,6 +234,7 @@ export default function PlatformDashboard() {
       if (tasksResponse.ok) setTaskEvents(await tasksResponse.json() as TaskEventView[]);
       if (auditResponse.ok) setAuditEvents(await auditResponse.json() as AuditEventView[]);
       if (importsResponse.ok) setImportBatches(await importsResponse.json() as ImportBatchView[]);
+      if (insightsResponse.ok) setInsights(await insightsResponse.json() as InsightReportView[]);
       if (requests.every((response) => !response.ok)) setMessage('The workspace could not be loaded. Check your session permissions.');
     } catch {
       setMessage('Piggybot could not reach the workspace service. Please try again.');
@@ -434,6 +451,41 @@ export default function PlatformDashboard() {
     setImportDetail(await response.json() as ImportDetailView);
   }
 
+  async function createInsight() {
+    setMessage(''); setInsightBusy(true);
+    try {
+      const response = await fetch(`${gatewayUrl}/api/insights`, {
+        method: 'POST',
+        headers: headers(true),
+        body: JSON.stringify({ template: insightTemplate, modelBand: insightBand, ...(insightBatchIds.length ? { batchIds: insightBatchIds } : {}) }),
+      });
+      const result = await response.json().catch(() => ({})) as { id?: string; error?: string };
+      if (response.status === 402 || result.error === 'subscription_required') {
+        setMessage('Insight reports require an active subscription. Pick a plan to unlock AI analysis.');
+        return;
+      }
+      if (!response.ok || !result.id) {
+        setMessage(result.error === 'insight_no_classified_batches' ? 'Import and classify a batch first — insights are built from tagged items.'
+          : result.error === 'insight_batches_not_ready' ? 'Some selected batches are still classifying. Wait for them to finish.'
+          : result.error ?? 'The insight report could not be created.');
+        return;
+      }
+      setInsightBatchIds([]);
+      setMessage('Insight report queued — the AI is reading your tagged evidence now.');
+      await loadWorkspace();
+    } catch {
+      setMessage('The insight request could not reach the workspace service. Please retry.');
+    } finally {
+      setInsightBusy(false);
+    }
+  }
+
+  const loadInsightDetail = useCallback(async (reportId: string) => {
+    const response = await fetch(`${gatewayUrl}/api/insights/${reportId}`, { headers: headers() });
+    if (!response.ok) { setInsightDetail(null); setMessage('Insight report not found or access is denied.'); return; }
+    setInsightDetail(await response.json() as InsightReportView);
+  }, [headers]);
+
   // Poll while any batch is still being classified.
   const importsInFlight = importBatches.some((batch) => batch.status === 'pending' || batch.status === 'classifying');
   useEffect(() => {
@@ -441,6 +493,17 @@ export default function PlatformDashboard() {
     const timer = window.setInterval(() => void loadWorkspace(), 5_000);
     return () => window.clearInterval(timer);
   }, [token, section, importsInFlight, loadWorkspace]);
+
+  // Poll while an insight report is generating; refresh the open detail too.
+  const insightsInFlight = insights.some((report) => report.status === 'pending' || report.status === 'generating');
+  useEffect(() => {
+    if (!token || section !== 'insights' || !insightsInFlight) return;
+    const timer = window.setInterval(() => {
+      void loadWorkspace();
+      if (insightDetail && (insightDetail.status === 'pending' || insightDetail.status === 'generating')) void loadInsightDetail(insightDetail.id);
+    }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [token, section, insightsInFlight, insightDetail, loadWorkspace, loadInsightDetail]);
 
   if (!token) {
     return <EmailAuthScreen onSession={(session) => {
@@ -472,7 +535,7 @@ export default function PlatformDashboard() {
         <div className="mx-auto flex max-w-7xl flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div><p className="font-hand text-lg text-sky-deep">Piggybot Platform</p><h1 className="font-display text-3xl">{me?.workspace.name ?? 'Marketing workspace'}</h1>{me && <p className="mt-1 text-sm text-ink-soft">Signed in as {me.user.email} · {me.role} · plan {me.plan}</p>}</div>
           <nav className="flex flex-wrap gap-2" aria-label="Workspace navigation">
-            {([['dashboard', 'Dashboard'], ['pipelines', 'Pipelines'], ['imports', 'Imports'], ['accounts', 'Accounts'], ['activity', 'Activity'], ['settings', 'Settings']] as const).map(([id, label]) => <button key={id} onClick={() => setSection(id)} className={`rounded-full px-4 py-2 text-sm font-medium ${section === id ? 'bg-sky-deep text-white' : 'bg-paper text-ink-soft hover:bg-sky-pale'}`}>{label}</button>)}
+            {([['dashboard', 'Dashboard'], ['pipelines', 'Pipelines'], ['imports', 'Imports'], ['insights', 'Insights'], ['accounts', 'Accounts'], ['activity', 'Activity'], ['settings', 'Settings']] as const).map(([id, label]) => <button key={id} onClick={() => setSection(id)} className={`rounded-full px-4 py-2 text-sm font-medium ${section === id ? 'bg-sky-deep text-white' : 'bg-paper text-ink-soft hover:bg-sky-pale'}`}>{label}</button>)}
           </nav>
           <div className="flex items-center gap-4 text-sm"><a className="text-ink-soft hover:text-ink" href="/contact">Help</a><a className="text-ink-soft hover:text-ink" href="/">Website</a><button onClick={signOut} className="rounded-md border border-ink/20 px-3 py-1.5 text-ink-soft hover:text-ink">Sign out</button></div>
         </div>
@@ -485,6 +548,7 @@ export default function PlatformDashboard() {
         {message && <div className="mb-6 rounded-xl border border-sky-deep/20 bg-sky-pale p-4 text-sm text-sky-deep" role="status">{message}</div>}
         {section === 'pipelines' && <PipelinesSection templates={templates} pipelines={pipelines} usage={usage} loading={loading} onNew={() => { setDraft(freshDraft()); setSavedPipeline(null); setReadiness(null); setWizardStep('start'); }} onTemplate={startTemplate} onContinue={continuePipeline} onActivity={() => setSection('activity')} />}
         {section === 'imports' && <ImportsSection batches={importBatches} label={importLabel} setLabel={setImportLabel} band={importBand} setBand={setImportBand} content={importContent} setContent={setImportContent} busy={importBusy} detail={importDetail} onPasteImport={() => void createImport('paste', importContent)} onCsvFile={(file) => void importCsvFile(file)} onOpenDetail={(id) => void loadImportDetail(id)} onCloseDetail={() => setImportDetail(null)} />}
+        {section === 'insights' && <InsightsSection reports={insights} batches={importBatches.filter((batch) => batch.status === 'classified')} template={insightTemplate} setTemplate={setInsightTemplate} band={insightBand} setBand={setInsightBand} selectedBatchIds={insightBatchIds} setSelectedBatchIds={setInsightBatchIds} busy={insightBusy} detail={insightDetail} onGenerate={() => void createInsight()} onOpenDetail={(id) => void loadInsightDetail(id)} onCloseDetail={() => setInsightDetail(null)} />}
         {section === 'accounts' && <><AccountsSection accounts={accounts.filter(account => !['snapchat', 'whatsapp'].includes(account.platform))} connecting={connecting} onConnect={connectSocial} onRefresh={() => void refreshAccounts(true)} />{telegram && <section className="mt-6 rounded-xl border border-ink/20 p-6"><h3 className="text-lg font-semibold">Connect Telegram</h3><p className="my-3">Code: <strong>{telegram.code}</strong> · Expires: {new Date(telegram.expiresAt).toLocaleString()}</p><ol className="space-y-2">{telegram.instructions.map((instruction, index) => <li key={index}>{instruction}</li>)}</ol><p className="mt-4">After the bot confirms, select Sync account health above to verify the connection.</p><button onClick={() => setTelegram(null)} className="mt-3 underline">Dismiss code</button></section>}</>}
         {section === 'activity' && <ActivitySection approvals={approvals} taskEvents={taskEvents} auditEvents={auditEvents} runId={runId} setRunId={setRunId} run={run} onLoadRun={() => void loadRun()} onDecision={decideApproval} />}
         {section === 'settings' && <SettingsSection me={me} locked={locked} newPassword={newPassword} setNewPassword={setNewPassword} passwordStatus={passwordStatus} onSavePassword={() => void savePassword()} onSignOut={signOut} feedbackCategory={feedbackCategory} setFeedbackCategory={setFeedbackCategory} feedbackMessage={feedbackMessage} setFeedbackMessage={setFeedbackMessage} feedbackStatus={feedbackStatus} onFeedback={() => void sendFeedback()} referralUrl={referralUrl} referralStatus={referralStatus} onReferral={() => void createReferralLink()} />}
@@ -549,6 +613,79 @@ function PipelinesSection({ templates, pipelines, usage, loading, onNew, onTempl
     </section>
 
     <section><p className="font-hand text-lg text-sky-deep">Proven starting points</p><h2 className="font-display text-3xl">Standard templates</h2><div className="mt-5 grid gap-4 md:grid-cols-3">{templates.map((template) => <TemplateCard key={template.id} template={template} onClick={() => onTemplate(template)} />)}</div></section>
+  </div>;
+}
+
+function CitationList({ citations }: { citations?: ReportCitation[] }) {
+  if (!citations?.length) return null;
+  return <div className="mt-2 space-y-1">{citations.map((citation, index) => <blockquote key={index} className="border-l-2 border-sky-deep/40 pl-2 text-xs italic text-ink-soft">“{citation.snippet}”</blockquote>)}</div>;
+}
+
+interface RecapReport { summary: string; topContent: { ref: string; note: string; successFactors: string[]; citations: ReportCitation[] }[]; successFactors: { factor: string; detail: string; citations: ReportCitation[] }[]; fanThemes: { theme: string; citations: ReportCitation[] }[]; nextTopics: string[]; draftTitles: string[]; }
+interface CommentReport { summary: string; frequentQuestions: { question: string; approxCount: number; citations: ReportCitation[] }[]; sentimentNotes: { sentiment: string; note: string; citations: ReportCitation[] }[]; demandRanking: { demand: string; approxCount: number; citations: ReportCitation[] }[]; productOpportunities: { opportunity: string; citations: ReportCitation[] }[]; memeMaterial: { meme: string; citations: ReportCitation[] }[]; highValueComments: { ref: string; reason: string; replyDraft: string; citations: ReportCitation[] }[]; }
+interface OpportunityReport { summary: string; opportunities: { name: string; formFactor: string; audience: string; difficulty: string; evidenceCount: number; risks: string[]; validationAction: string; listingDraft: string; citations: ReportCitation[] }[]; presalePollDraft: string; }
+
+function InsightReportBody({ report }: { report: InsightReportView }) {
+  if (report.status !== 'generated' || !report.report) {
+    return <p className="p-6 text-sm text-ink-soft">{report.status === 'failed' ? `Generation failed: ${report.error ?? 'unknown error'}. You can safely generate a new report.` : 'The AI is reading your tagged evidence. This usually takes under a minute…'}</p>;
+  }
+  const body = report.report;
+  return <div className="space-y-6 p-6 md:p-8">
+    {'summary' in body && <p className="rounded-xl bg-sky-pale p-4 text-sm">{(body as { summary: string }).summary}</p>}
+    {report.droppedCitations > 0 && <p className="text-xs text-ink-soft">{report.droppedCitations} citation{report.droppedCitations === 1 ? '' : 's'} failed verbatim verification and were removed before saving.</p>}
+
+    {report.template === 'content_recap' && (() => { const recap = body as unknown as RecapReport; return <>
+      {recap.topContent?.length > 0 && <section><h3 className="text-lg font-semibold">Top content & why it worked</h3><div className="mt-3 space-y-3">{recap.topContent.map((item, index) => <div key={index} className="rounded-xl border border-ink/15 bg-paper-card p-4"><p className="text-sm font-medium">#{index + 1} · {item.note}</p>{item.successFactors?.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{item.successFactors.map((factor) => <span key={factor} className="rounded-full bg-sun/30 px-2 py-0.5 text-[11px]">{factor}</span>)}</div>}<CitationList citations={item.citations} /></div>)}</div></section>}
+      {recap.successFactors?.length > 0 && <section><h3 className="text-lg font-semibold">Repeatable success factors</h3><div className="mt-3 grid gap-3 md:grid-cols-2">{recap.successFactors.map((factor, index) => <div key={index} className="rounded-xl border border-ink/15 bg-paper-card p-4"><p className="text-sm font-semibold">{factor.factor}</p><p className="mt-1 text-xs text-ink-soft">{factor.detail}</p><CitationList citations={factor.citations} /></div>)}</div></section>}
+      {recap.fanThemes?.length > 0 && <section><h3 className="text-lg font-semibold">What fans care about now</h3><div className="mt-3 space-y-2">{recap.fanThemes.map((theme, index) => <div key={index} className="rounded-lg bg-paper-card p-3"><p className="text-sm font-medium">{theme.theme}</p><CitationList citations={theme.citations} /></div>)}</div></section>}
+      {recap.nextTopics?.length > 0 && <section><h3 className="text-lg font-semibold">Next batch: 10 topic ideas</h3><ol className="mt-3 list-decimal space-y-1 pl-6 text-sm">{recap.nextTopics.map((topic, index) => <li key={index}>{topic}</li>)}</ol></section>}
+      {recap.draftTitles?.length > 0 && <section><h3 className="text-lg font-semibold">Ready-to-publish titles</h3><div className="mt-3 space-y-2">{recap.draftTitles.map((title, index) => <p key={index} className="rounded-lg border border-ink/15 bg-paper-card p-3 text-sm">{title}</p>)}</div></section>}
+    </>; })()}
+
+    {report.template === 'comment_insights' && (() => { const insights = body as unknown as CommentReport; return <>
+      {insights.demandRanking?.length > 0 && <section><h3 className="text-lg font-semibold">Fan demand ranking</h3><div className="mt-3 space-y-2">{insights.demandRanking.map((demand, index) => <div key={index} className="flex items-start gap-3 rounded-lg bg-paper-card p-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-deep text-xs text-white">{index + 1}</span><div className="flex-1"><p className="text-sm font-medium">{demand.demand} <span className="text-xs text-ink-soft">· ~{demand.approxCount} mentions</span></p><CitationList citations={demand.citations} /></div></div>)}</div></section>}
+      {insights.frequentQuestions?.length > 0 && <section><h3 className="text-lg font-semibold">Frequent questions</h3><div className="mt-3 space-y-2">{insights.frequentQuestions.map((question, index) => <div key={index} className="rounded-lg bg-paper-card p-3"><p className="text-sm font-medium">{question.question} <span className="text-xs text-ink-soft">· ~{question.approxCount}×</span></p><CitationList citations={question.citations} /></div>)}</div></section>}
+      {insights.sentimentNotes?.length > 0 && <section><h3 className="text-lg font-semibold">Sentiment signals</h3><div className="mt-3 grid gap-3 md:grid-cols-2">{insights.sentimentNotes.map((note, index) => <div key={index} className="rounded-xl border border-ink/15 bg-paper-card p-4"><p className="text-xs font-semibold uppercase tracking-wide text-sky-deep">{note.sentiment.replace('_', ' ')}</p><p className="mt-1 text-sm">{note.note}</p><CitationList citations={note.citations} /></div>)}</div></section>}
+      {insights.highValueComments?.length > 0 && <section><h3 className="text-lg font-semibold">High-value comments & reply drafts</h3><div className="mt-3 space-y-3">{insights.highValueComments.map((comment, index) => <div key={index} className="rounded-xl border border-ink/15 bg-paper-card p-4"><p className="text-sm font-medium">{comment.reason}</p><CitationList citations={comment.citations} /><div className="mt-2 rounded-lg bg-meadow-light/60 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-meadow-deep">Reply draft</p><p className="mt-1 text-sm">{comment.replyDraft}</p></div></div>)}</div></section>}
+      {insights.memeMaterial?.length > 0 && <section><h3 className="text-lg font-semibold">Meme material</h3><div className="mt-3 space-y-2">{insights.memeMaterial.map((meme, index) => <div key={index} className="rounded-lg bg-paper-card p-3"><p className="text-sm">{meme.meme}</p><CitationList citations={meme.citations} /></div>)}</div></section>}
+      {insights.productOpportunities?.length > 0 && <section><h3 className="text-lg font-semibold">Productizable signals</h3><div className="mt-3 space-y-2">{insights.productOpportunities.map((opportunity, index) => <div key={index} className="rounded-lg bg-paper-card p-3"><p className="text-sm">{opportunity.opportunity}</p><CitationList citations={opportunity.citations} /></div>)}</div></section>}
+    </>; })()}
+
+    {report.template === 'product_opportunities' && (() => { const opportunities = body as unknown as OpportunityReport; return <>
+      {opportunities.opportunities?.length > 0 && <section><h3 className="text-lg font-semibold">Opportunity list</h3><div className="mt-3 space-y-3">{opportunities.opportunities.map((opportunity, index) => <div key={index} className="rounded-xl border border-ink/15 bg-paper-card p-4"><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-semibold">{opportunity.name}</p><span className="rounded-full bg-sky-pale px-2 py-0.5 text-[11px]">{opportunity.formFactor.replace('_', ' ')}</span><span className={`rounded-full px-2 py-0.5 text-[11px] ${opportunity.difficulty === 'low' ? 'bg-meadow-light text-meadow-deep' : opportunity.difficulty === 'medium' ? 'bg-sun/35' : 'bg-sunset/15 text-sunset'}`}>{opportunity.difficulty} difficulty</span><span className="text-[11px] text-ink-soft">{opportunity.evidenceCount} evidence</span></div><p className="mt-2 text-xs text-ink-soft">Audience: {opportunity.audience}</p>{opportunity.risks?.length > 0 && <p className="mt-1 text-xs text-sunset">Risks: {opportunity.risks.join(' · ')}</p>}<p className="mt-1 text-xs"><span className="font-semibold">Validate:</span> {opportunity.validationAction}</p><CitationList citations={opportunity.citations} /><div className="mt-2 rounded-lg bg-sky-pale/70 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-sky-deep">Listing draft</p><p className="mt-1 text-sm whitespace-pre-line">{opportunity.listingDraft}</p></div></div>)}</div></section>}
+      {opportunities.presalePollDraft && <section><h3 className="text-lg font-semibold">Presale poll draft</h3><p className="mt-3 rounded-xl bg-sky-pale p-4 text-sm whitespace-pre-line">{opportunities.presalePollDraft}</p></section>}
+    </>; })()}
+  </div>;
+}
+
+function InsightsSection({ reports, batches, template, setTemplate, band, setBand, selectedBatchIds, setSelectedBatchIds, busy, detail, onGenerate, onOpenDetail, onCloseDetail }: { reports: InsightReportView[]; batches: ImportBatchView[]; template: InsightTemplate; setTemplate: (template: InsightTemplate) => void; band: ModelBand; setBand: (band: ModelBand) => void; selectedBatchIds: string[]; setSelectedBatchIds: (ids: string[]) => void; busy: boolean; detail: InsightReportView | null; onGenerate: () => void; onOpenDetail: (id: string) => void; onCloseDetail: () => void; }) {
+  return <div className="space-y-8">
+    <section className="sketch bg-paper-card p-6 shadow-paint-sm">
+      <p className="font-hand text-lg text-sky-deep">Result templates</p>
+      <h2 className="font-display text-3xl">Insight reports</h2>
+      <p className="mt-2 max-w-2xl text-sm text-ink-soft">Each report is generated only from your imported, AI-tagged items — every conclusion carries verbatim evidence quotes verified by the platform.</p>
+      <div className="mt-5 grid gap-4 md:grid-cols-3">
+        {INSIGHT_TEMPLATES.map((option) => <button key={option.id} onClick={() => setTemplate(option.id)} className={`sketch p-5 text-left transition hover:-translate-y-1 ${template === option.id ? 'bg-sky-pale outline-2 outline-sky-deep' : 'bg-paper-card'}`}><span className="block text-lg font-semibold">{option.name}</span><span className="mt-2 block text-sm text-ink-soft">{option.tagline}</span></button>)}
+      </div>
+      <div className="mt-5 grid gap-4 md:grid-cols-2">
+        <Field label="AI model band"><ModelBandPicker value={band} onChange={setBand} /></Field>
+        <Field label={`Source batches (${selectedBatchIds.length ? `${selectedBatchIds.length} selected` : 'latest classified'})`}>
+          <div className="max-h-36 space-y-1 overflow-y-auto rounded-md border border-ink/20 bg-paper p-2">
+            {batches.length === 0 && <p className="p-2 text-xs text-ink-soft">No classified batches yet — import data first.</p>}
+            {batches.map((batch) => <label key={batch.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-sky-pale"><input type="checkbox" checked={selectedBatchIds.includes(batch.id)} onChange={() => setSelectedBatchIds(selectedBatchIds.includes(batch.id) ? selectedBatchIds.filter((id) => id !== batch.id) : [...selectedBatchIds, batch.id])} />{batch.label} · {batch.itemCount} items</label>)}
+          </div>
+        </Field>
+      </div>
+      <button disabled={busy || batches.length === 0} onClick={onGenerate} className="mt-4 rounded-md bg-sunset px-5 py-3 font-medium text-white shadow-paint-sm disabled:cursor-not-allowed disabled:opacity-40">{busy ? 'Queuing…' : 'Generate insight report'}</button>
+    </section>
+
+    <section>
+      <p className="font-hand text-lg text-sky-deep">History</p>
+      <h2 className="font-display text-3xl">Reports</h2>
+      {reports.length === 0 ? <EmptyState title="No reports yet" detail="Pick a template above and generate your first evidence-backed report." /> : <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{reports.map((report) => <article key={report.id} className="sketch bg-paper-card p-5 shadow-paint-sm"><div className="flex items-center justify-between gap-3"><StatusBadge status={report.status} /><span className="text-xs text-ink-soft">{report.modelBand}</span></div><h3 className="mt-4 text-lg font-semibold">{report.title}</h3><p className="mt-1 text-xs text-ink-soft">{INSIGHT_TEMPLATES.find((t) => t.id === report.template)?.name} · {report.itemCount} items · {new Date(report.createdAt).toLocaleString()}</p><button onClick={() => onOpenDetail(report.id)} className="mt-4 w-full rounded-md border border-ink/25 px-4 py-2 text-sm font-medium hover:bg-sky-pale">Open report</button></article>)}</div>}
+    </section>
+
+    {detail && <div className="fixed inset-0 z-50 overflow-y-auto bg-ink/45 p-4 backdrop-blur-sm"><div className="mx-auto my-4 max-w-4xl rounded-2xl bg-paper shadow-2xl"><header className="flex items-start justify-between border-b border-ink/15 p-6"><div><p className="font-hand text-lg text-sky-deep">{INSIGHT_TEMPLATES.find((t) => t.id === detail.template)?.name} · {detail.itemCount} items</p><h2 className="font-display text-3xl">{detail.title}</h2></div><button onClick={onCloseDetail} className="rounded-full border border-ink/20 px-3 py-1 text-sm">Close</button></header><InsightReportBody report={detail} /></div></div>}
   </div>;
 }
 

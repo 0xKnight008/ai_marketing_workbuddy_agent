@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 import { actionPlanSchema, type ActionPlan, type AiRuntimeEvent } from '../contracts/ai-runtime-event';
 import { classifyResultSchema, type TagAssignment } from '../contracts/tagging';
+import { insightResultSchemas, insightTemplateSchema, type InsightTemplate } from '../contracts/insights';
+import { buildEvidencePack, validateReportCitations, type EvidenceSourceRow } from '../insight-service/evidence-pack';
 import type { BrandContextSnapshot } from '../contracts/domain';
 import { MODEL_BAND_POLICIES, MODEL_BANDS } from '../billing/plans';
 import { projectedActionUsage, recordSuccessfulAction, reserveAiRun, type AiReservation, type UsageSnapshot } from '../billing/guardrails';
@@ -36,6 +38,7 @@ export interface RunWorkerAiRuntime {
     error?: string;
   }>;
   classifyItems(payload: Record<string, unknown>): Promise<Record<string, unknown>>;
+  generateInsightReport(payload: Record<string, unknown>): Promise<Record<string, unknown>>;
 }
 
 export interface RunWorkerZernio {
@@ -68,6 +71,7 @@ export class RunWorker {
       else if (job.kind === 'issue_referral_credit') await this.issueReferralCredit(job);
       else if (job.kind === 'clawback_referral_credit') await this.clawbackReferralCredit(job);
       else if (job.kind === 'import.classify') await this.classifyImport(job);
+      else if (job.kind === 'insight.generate') await this.generateInsight(job);
       else throw new Error(`Unsupported job: ${job.kind}`);
     } catch (error) {
       if (error instanceof SupplierUnavailableError) await this.deferForSupplier(job, error);
@@ -385,6 +389,72 @@ export class RunWorker {
     }
   }
 
+  private async generateInsight(job: ClaimedJob): Promise<void> {
+    const reportId = job.payload.reportId;
+    if (typeof reportId !== 'string' || !reportId) throw new Error('insight.generate is missing reportId');
+
+    // 1. 领取报告（状态守卫防重复消费）并聚合确定性证据包。
+    const prepared = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+      const report = await tx.query<{ template: string; modelBand: string; batchIds: string[] }>(
+        `UPDATE insight_report SET status = 'generating', error = NULL
+          WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND status IN ('pending', 'generating')
+          RETURNING template, model_band AS "modelBand", batch_ids AS "batchIds"`,
+        [reportId],
+      );
+      const reportRow = report.rows[0];
+      if (!reportRow) throw new Error('insight report not found or already terminal');
+      const template = insightTemplateSchema.parse(reportRow.template);
+      const items = await tx.query<EvidenceSourceRow>(
+        `SELECT i.id, i.platform, i.author, i.text, i.metrics,
+                COALESCE((SELECT jsonb_agg(jsonb_build_object('tag', t.tag, 'evidence', t.evidence, 'confidence', t.confidence::float8))
+                            FROM item_tag t WHERE t.item_id = i.id), '[]'::jsonb) AS tags
+           FROM import_item i
+          WHERE i.batch_id = ANY($1::uuid[]) AND i.workspace_id = current_setting('app.workspace_id')::uuid
+          ORDER BY i.created_at, i.id
+          LIMIT 2000`,
+        [reportRow.batchIds],
+      );
+      return { template, modelBand: reportRow.modelBand, pack: buildEvidencePack(items.rows), fullTextById: new Map(items.rows.map((row) => [row.id, row.text])) };
+    });
+
+    // 引用校验对照原文全文（证据包内文本被截断到 600 字符，snippet 可能落在截断点之后）。
+    const textByRef = new Map<string, string>();
+    for (const [ref, itemId] of Object.entries(prepared.pack.refMap)) {
+      const fullText = prepared.fullTextById.get(itemId);
+      if (fullText !== undefined) textByRef.set(ref, fullText);
+    }
+
+    // 2. LLM 生成；schema 非法 → 抛错走 job 重试（与 import.classify 同一语义）。
+    const result = await this.options.aiRuntime.generateInsightReport({
+      template: prepared.template,
+      modelBand: prepared.modelBand,
+      totals: prepared.pack.totals,
+      topItems: prepared.pack.topItems,
+      tagSamples: prepared.pack.tagSamples,
+    });
+    const schema = insightResultSchemas[prepared.template as InsightTemplate];
+    const parsed = schema.safeParse(result);
+    if (!parsed.success) throw new Error(`insight result failed schema validation: ${parsed.error.issues.length} issue(s)`);
+
+    // 3. 引用硬校验：幻觉引用（ref 未知 / snippet 非逐字）一律丢弃并计数。
+    const stats = { dropped: 0 };
+    const cleaned = schema.parse(validateReportCitations(parsed.data, textByRef, stats));
+
+    await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+      await tx.query(
+        `UPDATE insight_report
+            SET status = 'generated', report = $3::jsonb, dropped_citations = $4, generated_at = now()
+          WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND status = 'generating'`,
+        [reportId, job.workspaceId, JSON.stringify({ ...cleaned, _evidence: prepared.pack.refMap }), stats.dropped],
+      );
+      await tx.query(
+        'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
+        [job.workspaceId, 'insight.generated', { reportId, template: prepared.template, droppedCitations: stats.dropped }],
+      );
+      await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
+    });
+  }
+
   private async pauseForBilling(tx: TenantTransaction, job: ClaimedJob, guardrail: UsageSnapshot, stage: 'ai_run' | 'publish'): Promise<void> {
     if (!job.runId) throw new Error('Billing pause is missing runId');
     const payload = { stage, guardrail, jobKind: job.kind, jobPayload: job.payload };
@@ -406,6 +476,14 @@ export class RunWorker {
       if (result.rows[0]?.status === 'dead_lettered' && job.runId) {
         await tx.query("UPDATE workflow_run SET status = 'dead_lettered', finished_at = now() WHERE id = $1 AND workspace_id = $2 AND status IN ('pending', 'queued', 'running')", [job.runId, job.workspaceId]);
         await tx.query('INSERT INTO run_event (workspace_id, run_id, event_key, event_type, payload) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (run_id, event_key) DO NOTHING', [job.workspaceId, job.runId, `job:${job.id}:dead_lettered`, 'run.dead_lettered', { error: message }]);
+      }
+      // 洞察报告无关联 workflow_run，死信时直接把报告置为 failed 供前端展示。
+      if (result.rows[0]?.status === 'dead_lettered' && job.kind === 'insight.generate' && typeof job.payload.reportId === 'string') {
+        await tx.query("UPDATE insight_report SET status = 'failed', error = $3 WHERE id = $1 AND workspace_id = $2 AND status IN ('pending', 'generating')", [job.payload.reportId, job.workspaceId, message.slice(0, 500)]);
+      }
+      // 导入批次同理：死信后置为 failed，避免永远停在 classifying。
+      if (result.rows[0]?.status === 'dead_lettered' && job.kind === 'import.classify' && typeof job.payload.batchId === 'string') {
+        await tx.query("UPDATE import_batch SET status = 'failed' WHERE id = $1 AND workspace_id = $2 AND status IN ('pending', 'classifying')", [job.payload.batchId, job.workspaceId]);
       }
     });
   }

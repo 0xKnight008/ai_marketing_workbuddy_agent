@@ -51,4 +51,17 @@ export class AiRuntimeClient {
     if (!response.ok) throw new Error(`AI runtime classify failed: ${response.status}`);
     return await response.json() as Record<string, unknown>;
   }
+
+  /** Synchronous insight report generation from an aggregated evidence pack (iteration-2 templates). */
+  async generateInsightReport(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const response = await this.fetchImpl(new URL('/internal/insight-report', this.options.baseUrl), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-internal-token': this.options.internalToken },
+      body: JSON.stringify(payload),
+      // 证据包最大 ~40 条 × 600 字 + 标签样本，flagship 档位生成可能显著更慢。
+      signal: AbortSignal.timeout(180_000),
+    });
+    if (!response.ok) throw new Error(`AI runtime insight report failed: ${response.status}`);
+    return await response.json() as Record<string, unknown>;
+  }
 }

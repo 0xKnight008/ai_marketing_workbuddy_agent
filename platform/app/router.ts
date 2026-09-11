@@ -15,6 +15,9 @@ export default (app: Application) => {
   router.post('/api/imports', controller.platform.createImport);
   router.get('/api/imports', controller.platform.listImports);
   router.get('/api/imports/:batchId', controller.platform.importDetail);
+  router.post('/api/insights', controller.platform.createInsight);
+  router.get('/api/insights', controller.platform.listInsights);
+  router.get('/api/insights/:reportId', controller.platform.insightDetail);
   router.post('/api/workflow-runs', controller.platform.createRun);
   router.post('/api/billing/checkout-session', controller.platform.createStripeCheckout);
   router.post('/api/billing/checkout-session/confirm', controller.platform.reconcileStripeCheckout);

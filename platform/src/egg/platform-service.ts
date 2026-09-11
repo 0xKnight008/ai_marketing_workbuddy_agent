@@ -30,6 +30,7 @@ import { verifyAccessToken } from '../identity/token';
 import { ActivationDeliveryService } from '../identity/activation';
 import { EmailAuthService } from '../identity/email-auth';
 import { ImportService } from '../import-service/service';
+import { InsightService } from '../insight-service/service';
 import { createDurableRun, decideApproval, ingestAiRuntimeEvent } from '../run-service/repository';
 import {
   ZERNIO_PLATFORMS,
@@ -52,6 +53,7 @@ export class PlatformService {
   readonly customerBilling: CustomerBillingService;
   readonly adminEmailLogin: AdminEmailLogin;
   private readonly imports: ImportService;
+  private readonly insights: InsightService;
 
   constructor(
     private readonly config: GatewayConfig,
@@ -64,6 +66,7 @@ export class PlatformService {
     this.emailAuth = new EmailAuthService(config, database);
     this.customerBilling = new CustomerBillingService(config, database);
     this.imports = new ImportService(database);
+    this.insights = new InsightService(database);
   }
 
   actorFrom(authorization: string | undefined): ActorContext {
@@ -126,6 +129,18 @@ export class PlatformService {
 
   async importDetail(actor: ActorContext, batchId: unknown): Promise<unknown> {
     return this.imports.importDetail(actor, batchId);
+  }
+
+  async createInsight(actor: ActorContext, body: unknown): Promise<unknown> {
+    return this.insights.createInsight(actor, body);
+  }
+
+  async listInsights(actor: ActorContext): Promise<unknown> {
+    return this.insights.listInsights(actor);
+  }
+
+  async insightDetail(actor: ActorContext, reportId: unknown): Promise<unknown> {
+    return this.insights.insightDetail(actor, reportId);
   }
 
   async createWorkflowRun(actor: ActorContext, body: unknown): Promise<{ runId: string; status: 'pending' }> {
