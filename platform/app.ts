@@ -33,6 +33,7 @@ export default class AppBootHook {
     const zernio = workerConfig.ZERNIO_BASE_URL && workerConfig.ZERNIO_API_KEY
       ? new ZernioClient({ baseUrl: workerConfig.ZERNIO_BASE_URL, apiKey: workerConfig.ZERNIO_API_KEY, oauthRedirectUri: 'http://localhost/unused', oauthStateSecret: 'worker-not-used', globalRequestsPerMinute: workerConfig.ZERNIO_CLIENT_RPM })
       : undefined;
+    const emailFrom = workerConfig.RESEND_FROM_EMAIL ?? workerConfig.FEEDBACK_FROM_EMAIL;
     this.app.platform = {
       database,
       orm,
@@ -43,6 +44,7 @@ export default class AppBootHook {
         aiRuntime: new AiRuntimeClient({ baseUrl: workerConfig.AI_RUNTIME_URL, internalToken: workerConfig.INTERNAL_SERVICE_TOKEN }),
         zernio,
         stripeSecretKey: workerConfig.STRIPE_SECRET_KEY,
+        email: workerConfig.RESEND_API_KEY && emailFrom ? { apiKey: workerConfig.RESEND_API_KEY, from: emailFrom } : undefined,
       }),
       workerBatchSize: workerConfig.WORKER_BATCH_SIZE,
     };

@@ -134,3 +134,122 @@ test('createInsight daily_ops still requires at least one prior report when no b
     (error) => error instanceof HttpError && error.statusCode === 422 && error.message === 'insight_no_classified_batches',
   );
 });
+
+// ---------- 迭代 4：报告外发闭环（requestDelivery） ----------
+
+interface DeliveryMockOptions {
+  reportStatus?: string;
+  delivery?: unknown;
+  ownerEmail?: string | null;
+  discordAccount?: { displayName: string; status: string; platform: string; capabilities: string[] } | null;
+}
+
+function mockDeliveryDatabase(options: DeliveryMockOptions = {}) {
+  const statements: string[] = [];
+  const auditEvents: unknown[] = [];
+  let storedDelivery: unknown = options.delivery ?? {};
+  const reportView = () => ({
+    id: '11111111-1111-4111-8111-111111111111', template: 'content_recap', title: 'T', status: 'generated', modelBand: 'eco',
+    batchIds: ['batch-1'], itemCount: 12, droppedCitations: 0,
+    error: null, createdAt: new Date().toISOString(), generatedAt: new Date().toISOString(), report: { summary: 's' },
+    delivery: storedDelivery,
+  });
+  const tx: TenantTransaction = {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
+      statements.push(sql);
+      if (sql.startsWith('INSERT INTO audit_event')) auditEvents.push(values?.[2]);
+      if (sql.includes('FOR UPDATE')) {
+        return { rows: [{ title: 'T', status: options.reportStatus ?? 'generated', delivery: options.delivery ?? {} }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.includes('FROM workspace_membership')) {
+        return { rows: (options.ownerEmail === null ? [] : [{ email: options.ownerEmail ?? 'owner@example.com' }]) as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.includes('FROM connected_account')) {
+        const account = options.discordAccount === undefined
+          ? { displayName: 'Piggy Discord', status: 'connected', platform: 'discord', capabilities: ['publish'] }
+          : options.discordAccount;
+        return { rows: (account ? [account] : []) as unknown as Row[], rowCount: account ? 1 : 0 };
+      }
+      if (sql.startsWith('INSERT INTO approval_request')) {
+        return { rows: [{ id: '22222222-2222-4222-8222-222222222222' }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.startsWith('UPDATE insight_report SET delivery')) {
+        storedDelivery = JSON.parse(String(values?.[1]));
+        return { rows: [] as Row[], rowCount: 1 };
+      }
+      if (sql.includes('FROM insight_report')) {
+        return { rows: [reportView()] as unknown as Row[], rowCount: 1 };
+      }
+      return { rows: [] as Row[], rowCount: 1 };
+    },
+  } as TenantTransaction;
+  const database = { withWorkspace: async <T>(_id: string, op: (inner: TenantTransaction) => Promise<T>) => op(tx) } as Database;
+  return { database, statements, auditEvents };
+}
+
+test('requestDelivery defaults the email target to the workspace owner and creates a pending approval', async () => {
+  const { database, statements, auditEvents } = mockDeliveryDatabase();
+  const service = new InsightService(database);
+  const view = await service.requestDelivery(actor, '11111111-1111-4111-8111-111111111111', { channel: 'email' });
+  assert.equal(view.delivery?.status, 'awaiting_approval');
+  assert.equal(view.delivery?.target, 'owner@example.com');
+  assert.ok(statements.some((sql) => sql.includes('INSERT INTO approval_request')));
+  assert.ok(auditEvents.includes('insight.delivery_requested'));
+});
+
+test('requestDelivery uses an explicit email when provided', async () => {
+  const { database } = mockDeliveryDatabase();
+  const service = new InsightService(database);
+  const view = await service.requestDelivery(actor, '11111111-1111-4111-8111-111111111111', { channel: 'email', email: 'Team@Example.com' });
+  assert.equal(view.delivery?.target, 'team@example.com');
+});
+
+test('requestDelivery rejects reports that are not generated yet', async () => {
+  const { database } = mockDeliveryDatabase({ reportStatus: 'generating' });
+  const service = new InsightService(database);
+  await assert.rejects(
+    () => service.requestDelivery(actor, '11111111-1111-4111-8111-111111111111', { channel: 'email' }),
+    (error) => error instanceof HttpError && error.statusCode === 422 && error.message === 'insight_not_generated',
+  );
+});
+
+test('requestDelivery rejects a second request while one is awaiting approval', async () => {
+  const { database } = mockDeliveryDatabase({
+    delivery: {
+      status: 'awaiting_approval', channel: 'email', target: 'owner@example.com', targetLabel: 'owner@example.com',
+      approvalId: '22222222-2222-4222-8222-222222222222', requestedBy: 'user-1', requestedAt: new Date().toISOString(),
+    },
+  });
+  const service = new InsightService(database);
+  await assert.rejects(
+    () => service.requestDelivery(actor, '11111111-1111-4111-8111-111111111111', { channel: 'email' }),
+    (error) => error instanceof HttpError && error.statusCode === 409 && error.message === 'insight_delivery_pending',
+  );
+});
+
+test('requestDelivery validates the Discord account platform, status and publish capability', async () => {
+  const { database } = mockDeliveryDatabase({ discordAccount: { displayName: 'X', status: 'connected', platform: 'x', capabilities: ['publish'] } });
+  const service = new InsightService(database);
+  await assert.rejects(
+    () => service.requestDelivery(actor, '11111111-1111-4111-8111-111111111111', { channel: 'discord', connectedAccountId: '33333333-3333-4333-8333-333333333333' }),
+    (error) => error instanceof HttpError && error.statusCode === 422 && error.message === 'insight_delivery_target_invalid',
+  );
+});
+
+test('requestDelivery snapshots a valid Discord account as the delivery target', async () => {
+  const { database } = mockDeliveryDatabase();
+  const service = new InsightService(database);
+  const view = await service.requestDelivery(actor, '11111111-1111-4111-8111-111111111111', { channel: 'discord', connectedAccountId: '33333333-3333-4333-8333-333333333333' });
+  assert.equal(view.delivery?.status, 'awaiting_approval');
+  assert.equal(view.delivery?.target, '33333333-3333-4333-8333-333333333333');
+  assert.equal(view.delivery?.targetLabel, 'Piggy Discord');
+});
+
+test('requestDelivery fails when no owner email exists and none was provided', async () => {
+  const { database } = mockDeliveryDatabase({ ownerEmail: null });
+  const service = new InsightService(database);
+  await assert.rejects(
+    () => service.requestDelivery(actor, '11111111-1111-4111-8111-111111111111', { channel: 'email' }),
+    (error) => error instanceof HttpError && error.statusCode === 422 && error.message === 'insight_delivery_target_missing',
+  );
+});

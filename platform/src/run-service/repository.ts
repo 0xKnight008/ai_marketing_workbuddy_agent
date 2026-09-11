@@ -37,10 +37,31 @@ export async function createDurableRun(tx: TenantTransaction, actor: ActorContex
   return run;
 }
 
-export async function decideApproval(tx: TenantTransaction, actor: ActorContext, approvalId: string, decision: 'approved' | 'rejected', reason?: string): Promise<{ runId: string; status: string }> {
-  const approval = await tx.query<{ runId: string; actionPlan: ActionPlan }>("UPDATE approval_request SET status = $2, decided_by = $3, decided_at = now(), decision_reason = $4 WHERE id = $1 AND workspace_id = $5 AND status = 'pending' RETURNING run_id AS \"runId\", requested_action AS \"actionPlan\"", [approvalId, decision, actor.actorId, reason ?? null, actor.workspaceId]);
+export async function decideApproval(tx: TenantTransaction, actor: ActorContext, approvalId: string, decision: 'approved' | 'rejected', reason?: string): Promise<{ runId: string | null; status: string }> {
+  const approval = await tx.query<{ runId: string | null; insightReportId: string | null; actionPlan: ActionPlan }>("UPDATE approval_request SET status = $2, decided_by = $3, decided_at = now(), decision_reason = $4 WHERE id = $1 AND workspace_id = $5 AND status = 'pending' RETURNING run_id AS \"runId\", insight_report_id AS \"insightReportId\", requested_action AS \"actionPlan\"", [approvalId, decision, actor.actorId, reason ?? null, actor.workspaceId]);
   const row = approval.rows[0];
   if (!row) throw new Error('Approval request not found or already decided');
+
+  // 报告外发审批（迭代 4）：审批主体是 insight_report 而非 workflow_run。
+  // 通过则快照 decidedBy/decidedAt 并入队 insight.deliver，由 worker 按
+  // delivery 快照投递；拒绝则把状态机置为 rejected，允许之后重新发起。
+  if (row.insightReportId) {
+    const decidedAt = new Date().toISOString();
+    const patch = decision === 'approved'
+      ? { status: 'approved', decidedBy: actor.actorId, decidedAt }
+      : { status: 'rejected', decidedBy: actor.actorId, decidedAt };
+    await tx.query(
+      "UPDATE insight_report SET delivery = COALESCE(delivery, '{}'::jsonb) || $3::jsonb WHERE id = $1 AND workspace_id = $2 AND delivery->>'approvalId' = $4",
+      [row.insightReportId, actor.workspaceId, JSON.stringify(patch), approvalId],
+    );
+    if (decision === 'approved') {
+      await tx.query("INSERT INTO job (workspace_id, kind, payload) VALUES ($1, 'insight.deliver', $2)", [actor.workspaceId, JSON.stringify({ reportId: row.insightReportId })]);
+    }
+    await tx.query('INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)', [actor.workspaceId, actor.actorId, `insight.delivery_${decision}`, { reportId: row.insightReportId, approvalId, reason: reason ?? null }]);
+    return { runId: row.runId, status: decision };
+  }
+
+  if (!row.runId) throw new Error('Approval request has no subject');
   const status = nextStatusAfterApproval(decision);
   const transitioned = await tx.query<{ id: string }>("UPDATE workflow_run SET status = $3, finished_at = CASE WHEN $3 = 'cancelled' THEN now() ELSE finished_at END WHERE id = $1 AND workspace_id = $2 AND status = 'waiting_approval' RETURNING id", [row.runId, actor.workspaceId, status]);
   if (!transitioned.rows[0]) throw new Error('Run is not waiting for approval');

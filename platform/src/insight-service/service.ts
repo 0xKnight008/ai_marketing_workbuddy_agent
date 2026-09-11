@@ -5,8 +5,11 @@ import {
   INSIGHT_TEMPLATE_LABELS,
   createInsightReportSchema,
   insightTemplateSchema,
+  reportDeliverySchema,
+  requestInsightDeliverySchema,
   type InsightReportView,
   type InsightTemplate,
+  type ReportDelivery,
 } from '../contracts/insights';
 import { Database, type TenantTransaction } from '../foundation/database';
 import { requirePermission } from '../foundation/rbac';
@@ -18,6 +21,7 @@ type InsightReportRow = {
   id: string; template: InsightTemplate; title: string; status: InsightReportView['status'];
   modelBand: string; batchIds: string[]; itemCount: number; droppedCitations: number;
   error: string | null; createdAt: string; generatedAt: string | null; report: Record<string, unknown> | null;
+  delivery: unknown;
 };
 
 /**
@@ -145,11 +149,113 @@ export class InsightService {
     });
   }
 
+  /**
+   * 迭代 4（报告外发闭环）：请求把已生成的报告推送到邮箱/Discord。
+   * 不产生 LLM 消耗，因此不加订阅门禁；但报告必须已生成，且同一时间
+   * 只允许一个待审批的外发请求。目标在请求时快照进 delivery jsonb，
+   * 审批后 worker 按快照投递（审批人看到什么就发什么）。
+   */
+  async requestDelivery(actor: ActorContext, reportId: unknown, body: unknown): Promise<InsightReportView> {
+    requirePermission(actor.role, 'workflow:run');
+    const id = z.string().uuid().parse(reportId);
+    const input = requestInsightDeliverySchema.parse(body);
+
+    return this.database.withWorkspace(actor.workspaceId, async (tx) => {
+      const report = await tx.query<{ title: string; status: string; delivery: unknown }>(
+        `SELECT title, status, delivery FROM insight_report
+          WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid
+          FOR UPDATE`,
+        [id],
+      );
+      const row = report.rows[0];
+      if (!row) throw new HttpError(404, 'insight_not_found');
+      if (row.status !== 'generated') throw new HttpError(422, 'insight_not_generated');
+      const current = reportDeliverySchema.safeParse(row.delivery);
+      if (current.success && (current.data.status === 'awaiting_approval' || current.data.status === 'approved')) {
+        throw new HttpError(409, 'insight_delivery_pending');
+      }
+
+      // 目标解析：邮箱默认发工作区 owner；Discord 必须是本租户已连接、
+      // 具备 social.create_post 能力的 discord 账号。
+      let target: string;
+      let targetLabel: string;
+      if (input.channel === 'email') {
+        if (input.email) {
+          target = input.email;
+        } else {
+          const owner = await tx.query<{ email: string }>(
+            `SELECT u.email::text AS email
+               FROM workspace_membership m JOIN app_user u ON u.id = m.user_id
+              WHERE m.workspace_id = current_setting('app.workspace_id')::uuid AND m.role = 'owner'
+              ORDER BY m.created_at ASC LIMIT 1`,
+            [],
+          );
+          const ownerEmail = owner.rows[0]?.email;
+          if (!ownerEmail) throw new HttpError(422, 'insight_delivery_target_missing');
+          target = ownerEmail;
+        }
+        targetLabel = target;
+      } else {
+        const account = await tx.query<{ displayName: string; status: string; platform: string; capabilities: string[] }>(
+          `SELECT display_name AS "displayName", status, platform, capabilities
+             FROM connected_account
+            WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND provider = 'zernio'`,
+          [input.connectedAccountId],
+        );
+        const connected = account.rows[0];
+        // capability 值来自 Zernio（publish/schedule/analytics），与
+        // connector-service/actions.ts 的 actionCapabilities 映射一致。
+        if (!connected || connected.platform !== 'discord' || connected.status !== 'connected'
+          || !connected.capabilities.includes('publish')) {
+          throw new HttpError(422, 'insight_delivery_target_invalid');
+        }
+        target = input.connectedAccountId as string;
+        targetLabel = connected.displayName;
+      }
+
+      const requestedAction = {
+        actionType: 'insight.deliver_report',
+        summary: `Send report "${row.title}" via ${input.channel} to ${targetLabel}`,
+        parameters: { reportId: id, channel: input.channel, target, targetLabel },
+      };
+      const approval = await tx.query<{ id: string }>(
+        `INSERT INTO approval_request (workspace_id, run_id, insight_report_id, status, requested_action)
+         VALUES (current_setting('app.workspace_id')::uuid, NULL, $1, 'pending', $2)
+         RETURNING id`,
+        [id, requestedAction],
+      );
+      const approvalId = approval.rows[0]?.id;
+      if (!approvalId) throw new Error('insight_delivery_approval_failed');
+
+      const delivery: ReportDelivery = {
+        status: 'awaiting_approval',
+        channel: input.channel,
+        target,
+        targetLabel,
+        approvalId,
+        requestedBy: actor.actorId,
+        requestedAt: new Date().toISOString(),
+      };
+      await tx.query(
+        'UPDATE insight_report SET delivery = $2::jsonb WHERE id = $1 AND workspace_id = current_setting(\'app.workspace_id\')::uuid',
+        [id, JSON.stringify(delivery)],
+      );
+      await tx.query(
+        'INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)',
+        [actor.workspaceId, actor.actorId, 'insight.delivery_requested', { reportId: id, approvalId, channel: input.channel, targetLabel }],
+      );
+
+      const view = await this.reportView(tx, id);
+      if (!view) throw new Error('insight_delivery_approval_failed');
+      return view;
+    });
+  }
+
   private async reportView(tx: TenantTransaction, reportId: string): Promise<InsightReportView | null> {
     const result = await tx.query<InsightReportRow>(
       `SELECT id, template, title, status, model_band AS "modelBand", batch_ids AS "batchIds",
               item_count AS "itemCount", dropped_citations AS "droppedCitations",
-              error, created_at::text AS "createdAt", generated_at::text AS "generatedAt", report
+              error, created_at::text AS "createdAt", generated_at::text AS "generatedAt", report, delivery
          FROM insight_report
         WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid`,
       [reportId],
@@ -157,6 +263,7 @@ export class InsightService {
     const row = result.rows[0];
     if (!row) return null;
     const template = insightTemplateSchema.parse(row.template);
-    return { ...row, template };
+    const delivery = reportDeliverySchema.safeParse(row.delivery);
+    return { ...row, template, delivery: delivery.success ? delivery.data : null };
   }
 }

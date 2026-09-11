@@ -2,8 +2,9 @@ import { z } from 'zod';
 
 import { actionPlanSchema, type ActionPlan, type AiRuntimeEvent } from '../contracts/ai-runtime-event';
 import { classifyResultSchema, type TagAssignment } from '../contracts/tagging';
-import { insightResultSchemas, insightTemplateSchema, type InsightTemplate } from '../contracts/insights';
+import { insightResultSchemas, insightTemplateSchema, reportDeliverySchema, type InsightTemplate } from '../contracts/insights';
 import { buildEvidencePack, validateReportCitations, type EvidenceSourceRow } from '../insight-service/evidence-pack';
+import { renderReportDigest, sendReportEmail, type ReportEmailConfig } from '../insight-service/delivery';
 import type { BrandContextSnapshot } from '../contracts/domain';
 import { MODEL_BAND_POLICIES, MODEL_BANDS } from '../billing/plans';
 import { projectedActionUsage, recordSuccessfulAction, reserveAiRun, type AiReservation, type UsageSnapshot } from '../billing/guardrails';
@@ -51,6 +52,8 @@ export interface RunWorkerOptions {
   aiRuntime: RunWorkerAiRuntime;
   zernio?: RunWorkerZernio;
   stripeSecretKey?: string;
+  /** Resend 配置（迭代 4 报告外发）；缺省时 email 渠道投递会失败并重试。 */
+  email?: ReportEmailConfig;
 }
 
 /**
@@ -72,6 +75,7 @@ export class RunWorker {
       else if (job.kind === 'clawback_referral_credit') await this.clawbackReferralCredit(job);
       else if (job.kind === 'import.classify') await this.classifyImport(job);
       else if (job.kind === 'insight.generate') await this.generateInsight(job);
+      else if (job.kind === 'insight.deliver') await this.deliverInsight(job);
       else throw new Error(`Unsupported job: ${job.kind}`);
     } catch (error) {
       if (error instanceof SupplierUnavailableError) await this.deferForSupplier(job, error);
@@ -470,6 +474,101 @@ export class RunWorker {
     });
   }
 
+  /**
+   * 迭代 4（报告外发闭环）：审批通过后按 delivery 快照投递报告摘要。
+   * 快照在 requestDelivery 时冻结（审批人看到什么就发什么）；只有
+   * status='approved' 的快照才投递，重复入队/被拒后安全跳过。
+   */
+  private async deliverInsight(job: ClaimedJob): Promise<void> {
+    const reportId = z.string().uuid().parse(job.payload.reportId);
+
+    const prepared = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+      const result = await tx.query<{ title: string; template: string; itemCount: number; droppedCitations: number; report: Record<string, unknown> | null; delivery: unknown }>(
+        `SELECT title, template, item_count AS "itemCount", dropped_citations AS "droppedCitations", report, delivery
+           FROM insight_report
+          WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid`,
+        [reportId],
+      );
+      const row = result.rows[0];
+      if (!row?.report) throw new Error('insight report not found or not generated');
+      const delivery = reportDeliverySchema.safeParse(row.delivery);
+      if (!delivery.success) throw new Error('insight delivery snapshot is missing');
+      if (delivery.data.status !== 'approved') return { skipped: true as const };
+      return {
+        skipped: false as const,
+        title: row.title,
+        template: insightTemplateSchema.parse(row.template),
+        itemCount: row.itemCount,
+        droppedCitations: row.droppedCitations,
+        report: row.report,
+        delivery: delivery.data,
+      };
+    });
+    if (prepared.skipped) {
+      await this.options.database.withWorkspace(job.workspaceId, (tx) => tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]));
+      return;
+    }
+
+    // 摘要是给人读的速览版，不引入报告之外的新事实；Discord 限 2000 字符。
+    const digest = renderReportDigest({ template: prepared.template, title: prepared.title, itemCount: prepared.itemCount, droppedCitations: prepared.droppedCitations, report: prepared.report });
+    if (prepared.delivery.channel === 'email') {
+      if (!this.options.email) throw new Error('Email delivery is not configured');
+      await sendReportEmail(this.options.email, {
+        to: prepared.delivery.target,
+        subject: `[Piggybot] ${prepared.title}`.slice(0, 200),
+        text: digest,
+        idempotencyKey: `insight-delivery/${job.id}`,
+      });
+    } else {
+      const { zernio } = this.options;
+      if (!zernio) throw new Error('Zernio action execution is not configured');
+      const account = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+        const result = await tx.query<{ id: string; workspaceId: string; status: ConnectedAccountView['status']; capabilities: string[]; externalAccountId: string }>(
+          `SELECT id, workspace_id AS "workspaceId", status, capabilities, external_account_id AS "externalAccountId"
+             FROM connected_account
+            WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND provider = 'zernio'`,
+          [prepared.delivery.target],
+        );
+        return result.rows[0];
+      });
+      if (!account) throw new Error('Delivery target account was not found in this workspace');
+      const action = {
+        stepOrder: 1,
+        type: 'social.create_post' as const,
+        platform: 'discord',
+        accountId: account.externalAccountId,
+        content: digest.slice(0, 1_900),
+        hashtags: [] as string[],
+        mode: 'publish_now' as const,
+        idempotencyKey: `insight-delivery:${job.id}`,
+        requiresApproval: false,
+      };
+      assertExecutableAction({
+        workspaceId: job.workspaceId,
+        runId: reportId,
+        stepId: job.id,
+        attempt: Math.max(job.attempt, 1),
+        account: { id: account.id, workspaceId: account.workspaceId, status: account.status, capabilities: account.capabilities },
+        type: action.type,
+        payload: action,
+      });
+      await zernio.executeAction(action.idempotencyKey, action, job.workspaceId);
+    }
+
+    await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+      await tx.query(
+        `UPDATE insight_report SET delivery = delivery || $3::jsonb
+          WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND delivery->>'status' = 'approved'`,
+        [reportId, job.workspaceId, JSON.stringify({ status: 'delivered', deliveredAt: new Date().toISOString() })],
+      );
+      await tx.query(
+        'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
+        [job.workspaceId, 'insight.delivered', { reportId, channel: prepared.delivery.channel, targetLabel: prepared.delivery.targetLabel }],
+      );
+      await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
+    });
+  }
+
   private async pauseForBilling(tx: TenantTransaction, job: ClaimedJob, guardrail: UsageSnapshot, stage: 'ai_run' | 'publish'): Promise<void> {
     if (!job.runId) throw new Error('Billing pause is missing runId');
     const payload = { stage, guardrail, jobKind: job.kind, jobPayload: job.payload };
@@ -499,6 +598,11 @@ export class RunWorker {
       // 导入批次同理：死信后置为 failed，避免永远停在 classifying。
       if (result.rows[0]?.status === 'dead_lettered' && job.kind === 'import.classify' && typeof job.payload.batchId === 'string') {
         await tx.query("UPDATE import_batch SET status = 'failed' WHERE id = $1 AND workspace_id = $2 AND status IN ('pending', 'classifying')", [job.payload.batchId, job.workspaceId]);
+      }
+      // 报告外发死信：delivery 状态机置为 failed 供前端展示，可重新发起外发。
+      if (result.rows[0]?.status === 'dead_lettered' && job.kind === 'insight.deliver' && typeof job.payload.reportId === 'string') {
+        await tx.query("UPDATE insight_report SET delivery = COALESCE(delivery, '{}'::jsonb) || $3::jsonb WHERE id = $1 AND workspace_id = $2", [job.payload.reportId, job.workspaceId, JSON.stringify({ status: 'failed', error: message.slice(0, 500) })]);
+        await tx.query('INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)', [job.workspaceId, 'insight.delivery_failed', { reportId: job.payload.reportId, error: message.slice(0, 200) }]);
       }
     });
   }

@@ -198,6 +198,43 @@ export const createInsightReportSchema = z.object({
 
 export type CreateInsightReportInput = z.infer<typeof createInsightReportSchema>;
 
+/**
+ * 迭代 4（报告外发闭环）：报告 → 人工审批 → 推送邮箱/Discord。
+ * 邮箱默认发工作区 owner，也可显式指定；Discord 走 Zernio 已连接的
+ * discord 账号（需 social.create_post capability）。
+ */
+export const DELIVERY_CHANNELS = ['email', 'discord'] as const;
+export type DeliveryChannel = (typeof DELIVERY_CHANNELS)[number];
+
+export const requestInsightDeliverySchema = z.object({
+  channel: z.enum(DELIVERY_CHANNELS),
+  email: z.string().trim().toLowerCase().email().max(254).optional(),
+  connectedAccountId: z.string().uuid().optional(),
+}).strict().superRefine((value, context) => {
+  if (value.channel === 'discord' && !value.connectedAccountId) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'discord_target_required' });
+  }
+});
+export type RequestInsightDeliveryInput = z.infer<typeof requestInsightDeliverySchema>;
+
+/** insight_report.delivery jsonb 的状态机快照。 */
+export const reportDeliverySchema = z.object({
+  status: z.enum(['awaiting_approval', 'approved', 'delivered', 'rejected', 'failed']),
+  channel: z.enum(DELIVERY_CHANNELS),
+  /** 实际投递目标：邮箱地址或 connected_account.id（审批通过时快照）。 */
+  target: z.string().min(1).max(320),
+  /** 展示用标签：邮箱地址或账号显示名。 */
+  targetLabel: z.string().min(1).max(160),
+  approvalId: z.string().min(1).max(64),
+  requestedBy: z.string().min(1).max(64),
+  requestedAt: z.string().min(1),
+  decidedBy: z.string().min(1).max(64).optional(),
+  decidedAt: z.string().optional(),
+  deliveredAt: z.string().optional(),
+  error: z.string().max(500).optional(),
+});
+export type ReportDelivery = z.infer<typeof reportDeliverySchema>;
+
 export interface InsightReportView {
   id: string;
   template: InsightTemplate;
@@ -211,4 +248,5 @@ export interface InsightReportView {
   createdAt: string;
   generatedAt: string | null;
   report: Record<string, unknown> | null;
+  delivery: ReportDelivery | null;
 }
