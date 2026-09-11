@@ -21,13 +21,23 @@ export interface EvidencePackItem {
   author?: string;
   text: string;
   metrics?: Record<string, number>;
+  /** 差评归因模板依赖的 SKU 维度（导入时从 CSV sku 列捕获）。 */
+  sku?: string;
   tags: string[];
 }
 
 export interface EvidencePack {
-  totals: { items: number; taggedItems: number; tagDistribution: Record<string, number> };
+  totals: {
+    items: number;
+    taggedItems: number;
+    tagDistribution: Record<string, number>;
+    /** 平台侧确定性计算的评分分布（rating ≤ 2 计为差评），LLM 不得编造。 */
+    ratings?: { rated: number; negative: number };
+  };
   topItems: EvidencePackItem[];
   tagSamples: Array<{ tag: string; count: number; samples: Array<{ ref: string; snippet: string; author?: string }> }>;
+  /** 社群摘要模板依赖的成员活跃统计（按发言数排序，至多 20 人）。 */
+  memberStats?: Array<{ author: string; items: number; tags: string[] }>;
   /** ref → 原始 item id，供报告引用校验与前端回链。 */
   refMap: Record<string, string>;
 }
@@ -69,15 +79,44 @@ export function buildEvidencePack(rows: EvidenceSourceRow[]): EvidencePack {
     for (const [key, value] of Object.entries(row.metrics)) {
       if (typeof value === 'number' && Number.isFinite(value)) metrics[key] = value;
     }
+    const sku = typeof row.metrics.sku === 'string' && row.metrics.sku.trim() ? row.metrics.sku.trim().slice(0, 80) : undefined;
     return {
       ref,
       platform: row.platform,
       ...(row.author ? { author: row.author } : {}),
       text,
       ...(Object.keys(metrics).length ? { metrics } : {}),
+      ...(sku ? { sku } : {}),
       tags: row.tags.map((tag) => tag.tag).filter((tag) => (CONTENT_TAGS as readonly string[]).includes(tag)).slice(0, 4),
     };
   });
+
+  // 评分分布：差评归因模板的确定性指标（rating ≤ 2 计为差评）。
+  let rated = 0;
+  let negative = 0;
+  for (const sourceRow of rows) {
+    const rating = sourceRow.metrics.rating;
+    if (typeof rating === 'number' && Number.isFinite(rating)) {
+      rated += 1;
+      if (rating <= 2) negative += 1;
+    }
+  }
+
+  // 成员活跃统计：社群摘要模板的高价值成员识别依据。
+  const byAuthor = new Map<string, { items: number; tags: Set<string> }>();
+  for (const sourceRow of rows) {
+    if (!sourceRow.author) continue;
+    const entry = byAuthor.get(sourceRow.author) ?? { items: 0, tags: new Set<string>() };
+    entry.items += 1;
+    for (const tag of sourceRow.tags) {
+      if ((CONTENT_TAGS as readonly string[]).includes(tag.tag)) entry.tags.add(tag.tag);
+    }
+    byAuthor.set(sourceRow.author, entry);
+  }
+  const memberStats = [...byAuthor.entries()]
+    .sort((a, b) => b[1].items - a[1].items)
+    .slice(0, 20)
+    .map(([author, entry]) => ({ author, items: entry.items, tags: [...entry.tags].slice(0, 6) }));
 
   const refByItemId = new Map(Object.entries(refMap).map(([ref, id]) => [id, ref]));
   const tagSamples: EvidencePack['tagSamples'] = [];
@@ -99,9 +138,15 @@ export function buildEvidencePack(rows: EvidenceSourceRow[]): EvidencePack {
   }
 
   return {
-    totals: { items: rows.length, taggedItems: taggedItems.size, tagDistribution },
+    totals: {
+      items: rows.length,
+      taggedItems: taggedItems.size,
+      tagDistribution,
+      ...(rated > 0 ? { ratings: { rated, negative } } : {}),
+    },
     topItems,
     tagSamples,
+    ...(memberStats.length > 0 ? { memberStats } : {}),
     refMap,
   };
 }

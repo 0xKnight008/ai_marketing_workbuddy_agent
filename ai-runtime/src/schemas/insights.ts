@@ -10,7 +10,10 @@ import { modelBandSchema } from './announcement';
  * 与 platform/src/contracts/insights.ts 保持双边同步。
  */
 
-export const INSIGHT_TEMPLATES = ['content_recap', 'comment_insights', 'product_opportunities'] as const;
+export const INSIGHT_TEMPLATES = [
+  'content_recap', 'comment_insights', 'product_opportunities',
+  'review_attribution', 'community_digest', 'daily_ops',
+] as const;
 export type InsightTemplate = (typeof INSIGHT_TEMPLATES)[number];
 
 /** 证据包条目：ref 是平台分配的不透明短引用（i1..iN），不含租户内部 id。 */
@@ -20,6 +23,7 @@ export const evidenceItemSchema = z.object({
   author: z.string().max(120).optional(),
   text: z.string().min(1).max(600),
   metrics: z.record(z.string(), z.number()).optional(),
+  sku: z.string().max(80).optional(),
   tags: z.array(z.string()).max(4).default([]),
 });
 
@@ -42,9 +46,23 @@ export const insightReportRequestSchema = z.object({
     items: z.number().int().nonnegative(),
     taggedItems: z.number().int().nonnegative(),
     tagDistribution: z.record(z.string(), z.number().int().nonnegative()),
+    // 平台侧确定性计算的评分分布（差评归因模板用；rating ≤ 2 为差评）。
+    ratings: z.object({ rated: z.number().int().nonnegative(), negative: z.number().int().nonnegative() }).optional(),
   }),
   topItems: z.array(evidenceItemSchema).max(40),
   tagSamples: z.array(tagSampleSchema).max(11),
+  // 社群摘要模板的成员活跃统计（平台侧聚合，至多 20 人）。
+  memberStats: z.array(z.object({
+    author: z.string().max(120),
+    items: z.number().int().nonnegative(),
+    tags: z.array(z.string()).max(6),
+  })).max(20).optional(),
+  // 每日运营任务模板：近期已生成报告的摘要（洞察聚合调度器的输入）。
+  priorReports: z.array(z.object({
+    template: z.string(),
+    title: z.string().max(120),
+    summary: z.string().max(2_000),
+  })).max(6).optional(),
 }).strict();
 
 /** 报告引用：ref 必须在证据包内，snippet 必须是该条原文逐字子串。 */
@@ -132,10 +150,91 @@ export const productOpportunitiesResultSchema = z.object({
 });
 export type ProductOpportunitiesResult = z.infer<typeof productOpportunitiesResultSchema>;
 
+/** 差评归因（P1）：差评主题聚类 + SKU 维度 + 修复优先级。 */
+export const reviewAttributionResultSchema = z.object({
+  summary,
+  issueClusters: z.array(z.object({
+    theme: z.string().min(1).max(160),
+    approxCount: z.number().int().nonnegative(),
+    severity: z.enum(['critical', 'high', 'medium', 'low']),
+    affectedSkus: z.array(z.string().max(80)).max(5),
+    citations: z.array(reportCitationSchema).max(3),
+  })).max(8),
+  returnReasons: z.array(z.object({
+    reason: z.string().min(1).max(200),
+    approxCount: z.number().int().nonnegative(),
+    citations: z.array(reportCitationSchema).max(3),
+  })).max(6),
+  expectationMismatches: z.array(z.object({
+    aspect: z.string().min(1).max(120),
+    detail: z.string().min(1).max(300),
+    citations: z.array(reportCitationSchema).max(2),
+  })).max(6),
+  priorityFixes: z.array(z.object({
+    fix: z.string().min(1).max(300),
+    sku: z.string().max(80).optional(),
+    priority: z.enum(['urgent', 'high', 'normal']),
+    expectedImpact: z.string().min(1).max(200),
+    citations: z.array(reportCitationSchema).max(2),
+  })).max(6),
+  serviceReplyDrafts: z.array(z.object({
+    ref: z.string().min(1).max(12),
+    issue: z.string().min(1).max(200),
+    replyDraft: z.string().min(1).max(600),
+    citations: z.array(reportCitationSchema).max(2),
+  })).max(8),
+  listingFixSuggestions: z.array(z.string().min(1).max(300)).max(8),
+});
+export type ReviewAttributionResult = z.infer<typeof reviewAttributionResultSchema>;
+
+/** 社群摘要（P1）：热点 + 未解决问题 + 高价值成员 + 风险。 */
+export const communityDigestResultSchema = z.object({
+  summary,
+  hotTopics: z.array(z.object({
+    topic: z.string().min(1).max(200),
+    citations: z.array(reportCitationSchema).max(3),
+  })).max(8),
+  unresolvedQuestions: z.array(z.object({
+    question: z.string().min(1).max(200),
+    citations: z.array(reportCitationSchema).max(2),
+  })).max(8),
+  highValueMembers: z.array(z.object({
+    author: z.string().min(1).max(120),
+    reason: z.string().min(1).max(300),
+    signals: z.array(z.string().max(120)).max(4),
+  })).max(10),
+  conflictRisks: z.array(z.object({
+    risk: z.string().min(1).max(200),
+    severity: z.enum(['low', 'medium', 'high']),
+    citations: z.array(reportCitationSchema).max(2),
+  })).max(5),
+  activityIdeas: z.array(z.string().min(1).max(200)).max(6),
+  announcementDraft: z.string().min(1).max(1_000),
+});
+export type CommunityDigestResult = z.infer<typeof communityDigestResultSchema>;
+
+/** 每日运营任务（P1）：洞察聚合 → 今日 3-5 个最重要任务。 */
+export const dailyOpsResultSchema = z.object({
+  summary,
+  tasks: z.array(z.object({
+    title: z.string().min(1).max(160),
+    reason: z.string().min(1).max(300),
+    suggestedAction: z.string().min(1).max(300),
+    draftCopy: z.string().max(600).optional(),
+    priority: z.enum(['urgent', 'high', 'normal']),
+    dueHint: z.string().min(1).max(60),
+    citations: z.array(reportCitationSchema).max(3),
+  })).min(1).max(5),
+});
+export type DailyOpsResult = z.infer<typeof dailyOpsResultSchema>;
+
 export const insightResultSchemas = {
   content_recap: contentRecapResultSchema,
   comment_insights: commentInsightsResultSchema,
   product_opportunities: productOpportunitiesResultSchema,
+  review_attribution: reviewAttributionResultSchema,
+  community_digest: communityDigestResultSchema,
+  daily_ops: dailyOpsResultSchema,
 } as const;
 
 export type InsightReportRequest = z.infer<typeof insightReportRequestSchema>;

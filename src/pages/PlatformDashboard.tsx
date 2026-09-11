@@ -27,7 +27,7 @@ interface ImportBatchView { id: string; label: string; sourceType: 'csv' | 'past
 interface ImportItemTagView { tag: string; confidence: number; evidence: string; }
 interface ImportItemView { id: string; platform: string; author: string | null; text: string; metrics: Record<string, number>; tags: ImportItemTagView[]; }
 interface ImportDetailView { batch: ImportBatchView; items: ImportItemView[]; }
-type InsightTemplate = 'content_recap' | 'comment_insights' | 'product_opportunities';
+type InsightTemplate = 'content_recap' | 'comment_insights' | 'product_opportunities' | 'review_attribution' | 'community_digest' | 'daily_ops';
 interface ReportCitation { ref: string; snippet: string }
 interface InsightReportView { id: string; template: InsightTemplate; title: string; status: 'pending' | 'generating' | 'generated' | 'failed'; modelBand: string; batchIds: string[]; itemCount: number; droppedCitations: number; error: string | null; createdAt: string; generatedAt: string | null; report: Record<string, unknown> | null; }
 
@@ -35,6 +35,9 @@ const INSIGHT_TEMPLATES: { id: InsightTemplate; name: string; tagline: string }[
   { id: 'content_recap', name: 'Content recap', tagline: 'What went viral, why, and what to post next' },
   { id: 'comment_insights', name: 'Comment insights', tagline: 'What your fans actually want, from their own words' },
   { id: 'product_opportunities', name: 'Product opportunities', tagline: 'Merch your audience is already asking for' },
+  { id: 'review_attribution', name: 'Review attribution', tagline: 'Why negative reviews happen and what to fix first' },
+  { id: 'community_digest', name: 'Community digest', tagline: 'Hot topics, open questions, and members worth recognizing' },
+  { id: 'daily_ops', name: 'Daily ops tasks', tagline: "Today's 3-5 most important tasks, decided from your insights" },
 ];
 interface ConnectedAccount { id: string; externalAccountId: string; displayName: string; platform: string; capabilities: string[]; status: 'connected' | 'expired' | 'disconnected' | 'syncing'; lastSyncedAt?: string; }
 interface PipelineCheck { id: string; label: string; passed: boolean; detail: string; }
@@ -624,6 +627,17 @@ function CitationList({ citations }: { citations?: ReportCitation[] }) {
 interface RecapReport { summary: string; topContent: { ref: string; note: string; successFactors: string[]; citations: ReportCitation[] }[]; successFactors: { factor: string; detail: string; citations: ReportCitation[] }[]; fanThemes: { theme: string; citations: ReportCitation[] }[]; nextTopics: string[]; draftTitles: string[]; }
 interface CommentReport { summary: string; frequentQuestions: { question: string; approxCount: number; citations: ReportCitation[] }[]; sentimentNotes: { sentiment: string; note: string; citations: ReportCitation[] }[]; demandRanking: { demand: string; approxCount: number; citations: ReportCitation[] }[]; productOpportunities: { opportunity: string; citations: ReportCitation[] }[]; memeMaterial: { meme: string; citations: ReportCitation[] }[]; highValueComments: { ref: string; reason: string; replyDraft: string; citations: ReportCitation[] }[]; }
 interface OpportunityReport { summary: string; opportunities: { name: string; formFactor: string; audience: string; difficulty: string; evidenceCount: number; risks: string[]; validationAction: string; listingDraft: string; citations: ReportCitation[] }[]; presalePollDraft: string; }
+interface ReviewReport { summary: string; issueClusters: { theme: string; approxCount: number; severity: string; affectedSkus: string[]; citations: ReportCitation[] }[]; returnReasons: { reason: string; approxCount: number; citations: ReportCitation[] }[]; expectationMismatches: { aspect: string; detail: string; citations: ReportCitation[] }[]; priorityFixes: { fix: string; sku?: string; priority: string; expectedImpact: string; citations: ReportCitation[] }[]; serviceReplyDrafts: { ref: string; issue: string; replyDraft: string; citations: ReportCitation[] }[]; listingFixSuggestions: string[]; }
+interface DigestReport { summary: string; hotTopics: { topic: string; citations: ReportCitation[] }[]; unresolvedQuestions: { question: string; citations: ReportCitation[] }[]; highValueMembers: { author: string; reason: string; signals: string[] }[]; conflictRisks: { risk: string; severity: string; citations: ReportCitation[] }[]; activityIdeas: string[]; announcementDraft: string; }
+interface DailyOpsReport { summary: string; tasks: { title: string; reason: string; suggestedAction: string; draftCopy?: string; priority: string; dueHint: string; citations: ReportCitation[] }[]; }
+
+const PRIORITY_STYLES: Record<string, string> = {
+  urgent: 'bg-sunset text-white', high: 'bg-sun/60 text-ink', normal: 'bg-sky-pale text-ink-soft',
+  critical: 'bg-sunset text-white', medium: 'bg-sun/60 text-ink', low: 'bg-sky-pale text-ink-soft',
+};
+function PriorityChip({ value }: { value: string }) {
+  return <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize ${PRIORITY_STYLES[value] ?? 'bg-sky-pale text-ink-soft'}`}>{value}</span>;
+}
 
 function InsightReportBody({ report }: { report: InsightReportView }) {
   if (report.status !== 'generated' || !report.report) {
@@ -655,6 +669,28 @@ function InsightReportBody({ report }: { report: InsightReportView }) {
       {opportunities.opportunities?.length > 0 && <section><h3 className="text-lg font-semibold">Opportunity list</h3><div className="mt-3 space-y-3">{opportunities.opportunities.map((opportunity, index) => <div key={index} className="rounded-xl border border-ink/15 bg-paper-card p-4"><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-semibold">{opportunity.name}</p><span className="rounded-full bg-sky-pale px-2 py-0.5 text-[11px]">{opportunity.formFactor.replace('_', ' ')}</span><span className={`rounded-full px-2 py-0.5 text-[11px] ${opportunity.difficulty === 'low' ? 'bg-meadow-light text-meadow-deep' : opportunity.difficulty === 'medium' ? 'bg-sun/35' : 'bg-sunset/15 text-sunset'}`}>{opportunity.difficulty} difficulty</span><span className="text-[11px] text-ink-soft">{opportunity.evidenceCount} evidence</span></div><p className="mt-2 text-xs text-ink-soft">Audience: {opportunity.audience}</p>{opportunity.risks?.length > 0 && <p className="mt-1 text-xs text-sunset">Risks: {opportunity.risks.join(' · ')}</p>}<p className="mt-1 text-xs"><span className="font-semibold">Validate:</span> {opportunity.validationAction}</p><CitationList citations={opportunity.citations} /><div className="mt-2 rounded-lg bg-sky-pale/70 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-sky-deep">Listing draft</p><p className="mt-1 text-sm whitespace-pre-line">{opportunity.listingDraft}</p></div></div>)}</div></section>}
       {opportunities.presalePollDraft && <section><h3 className="text-lg font-semibold">Presale poll draft</h3><p className="mt-3 rounded-xl bg-sky-pale p-4 text-sm whitespace-pre-line">{opportunities.presalePollDraft}</p></section>}
     </>; })()}
+
+    {report.template === 'review_attribution' && (() => { const review = body as unknown as ReviewReport; return <>
+      {review.issueClusters?.length > 0 && <section><h3 className="text-lg font-semibold">Complaint themes</h3><div className="mt-3 space-y-3">{review.issueClusters.map((cluster, index) => <div key={index} className="rounded-xl border border-ink/15 bg-paper-card p-4"><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-semibold">{cluster.theme}</p><PriorityChip value={cluster.severity} /><span className="text-[11px] text-ink-soft">~{cluster.approxCount} reviews</span></div>{cluster.affectedSkus?.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{cluster.affectedSkus.map((sku) => <span key={sku} className="rounded-full bg-sky-pale px-2 py-0.5 text-[11px]">SKU: {sku}</span>)}</div>}<CitationList citations={cluster.citations} /></div>)}</div></section>}
+      {review.priorityFixes?.length > 0 && <section><h3 className="text-lg font-semibold">Priority fixes</h3><div className="mt-3 space-y-2">{review.priorityFixes.map((fix, index) => <div key={index} className="flex items-start gap-3 rounded-lg bg-paper-card p-3"><PriorityChip value={fix.priority} /><div className="flex-1"><p className="text-sm font-medium">{fix.fix}{fix.sku && <span className="text-xs text-ink-soft"> · SKU {fix.sku}</span>}</p><p className="mt-1 text-xs text-ink-soft">Expected impact: {fix.expectedImpact}</p><CitationList citations={fix.citations} /></div></div>)}</div></section>}
+      {review.returnReasons?.length > 0 && <section><h3 className="text-lg font-semibold">Return reasons</h3><div className="mt-3 space-y-2">{review.returnReasons.map((reason, index) => <div key={index} className="rounded-lg bg-paper-card p-3"><p className="text-sm">{reason.reason} <span className="text-xs text-ink-soft">· ~{reason.approxCount}×</span></p><CitationList citations={reason.citations} /></div>)}</div></section>}
+      {review.expectationMismatches?.length > 0 && <section><h3 className="text-lg font-semibold">Listing vs reality</h3><div className="mt-3 space-y-2">{review.expectationMismatches.map((mismatch, index) => <div key={index} className="rounded-lg bg-paper-card p-3"><p className="text-sm font-medium">{mismatch.aspect}</p><p className="mt-1 text-xs text-ink-soft">{mismatch.detail}</p><CitationList citations={mismatch.citations} /></div>)}</div></section>}
+      {review.serviceReplyDrafts?.length > 0 && <section><h3 className="text-lg font-semibold">Customer-service reply drafts</h3><div className="mt-3 space-y-3">{review.serviceReplyDrafts.map((draft, index) => <div key={index} className="rounded-xl border border-ink/15 bg-paper-card p-4"><p className="text-sm font-medium">{draft.issue}</p><CitationList citations={draft.citations} /><div className="mt-2 rounded-lg bg-meadow-light/60 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-meadow-deep">Reply draft</p><p className="mt-1 text-sm">{draft.replyDraft}</p></div></div>)}</div></section>}
+      {review.listingFixSuggestions?.length > 0 && <section><h3 className="text-lg font-semibold">Product page edits</h3><ul className="mt-3 list-disc space-y-1 pl-6 text-sm">{review.listingFixSuggestions.map((suggestion, index) => <li key={index}>{suggestion}</li>)}</ul></section>}
+    </>; })()}
+
+    {report.template === 'community_digest' && (() => { const digest = body as unknown as DigestReport; return <>
+      {digest.hotTopics?.length > 0 && <section><h3 className="text-lg font-semibold">Hot topics</h3><div className="mt-3 space-y-2">{digest.hotTopics.map((topic, index) => <div key={index} className="rounded-lg bg-paper-card p-3"><p className="text-sm font-medium">{topic.topic}</p><CitationList citations={topic.citations} /></div>)}</div></section>}
+      {digest.highValueMembers?.length > 0 && <section><h3 className="text-lg font-semibold">High-value members</h3><div className="mt-3 grid gap-3 md:grid-cols-2">{digest.highValueMembers.map((member, index) => <div key={index} className="rounded-xl border border-ink/15 bg-paper-card p-4"><p className="text-sm font-semibold">{member.author}</p><p className="mt-1 text-xs text-ink-soft">{member.reason}</p>{member.signals?.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{member.signals.map((signal) => <span key={signal} className="rounded-full bg-meadow-light px-2 py-0.5 text-[11px]">{signal}</span>)}</div>}</div>)}</div></section>}
+      {digest.unresolvedQuestions?.length > 0 && <section><h3 className="text-lg font-semibold">Unresolved questions</h3><div className="mt-3 space-y-2">{digest.unresolvedQuestions.map((question, index) => <div key={index} className="rounded-lg bg-paper-card p-3"><p className="text-sm">{question.question}</p><CitationList citations={question.citations} /></div>)}</div></section>}
+      {digest.conflictRisks?.length > 0 && <section><h3 className="text-lg font-semibold">Moderation watchlist</h3><div className="mt-3 space-y-2">{digest.conflictRisks.map((risk, index) => <div key={index} className="flex items-start gap-3 rounded-lg bg-paper-card p-3"><PriorityChip value={risk.severity} /><div className="flex-1"><p className="text-sm">{risk.risk}</p><CitationList citations={risk.citations} /></div></div>)}</div></section>}
+      {digest.activityIdeas?.length > 0 && <section><h3 className="text-lg font-semibold">Activity ideas</h3><ul className="mt-3 list-disc space-y-1 pl-6 text-sm">{digest.activityIdeas.map((idea, index) => <li key={index}>{idea}</li>)}</ul></section>}
+      {digest.announcementDraft && <section><h3 className="text-lg font-semibold">Announcement draft</h3><p className="mt-3 rounded-xl bg-sky-pale p-4 text-sm whitespace-pre-line">{digest.announcementDraft}</p></section>}
+    </>; })()}
+
+    {report.template === 'daily_ops' && (() => { const daily = body as unknown as DailyOpsReport; return <>
+      {daily.tasks?.length > 0 && <section><h3 className="text-lg font-semibold">Today's priorities</h3><div className="mt-3 space-y-3">{daily.tasks.map((task, index) => <div key={index} className="rounded-xl border border-ink/15 bg-paper-card p-4"><div className="flex flex-wrap items-center gap-2"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-deep text-xs text-white">{index + 1}</span><p className="flex-1 text-sm font-semibold">{task.title}</p><PriorityChip value={task.priority} /><span className="text-[11px] text-ink-soft">{task.dueHint}</span></div><p className="mt-2 text-xs text-ink-soft">{task.reason}</p><p className="mt-1 text-sm"><span className="font-semibold">Action:</span> {task.suggestedAction}</p>{task.draftCopy && <div className="mt-2 rounded-lg bg-sky-pale/70 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-sky-deep">Ready-to-use copy</p><p className="mt-1 text-sm whitespace-pre-line">{task.draftCopy}</p></div>}<CitationList citations={task.citations} /></div>)}</div></section>}
+    </>; })()}
   </div>;
 }
 
@@ -669,14 +705,16 @@ function InsightsSection({ reports, batches, template, setTemplate, band, setBan
       </div>
       <div className="mt-5 grid gap-4 md:grid-cols-2">
         <Field label="AI model band"><ModelBandPicker value={band} onChange={setBand} /></Field>
-        <Field label={`Source batches (${selectedBatchIds.length ? `${selectedBatchIds.length} selected` : 'latest classified'})`}>
-          <div className="max-h-36 space-y-1 overflow-y-auto rounded-md border border-ink/20 bg-paper p-2">
-            {batches.length === 0 && <p className="p-2 text-xs text-ink-soft">No classified batches yet — import data first.</p>}
-            {batches.map((batch) => <label key={batch.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-sky-pale"><input type="checkbox" checked={selectedBatchIds.includes(batch.id)} onChange={() => setSelectedBatchIds(selectedBatchIds.includes(batch.id) ? selectedBatchIds.filter((id) => id !== batch.id) : [...selectedBatchIds, batch.id])} />{batch.label} · {batch.itemCount} items</label>)}
-          </div>
-        </Field>
+        {template === 'daily_ops'
+          ? <Field label="Source"><p className="rounded-md border border-ink/20 bg-paper p-3 text-xs text-ink-soft">Automatic — your latest classified items plus the findings of your recent insight reports. A fresh report is also auto-generated every morning for subscribed workspaces.</p></Field>
+          : <Field label={`Source batches (${selectedBatchIds.length ? `${selectedBatchIds.length} selected` : 'latest classified'})`}>
+            <div className="max-h-36 space-y-1 overflow-y-auto rounded-md border border-ink/20 bg-paper p-2">
+              {batches.length === 0 && <p className="p-2 text-xs text-ink-soft">No classified batches yet — import data first.</p>}
+              {batches.map((batch) => <label key={batch.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-sky-pale"><input type="checkbox" checked={selectedBatchIds.includes(batch.id)} onChange={() => setSelectedBatchIds(selectedBatchIds.includes(batch.id) ? selectedBatchIds.filter((id) => id !== batch.id) : [...selectedBatchIds, batch.id])} />{batch.label} · {batch.itemCount} items</label>)}
+            </div>
+          </Field>}
       </div>
-      <button disabled={busy || batches.length === 0} onClick={onGenerate} className="mt-4 rounded-md bg-sunset px-5 py-3 font-medium text-white shadow-paint-sm disabled:cursor-not-allowed disabled:opacity-40">{busy ? 'Queuing…' : 'Generate insight report'}</button>
+      <button disabled={busy || (batches.length === 0 && reports.length === 0)} onClick={onGenerate} className="mt-4 rounded-md bg-sunset px-5 py-3 font-medium text-white shadow-paint-sm disabled:cursor-not-allowed disabled:opacity-40">{busy ? 'Queuing…' : template === 'daily_ops' ? "Generate today's tasks" : 'Generate insight report'}</button>
     </section>
 
     <section>

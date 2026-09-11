@@ -84,3 +84,31 @@ test('validateReportCitations recurses into nested structures', () => {
   assert.equal(stats.dropped, 0);
   assert.equal(cleaned.sections[0]!.entries[0]!.citations.length, 1);
 });
+
+test('buildEvidencePack computes rating distribution and carries sku', () => {
+  const rows = [
+    row({ text: 'broke immediately', metrics: { rating: 1, sku: 'SKU-RED' } }),
+    row({ text: 'perfect fit', metrics: { rating: 5, sku: 'SKU-RED' } }),
+    row({ text: 'no rating here', metrics: { views: 10 } }),
+  ];
+  const pack = buildEvidencePack(rows);
+  assert.deepEqual(pack.totals.ratings, { rated: 2, negative: 1 });
+  const withSku = pack.topItems.find((item) => item.sku === 'SKU-RED');
+  assert.ok(withSku);
+});
+
+test('buildEvidencePack aggregates member stats for community digest', () => {
+  const rows = [
+    row({ author: 'Mod-Lin', text: 'welcome everyone', tags: [{ tag: 'co_creation', evidence: 'welcome everyone', confidence: 0.7 }] }),
+    row({ author: 'Mod-Lin', text: 'happy to help', tags: [] }),
+    row({ author: 'Mod-Lin', text: 'third message', tags: [] }),
+    row({ author: 'Newbie', text: 'how do I join', tags: [{ tag: 'needs_reply', evidence: 'how do I join', confidence: 0.9 }] }),
+    row({ text: 'anonymous message' }),
+  ];
+  const pack = buildEvidencePack(rows);
+  assert.ok(pack.memberStats);
+  assert.equal(pack.memberStats![0]!.author, 'Mod-Lin');
+  assert.equal(pack.memberStats![0]!.items, 3);
+  assert.ok(pack.memberStats![0]!.tags.includes('co_creation'));
+  assert.equal(pack.memberStats!.find((m) => m.author === 'Newbie')?.tags[0], 'needs_reply');
+});

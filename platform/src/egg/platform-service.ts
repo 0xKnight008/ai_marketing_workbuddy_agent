@@ -143,6 +143,11 @@ export class PlatformService {
     return this.insights.insightDetail(actor, reportId);
   }
 
+  /** egg schedule 每日调用：为符合条件的订阅工作区入队 daily_ops 报告。 */
+  async enqueueScheduledDailyOps(): Promise<number> {
+    return this.insights.enqueueScheduledDailyOps();
+  }
+
   async createWorkflowRun(actor: ActorContext, body: unknown): Promise<{ runId: string; status: 'pending' }> {
     return createWorkflowRun(actor, body, {
       createRun: (context, request) => this.database.withWorkspace(context.workspaceId, async (tx) => {

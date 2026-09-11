@@ -93,3 +93,44 @@ test('createInsight rejects unknown templates at schema level', async () => {
   const service = new InsightService(database);
   await assert.rejects(() => service.createInsight(actor, { template: 'weekly_recap' }));
 });
+
+test('createInsight daily_ops works from prior reports alone (no classified batches)', async () => {
+  const statements: string[] = [];
+  const tx: TenantTransaction = {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string): Promise<{ rows: Row[]; rowCount: number }> {
+      statements.push(sql);
+      if (sql.includes('FROM workspace_billing')) return { rows: [{ status: 'active', trialEndsAt: null }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('FROM import_batch')) return { rows: [] as Row[], rowCount: 0 };
+      if (sql.includes("status = 'generated'")) return { rows: [{ id: 'old-report' }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('COUNT(*)::text AS count FROM import_item')) return { rows: [{ count: '0' }] as unknown as Row[], rowCount: 1 };
+      if (sql.startsWith('INSERT INTO insight_report')) return { rows: [{ id: 'report-daily' }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('FROM insight_report')) {
+        return { rows: [{ id: 'report-daily', template: 'daily_ops', title: 'T', status: 'pending', modelBand: 'eco', batchIds: [], itemCount: 0, droppedCitations: 0, error: null, createdAt: new Date().toISOString(), generatedAt: null, report: null }] as unknown as Row[], rowCount: 1 };
+      }
+      return { rows: [] as Row[], rowCount: 1 };
+    },
+  } as TenantTransaction;
+  const database = { withWorkspace: async <T>(_id: string, op: (inner: TenantTransaction) => Promise<T>) => op(tx) } as Database;
+  const service = new InsightService(database);
+  const view = await service.createInsight(actor, { template: 'daily_ops' });
+  assert.equal(view.id, 'report-daily');
+  assert.ok(statements.some((sql) => sql.includes('insight.generate')));
+});
+
+test('createInsight daily_ops still requires at least one prior report when no batches exist', async () => {
+  const { database } = mockDatabase({ subscriptionStatus: 'active', classifiedBatchIds: [] });
+  // mockDatabase 的默认 insight_report 查询会返回行，这里换成“无既有报告”的版本：
+  const tx: TenantTransaction = {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string): Promise<{ rows: Row[]; rowCount: number }> {
+      if (sql.includes('FROM workspace_billing')) return { rows: [{ status: 'active', trialEndsAt: null }] as unknown as Row[], rowCount: 1 };
+      return { rows: [] as Row[], rowCount: 0 };
+    },
+  } as TenantTransaction;
+  const bareDatabase = { withWorkspace: async <T>(_id: string, op: (inner: TenantTransaction) => Promise<T>) => op(tx) } as Database;
+  void database;
+  const service = new InsightService(bareDatabase);
+  await assert.rejects(
+    () => service.createInsight(actor, { template: 'daily_ops' }),
+    (error) => error instanceof HttpError && error.statusCode === 422 && error.message === 'insight_no_classified_batches',
+  );
+});

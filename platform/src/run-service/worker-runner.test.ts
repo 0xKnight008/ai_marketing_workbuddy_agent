@@ -352,3 +352,43 @@ test('insight.generate retries when the AI runtime result fails schema validatio
   assert.equal(statements.some((sql) => sql.includes("'generated'")), false);
   assert.ok(statements.some((sql) => sql.startsWith('UPDATE job SET status')));
 });
+
+test('insight.generate daily_ops aggregates prior report summaries into the evidence pack', async () => {
+  let capturedPayload: Record<string, unknown> | null = null;
+  const tx: TenantTransaction = {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
+      if (sql.includes("UPDATE insight_report SET status = 'generating'")) {
+        return { rows: [{ template: 'daily_ops', modelBand: 'eco', batchIds: [] }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.includes('FROM import_item')) return { rows: [] as Row[], rowCount: 0 };
+      if (sql.includes("status = 'generated'") && sql.includes('summary')) {
+        return { rows: [{ template: 'comment_insights', title: 'Weekly', summary: 'Fans want merch badly.' }] as unknown as Row[], rowCount: 1 };
+      }
+      void values;
+      return { rows: [] as Row[], rowCount: 1 };
+    },
+  } as TenantTransaction;
+  const jobs: ClaimedJob[] = [{ id: 'job-13', workspaceId: 'workspace-1', runId: null, kind: 'insight.generate', payload: { reportId: 'report-daily' }, attempt: 1 }];
+  const worker = new RunWorker({
+    workerName: 'test-worker',
+    database: {
+      claimNextJob: async () => jobs.shift(),
+      withWorkspace: async (_workspaceId, operation) => operation(tx),
+    },
+    aiRuntime: {
+      async prepareAnnouncement() { throw new Error('unexpected'); },
+      async getAnnouncementRun() { throw new Error('unexpected'); },
+      async classifyItems() { throw new Error('unexpected'); },
+      async generateInsightReport(payload) {
+        capturedPayload = payload;
+        return { summary: 'Today: follow up merch demand.', tasks: [{ title: 'Draft presale poll', reason: 'Comment insights showed strong merch demand', suggestedAction: 'Post poll to community', priority: 'high', dueHint: 'today 18:00', citations: [] }] };
+      },
+    },
+  });
+
+  assert.equal(await worker.runOne(), true);
+  assert.ok(capturedPayload);
+  const payload = capturedPayload! as { template: string; priorReports?: Array<{ summary: string }> };
+  assert.equal(payload.template, 'daily_ops');
+  assert.equal(payload.priorReports?.[0]?.summary, 'Fans want merch badly.');
+});

@@ -414,7 +414,20 @@ export class RunWorker {
           LIMIT 2000`,
         [reportRow.batchIds],
       );
-      return { template, modelBand: reportRow.modelBand, pack: buildEvidencePack(items.rows), fullTextById: new Map(items.rows.map((row) => [row.id, row.text])) };
+      // 每日运营任务是洞察聚合调度器：附带近期已生成报告的摘要作为决策输入。
+      let priorReports: Array<{ template: string; title: string; summary: string }> | undefined;
+      if (template === 'daily_ops') {
+        const prior = await tx.query<{ template: string; title: string; summary: string | null }>(
+          `SELECT template, title, report->>'summary' AS summary
+             FROM insight_report
+            WHERE workspace_id = current_setting('app.workspace_id')::uuid
+              AND status = 'generated' AND id <> $1
+            ORDER BY created_at DESC LIMIT 4`,
+          [reportId],
+        );
+        priorReports = prior.rows.filter((row) => row.summary).map((row) => ({ template: row.template, title: row.title, summary: row.summary! }));
+      }
+      return { template, modelBand: reportRow.modelBand, pack: buildEvidencePack(items.rows), priorReports, fullTextById: new Map(items.rows.map((row) => [row.id, row.text])) };
     });
 
     // 引用校验对照原文全文（证据包内文本被截断到 600 字符，snippet 可能落在截断点之后）。
@@ -431,6 +444,8 @@ export class RunWorker {
       totals: prepared.pack.totals,
       topItems: prepared.pack.topItems,
       tagSamples: prepared.pack.tagSamples,
+      ...(prepared.pack.memberStats ? { memberStats: prepared.pack.memberStats } : {}),
+      ...(prepared.priorReports?.length ? { priorReports: prepared.priorReports } : {}),
     });
     const schema = insightResultSchemas[prepared.template as InsightTemplate];
     const parsed = schema.safeParse(result);

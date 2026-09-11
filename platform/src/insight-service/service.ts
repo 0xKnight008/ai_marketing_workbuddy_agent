@@ -62,7 +62,17 @@ export class InsightService {
       if (input.batchIds?.length && batchIds.length !== input.batchIds.length) {
         throw new HttpError(422, 'insight_batches_not_ready');
       }
-      if (!batchIds.length) throw new HttpError(422, 'insight_no_classified_batches');
+      // daily_ops 是洞察聚合调度器：没有已分类批次时，允许仅凭既有报告生成。
+      if (!batchIds.length) {
+        if (input.template !== 'daily_ops') throw new HttpError(422, 'insight_no_classified_batches');
+        const prior = await tx.query<{ id: string }>(
+          `SELECT id FROM insight_report
+            WHERE workspace_id = current_setting('app.workspace_id')::uuid AND status = 'generated'
+            LIMIT 1`,
+          [],
+        );
+        if (!prior.rows[0]) throw new HttpError(422, 'insight_no_classified_batches');
+      }
 
       const itemCount = await tx.query<{ count: string }>(
         `SELECT COUNT(*)::text AS count FROM import_item
@@ -70,7 +80,7 @@ export class InsightService {
         [batchIds],
       );
       const count = Number(itemCount.rows[0]?.count ?? 0);
-      if (!count) throw new HttpError(422, 'insight_no_items');
+      if (!count && input.template !== 'daily_ops') throw new HttpError(422, 'insight_no_items');
 
       const labels = INSIGHT_TEMPLATE_LABELS[input.template];
       const title = input.title ?? `${labels.zh} · ${new Date().toISOString().slice(0, 10)}`;
@@ -112,6 +122,17 @@ export class InsightService {
         if (view) views.push(view);
       }
       return views;
+    });
+  }
+
+  /**
+   * 每日运营任务定时入口（egg schedule 调用）。跨租户枚举封装在
+   * SECURITY DEFINER 函数 enqueue_daily_ops_reports() 内（与 claim_next_job 同模式）。
+   */
+  async enqueueScheduledDailyOps(): Promise<number> {
+    return this.database.withAdmin(async (tx) => {
+      const result = await tx.query<{ enqueued: number }>('SELECT enqueue_daily_ops_reports() AS enqueued');
+      return Number(result.rows[0]?.enqueued ?? 0);
     });
   }
 

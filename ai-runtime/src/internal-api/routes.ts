@@ -195,14 +195,25 @@ export const internalApiRoutes = [
           totals: request.totals,
           topItems: request.topItems,
           tagSamples: request.tagSamples,
+          memberStats: request.memberStats,
+          priorReports: request.priorReports,
         })}`;
         // 按模板分支选择强类型 schema（联合类型无法直接传给 structuredOutput）。
-        const object = request.template === 'content_recap'
-          ? (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.content_recap } })).object
-          : request.template === 'comment_insights'
-            ? (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.comment_insights } })).object
-            : (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.product_opportunities } })).object;
-        return c.json(object, 200);
+        let object: unknown;
+        if (request.template === 'content_recap') {
+          object = (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.content_recap } })).object;
+        } else if (request.template === 'comment_insights') {
+          object = (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.comment_insights } })).object;
+        } else if (request.template === 'product_opportunities') {
+          object = (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.product_opportunities } })).object;
+        } else if (request.template === 'review_attribution') {
+          object = (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.review_attribution } })).object;
+        } else if (request.template === 'community_digest') {
+          object = (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.community_digest } })).object;
+        } else {
+          object = (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.daily_ops } })).object;
+        }
+        return c.json(object as Record<string, unknown>, 200);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return c.json({ error: 'insight_report_failed', message }, 502);
