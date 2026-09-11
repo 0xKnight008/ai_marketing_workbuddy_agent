@@ -6,6 +6,7 @@ import { requirePermission } from '../foundation/rbac';
 import { requireAutomationAccess } from '../billing/guardrails';
 import { isAnnouncementWorkflow } from '../contracts/workflow-definition';
 import { createDurableRun, type RunRecord } from '../run-service/repository';
+import { MODEL_BANDS, type ModelBand } from '../billing/plans';
 import { HttpError } from '../http/errors';
 
 export const pipelineTemplates = [
@@ -53,6 +54,8 @@ const createPipelineSchema = z.object({
     approvalPolicy: z.enum(['required', 'auto_approve']).default('required'),
     tone: z.string().trim().min(2).max(200).default('clear, helpful'),
     language: z.string().trim().min(2).max(10).default('en'),
+    // LLM 档位选择器：决定 prepare 步骤请求的模型档位，allowedModelClasses 随之封顶。
+    modelBand: z.enum(MODEL_BANDS).default('eco'),
   }),
 }).strict();
 
@@ -66,6 +69,7 @@ export interface PipelineDefinition {
   approvalPolicy: 'required' | 'auto_approve';
   tone: string;
   language: string;
+  modelBand: ModelBand;
   steps: Array<{ type: string }>;
 }
 
@@ -236,8 +240,9 @@ export async function activatePipeline(tx: TenantTransaction, actor: ActorContex
     workflowVersion: row.version,
     // Retrying activation must return the same run, never publish twice.
     idempotencyKey: `pipeline:${row.id}:v${row.version}:activation`,
-    input: { mode: 'publish', brief: loaded.definition.brief, targets: accounts.map((account) => ({ platform: announcementPlatform(account.platform), accountId: account.externalAccountId })) },
-    context: { tone: loaded.definition.tone, language: loaded.definition.language, forbiddenWords: [], approvalPolicy: 'required', allowedModelClasses: ['eco'] },
+    input: { mode: 'publish', brief: loaded.definition.brief, modelBand: loaded.definition.modelBand, targets: accounts.map((account) => ({ platform: announcementPlatform(account.platform), accountId: account.externalAccountId })) },
+    // allowedModelClasses 封顶到所选档位：eco → ['eco']，standard → ['eco','standard']，flagship → 全部。
+    context: { tone: loaded.definition.tone, language: loaded.definition.language, forbiddenWords: [], approvalPolicy: 'required', allowedModelClasses: MODEL_BANDS.slice(0, MODEL_BANDS.indexOf(loaded.definition.modelBand) + 1) },
   });
   await tx.query(
     'INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)',
@@ -280,6 +285,7 @@ function definitionFrom(parsed: CreatePipelineInput): PipelineDefinition {
     approvalPolicy: parsed.configuration.approvalPolicy,
     tone: parsed.configuration.tone,
     language: parsed.configuration.language,
+    modelBand: parsed.configuration.modelBand,
     steps: template?.definitionSteps.map((step) => ({ ...step })) ?? [
       { type: 'ai.prepare_announcement' },
       { type: 'approval' },
@@ -297,6 +303,7 @@ function normalizeStoredDefinition(value: unknown, name: string): PipelineDefini
     approvalPolicy: z.enum(['required', 'auto_approve']),
     tone: z.string(),
     language: z.string(),
+    modelBand: z.enum(MODEL_BANDS).default('eco'),
     steps: z.array(z.object({ type: z.string() })),
   }).safeParse(value);
   if (parsed.success) return parsed.data;
@@ -309,6 +316,7 @@ function normalizeStoredDefinition(value: unknown, name: string): PipelineDefini
     approvalPolicy: 'required',
     tone: 'clear, helpful',
     language: 'en',
+    modelBand: 'eco',
     steps: legacy.success ? legacy.data.steps : [],
   };
 }

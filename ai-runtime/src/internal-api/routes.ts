@@ -1,5 +1,11 @@
 import { registerApiRoute } from '@mastra/core/server';
 
+import { createInsightReportAgent } from '../agents/insight-report-agent';
+import { createItemClassifierAgent } from '../agents/item-classifier-agent';
+import { config } from '../config';
+import { modelForBand } from '../lib/model-routing';
+import { classifyRequestSchema, classifyResultSchema } from '../schemas/classify';
+import { insightReportRequestSchema, insightResultSchemas } from '../schemas/insights';
 import { RunServiceEventEmitter, registerEmitter, removeEmitter } from '../events/emitter';
 import { prepareAnnouncementRequestSchema } from '../schemas/announcement';
 import { internalAuth } from './auth';
@@ -135,6 +141,83 @@ export const internalApiRoutes = [
 
       // §4.1：accepted { aiRunId }
       return c.json({ aiRunId, status: 'accepted' }, 202);
+    },
+  }),
+
+  registerApiRoute('/internal/classify', {
+    method: 'POST',
+    middleware: [internalAuth],
+    handler: async (c) => {
+      let body: unknown;
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.json({ error: 'invalid_request', message: 'Request body must be valid JSON' }, 400);
+      }
+      const parsed = classifyRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
+      }
+      const { items, modelBand, language } = parsed.data;
+      try {
+        const agent = createItemClassifierAgent(modelForBand(config, modelBand, 'primary'));
+        const { object } = await agent.generate(
+          `Classify each of the following ${items.length} item(s)${language === 'auto' ? '' : ` (expected language: ${language})`}. Items as JSON:\n${JSON.stringify(items)}`,
+          { structuredOutput: { schema: classifyResultSchema } },
+        );
+        return c.json(object, 200);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return c.json({ error: 'classify_failed', message }, 502);
+      }
+    },
+  }),
+
+  registerApiRoute('/internal/insight-report', {
+    method: 'POST',
+    middleware: [internalAuth],
+    handler: async (c) => {
+      let body: unknown;
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.json({ error: 'invalid_request', message: 'Request body must be valid JSON' }, 400);
+      }
+      const parsed = insightReportRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
+      }
+      const request = parsed.data;
+      try {
+        const agent = createInsightReportAgent(request.template, modelForBand(config, request.modelBand, 'primary'));
+        const prompt = `Generate the ${request.template} insight report from this evidence pack. Evidence pack as JSON:\n${JSON.stringify({
+          workspaceLabel: request.workspaceLabel,
+          totals: request.totals,
+          topItems: request.topItems,
+          tagSamples: request.tagSamples,
+          memberStats: request.memberStats,
+          priorReports: request.priorReports,
+        })}`;
+        // 按模板分支选择强类型 schema（联合类型无法直接传给 structuredOutput）。
+        let object: unknown;
+        if (request.template === 'content_recap') {
+          object = (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.content_recap } })).object;
+        } else if (request.template === 'comment_insights') {
+          object = (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.comment_insights } })).object;
+        } else if (request.template === 'product_opportunities') {
+          object = (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.product_opportunities } })).object;
+        } else if (request.template === 'review_attribution') {
+          object = (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.review_attribution } })).object;
+        } else if (request.template === 'community_digest') {
+          object = (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.community_digest } })).object;
+        } else {
+          object = (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.daily_ops } })).object;
+        }
+        return c.json(object as Record<string, unknown>, 200);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return c.json({ error: 'insight_report_failed', message }, 502);
+      }
     },
   }),
 

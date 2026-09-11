@@ -24,6 +24,8 @@ for (const kind of ['prepare_ai_run', 'execute_approved_actions']) {
     }, aiRuntime: {
       prepareAnnouncement: async () => { calls++; return { aiRunId: 'ai-run-1', status: 'accepted' }; },
       getAnnouncementRun: async () => { throw new Error('unexpected'); },
+      classifyItems: async () => { throw new Error('unexpected'); },
+      generateInsightReport: async () => { throw new Error('unexpected'); },
     }, zernio: { executeAction: async () => { calls++; } } });
     await worker.runOne();
     assert.equal(calls, 0);
@@ -54,6 +56,8 @@ test('RunWorker drains a bounded batch and requeues unsupported work safely', as
     aiRuntime: {
       async prepareAnnouncement() { return { aiRunId: 'unused', status: 'accepted' as const }; },
       async getAnnouncementRun() { return { aiRunId: 'unused', platformRunId: 'unused', workspaceId: 'workspace-1', status: 'running' as const }; },
+      async classifyItems() { return {}; },
+      async generateInsightReport() { return {}; },
     },
   });
 
@@ -123,10 +127,268 @@ test('RunWorker reconciles a completed AI run when its callback was lost', async
           },
         };
       },
+      async classifyItems() { return {}; },
+      async generateInsightReport() { return {}; },
     },
   });
 
   assert.equal(await worker.runOne(), true);
   assert.ok(statements.some((sql) => sql.includes('INSERT INTO approval_request')));
   assert.ok(statements.some((sql) => sql.includes("UPDATE job SET status = 'succeeded'")));
+});
+
+test('import.classify writes evidence-verified tags and drops hallucinated citations', async () => {
+  const items = [
+    { id: 'item-1', text: 'Love this serum, where can I buy it?', author: 'Ann', platform: 'instagram' },
+    { id: 'item-2', text: 'The new packaging leaks everywhere', author: null, platform: 'rednote' },
+  ];
+  let pendingCalls = 0;
+  const statements: string[] = [];
+  const insertedTags: unknown[][] = [];
+  const auditEvents: unknown[] = [];
+  const tx: TenantTransaction = {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
+      statements.push(sql);
+      if (sql.startsWith('INSERT INTO audit_event')) auditEvents.push(values?.[1]);
+      if (sql.includes("UPDATE import_batch SET status = 'classifying'")) {
+        return { rows: [{ status: 'classifying', modelBand: 'standard' }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.includes('classified_at IS NULL')) {
+        pendingCalls += 1;
+        return { rows: (pendingCalls === 1 ? items : []) as unknown as Row[], rowCount: 0 };
+      }
+      if (sql.startsWith('INSERT INTO item_tag')) {
+        insertedTags.push([...(values ?? [])]);
+        return { rows: [] as Row[], rowCount: 1 };
+      }
+      return { rows: [] as Row[], rowCount: 1 };
+    },
+  } as TenantTransaction;
+  const jobs: ClaimedJob[] = [{ id: 'job-9', workspaceId: 'workspace-1', runId: null, kind: 'import.classify', payload: { batchId: 'batch-1' }, attempt: 1 }];
+  const worker = new RunWorker({
+    workerName: 'test-worker',
+    database: {
+      claimNextJob: async () => jobs.shift(),
+      withWorkspace: async (_workspaceId, operation) => operation(tx),
+    },
+    aiRuntime: {
+      async prepareAnnouncement() { throw new Error('unexpected'); },
+      async getAnnouncementRun() { throw new Error('unexpected'); },
+      async classifyItems(payload) {
+        assert.equal((payload as { modelBand: string }).modelBand, 'standard');
+        /* classify payload */
+        return {
+          assignments: [
+            // 合法：evidence 是原文逐字子串。
+            { itemIndex: 0, tags: [{ tag: 'purchase_intent', confidence: 0.92, evidence: 'where can I buy it' }] },
+            // 幻觉引用：不在原文中，必须被平台侧丢弃并审计。
+            { itemIndex: 1, tags: [{ tag: 'complaint', confidence: 0.9, evidence: 'terrible quality control' }] },
+          ],
+        };
+      },
+      async generateInsightReport() { throw new Error('unexpected'); },
+    },
+  });
+
+  assert.equal(await worker.runOne(), true);
+  assert.equal(insertedTags.length, 1);
+  assert.equal(insertedTags[0]?.[0], 'item-1');
+  assert.equal(insertedTags[0]?.[1], 'purchase_intent');
+  assert.ok(auditEvents.includes('import.classify_evidence_dropped'));
+  assert.ok(statements.some((sql) => sql.includes('UPDATE import_item SET classified_at')));
+  assert.ok(statements.some((sql) => sql.includes("UPDATE import_batch SET status = 'classified'")));
+  assert.ok(statements.some((sql) => sql.includes("UPDATE job SET status = 'succeeded'")));
+});
+
+test('import.classify retries when the AI runtime returns a schema-invalid result', async () => {
+  const statements: string[] = [];
+  const tx: TenantTransaction = {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string): Promise<{ rows: Row[]; rowCount: number }> {
+      statements.push(sql);
+      if (sql.includes("UPDATE import_batch SET status = 'classifying'")) {
+        return { rows: [{ status: 'classifying', modelBand: 'eco' }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.includes('classified_at IS NULL')) {
+        return { rows: [{ id: 'item-1', text: 'hello', author: null, platform: 'unknown' }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.startsWith('UPDATE job SET status')) {
+        return { rows: [{ status: 'queued' }] as unknown as Row[], rowCount: 1 };
+      }
+      return { rows: [] as Row[], rowCount: 1 };
+    },
+  } as TenantTransaction;
+  const jobs: ClaimedJob[] = [{ id: 'job-10', workspaceId: 'workspace-1', runId: null, kind: 'import.classify', payload: { batchId: 'batch-1' }, attempt: 1 }];
+  const worker = new RunWorker({
+    workerName: 'test-worker',
+    database: {
+      claimNextJob: async () => jobs.shift(),
+      withWorkspace: async (_workspaceId, operation) => operation(tx),
+    },
+    aiRuntime: {
+      async prepareAnnouncement() { throw new Error('unexpected'); },
+      async getAnnouncementRun() { throw new Error('unexpected'); },
+      async classifyItems() { return { nonsense: true }; },
+      async generateInsightReport() { throw new Error('unexpected'); },
+    },
+  });
+
+  // Schema-invalid AI output must not be persisted; the job is requeued for retry.
+  assert.equal(await worker.runOne(), true);
+  assert.equal(statements.some((sql) => sql.startsWith('INSERT INTO item_tag')), false);
+  assert.equal(statements.some((sql) => sql.includes("UPDATE import_batch SET status = 'classified'")), false);
+  assert.ok(statements.some((sql) => sql.startsWith('UPDATE job SET status')));
+});
+
+test('insight.generate stores citation-verified report and drops hallucinated references', async () => {
+  const items = [
+    { id: 'aaaa-1', platform: 'youtube', author: 'FanA', text: 'I want a plushie so badly, take my money', metrics: { views: 100 }, tags: [{ tag: 'purchase_intent', evidence: 'take my money', confidence: 0.9 }] },
+    { id: 'bbbb-2', platform: 'youtube', author: null, text: 'when is the next video', metrics: { views: 5 }, tags: [{ tag: 'urging_update', evidence: 'next video', confidence: 0.8 }] },
+  ];
+  const statements: string[] = [];
+  let persistedReport: Record<string, unknown> | null = null;
+  let persistedDropped = -1;
+  const tx: TenantTransaction = {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
+      statements.push(sql);
+      if (sql.includes("UPDATE insight_report SET status = 'generating'")) {
+        return { rows: [{ template: 'comment_insights', modelBand: 'eco', batchIds: ['batch-1'] }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.includes('FROM import_item')) {
+        return { rows: items as unknown as Row[], rowCount: 2 };
+      }
+      if (sql.includes("UPDATE insight_report") && sql.includes("'generated'")) {
+        persistedReport = JSON.parse(String(values?.[2])) as Record<string, unknown>;
+        persistedDropped = Number(values?.[3]);
+        return { rows: [] as Row[], rowCount: 1 };
+      }
+      return { rows: [] as Row[], rowCount: 1 };
+    },
+  } as TenantTransaction;
+  const jobs: ClaimedJob[] = [{ id: 'job-11', workspaceId: 'workspace-1', runId: null, kind: 'insight.generate', payload: { reportId: 'report-1' }, attempt: 1 }];
+  let capturedPayload: Record<string, unknown> | null = null;
+  const worker = new RunWorker({
+    workerName: 'test-worker',
+    database: {
+      claimNextJob: async () => jobs.shift(),
+      withWorkspace: async (_workspaceId, operation) => operation(tx),
+    },
+    aiRuntime: {
+      async prepareAnnouncement() { throw new Error('unexpected'); },
+      async getAnnouncementRun() { throw new Error('unexpected'); },
+      async classifyItems() { throw new Error('unexpected'); },
+      async generateInsightReport(payload) {
+        capturedPayload = payload;
+        return {
+          summary: 'Fans want merch.',
+          frequentQuestions: [],
+          sentimentNotes: [],
+          demandRanking: [{ demand: 'Character plushie', approxCount: 1, citations: [
+            { ref: 'i1', snippet: 'take my money' },      // 逐字 → 保留
+            { ref: 'i1', snippet: 'everyone is buying' }, // 幻觉 → 丢弃
+          ] }],
+          productOpportunities: [],
+          memeMaterial: [],
+          highValueComments: [
+            { ref: 'i1', reason: 'Strong purchase intent', replyDraft: 'Soon! Thanks for the love.', citations: [] },
+            { ref: 'i9', reason: 'Ghost ref', replyDraft: 'x', citations: [] }, // 未知 ref → 整条移除
+          ],
+        };
+      },
+    },
+  });
+
+  assert.equal(await worker.runOne(), true);
+  // 证据包不含租户内部 id，且模板/计数齐全
+  assert.ok(capturedPayload);
+  const pack = capturedPayload! as { template: string; totals: { items: number }; topItems: Array<{ ref: string }> };
+  assert.equal(pack.template, 'comment_insights');
+  assert.equal(pack.totals.items, 2);
+  assert.ok(pack.topItems.every((item) => /^i\d+$/.test(item.ref)));
+  assert.ok(!JSON.stringify(capturedPayload).includes('aaaa-1'));
+
+  assert.ok(persistedReport);
+  const body = persistedReport! as unknown as { demandRanking: Array<{ citations: unknown[] }>; highValueComments: unknown[]; _evidence: Record<string, string> };
+  assert.equal(body.demandRanking[0]!.citations.length, 1);
+  assert.equal(body.highValueComments.length, 1);
+  assert.equal(body._evidence.i1, 'aaaa-1');
+  assert.equal(persistedDropped, 2);
+  assert.ok(statements.some((sql) => sql.includes("UPDATE job SET status = 'succeeded'")));
+});
+
+test('insight.generate retries when the AI runtime result fails schema validation', async () => {
+  const statements: string[] = [];
+  const tx: TenantTransaction = {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string): Promise<{ rows: Row[]; rowCount: number }> {
+      statements.push(sql);
+      if (sql.includes("UPDATE insight_report SET status = 'generating'")) {
+        return { rows: [{ template: 'product_opportunities', modelBand: 'eco', batchIds: ['batch-1'] }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.includes('FROM import_item')) {
+        return { rows: [{ id: 'aaaa-1', platform: 'rednote', author: null, text: 'want badges', metrics: {}, tags: [] }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.startsWith('UPDATE job SET status')) {
+        return { rows: [{ status: 'queued' }] as unknown as Row[], rowCount: 1 };
+      }
+      return { rows: [] as Row[], rowCount: 1 };
+    },
+  } as TenantTransaction;
+  const jobs: ClaimedJob[] = [{ id: 'job-12', workspaceId: 'workspace-1', runId: null, kind: 'insight.generate', payload: { reportId: 'report-1' }, attempt: 1 }];
+  const worker = new RunWorker({
+    workerName: 'test-worker',
+    database: {
+      claimNextJob: async () => jobs.shift(),
+      withWorkspace: async (_workspaceId, operation) => operation(tx),
+    },
+    aiRuntime: {
+      async prepareAnnouncement() { throw new Error('unexpected'); },
+      async getAnnouncementRun() { throw new Error('unexpected'); },
+      async classifyItems() { throw new Error('unexpected'); },
+      async generateInsightReport() { return { nonsense: true }; },
+    },
+  });
+
+  // schema 非法不落库，job 重试
+  assert.equal(await worker.runOne(), true);
+  assert.equal(statements.some((sql) => sql.includes("'generated'")), false);
+  assert.ok(statements.some((sql) => sql.startsWith('UPDATE job SET status')));
+});
+
+test('insight.generate daily_ops aggregates prior report summaries into the evidence pack', async () => {
+  let capturedPayload: Record<string, unknown> | null = null;
+  const tx: TenantTransaction = {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
+      if (sql.includes("UPDATE insight_report SET status = 'generating'")) {
+        return { rows: [{ template: 'daily_ops', modelBand: 'eco', batchIds: [] }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.includes('FROM import_item')) return { rows: [] as Row[], rowCount: 0 };
+      if (sql.includes("status = 'generated'") && sql.includes('summary')) {
+        return { rows: [{ template: 'comment_insights', title: 'Weekly', summary: 'Fans want merch badly.' }] as unknown as Row[], rowCount: 1 };
+      }
+      void values;
+      return { rows: [] as Row[], rowCount: 1 };
+    },
+  } as TenantTransaction;
+  const jobs: ClaimedJob[] = [{ id: 'job-13', workspaceId: 'workspace-1', runId: null, kind: 'insight.generate', payload: { reportId: 'report-daily' }, attempt: 1 }];
+  const worker = new RunWorker({
+    workerName: 'test-worker',
+    database: {
+      claimNextJob: async () => jobs.shift(),
+      withWorkspace: async (_workspaceId, operation) => operation(tx),
+    },
+    aiRuntime: {
+      async prepareAnnouncement() { throw new Error('unexpected'); },
+      async getAnnouncementRun() { throw new Error('unexpected'); },
+      async classifyItems() { throw new Error('unexpected'); },
+      async generateInsightReport(payload) {
+        capturedPayload = payload;
+        return { summary: 'Today: follow up merch demand.', tasks: [{ title: 'Draft presale poll', reason: 'Comment insights showed strong merch demand', suggestedAction: 'Post poll to community', priority: 'high', dueHint: 'today 18:00', citations: [] }] };
+      },
+    },
+  });
+
+  assert.equal(await worker.runOne(), true);
+  assert.ok(capturedPayload);
+  const payload = capturedPayload! as { template: string; priorReports?: Array<{ summary: string }> };
+  assert.equal(payload.template, 'daily_ops');
+  assert.equal(payload.priorReports?.[0]?.summary, 'Fans want merch badly.');
 });

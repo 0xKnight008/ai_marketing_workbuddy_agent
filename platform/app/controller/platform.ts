@@ -71,6 +71,38 @@ export default class PlatformController extends Controller {
     this.ctx.body = await this.app.platform.service.setPassword(this.actor(), this.ctx.request.body);
   }
 
+  async createImport(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.status = 201;
+    this.ctx.body = await this.app.platform.service.createImport(this.actor(), this.ctx.request.body);
+  }
+
+  async listImports(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.listImports(this.actor());
+  }
+
+  async importDetail(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.importDetail(this.actor(), this.ctx.params.batchId);
+  }
+
+  async createInsight(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.status = 201;
+    this.ctx.body = await this.app.platform.service.createInsight(this.actor(), this.ctx.request.body);
+  }
+
+  async listInsights(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.listInsights(this.actor());
+  }
+
+  async insightDetail(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.insightDetail(this.actor(), this.ctx.params.reportId);
+  }
+
   async createRun(): Promise<void> {
     const created = await this.app.platform.service.createWorkflowRun(this.actor(), this.ctx.request.body);
     this.ctx.status = 202;

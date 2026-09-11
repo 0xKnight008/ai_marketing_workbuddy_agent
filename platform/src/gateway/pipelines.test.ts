@@ -115,6 +115,7 @@ function pipelineTransaction(overrides: Partial<PipelineDefinition>, activate = 
     approvalPolicy: 'required',
     tone: 'clear, helpful',
     language: 'en',
+    modelBand: 'eco',
     steps: [{ type: 'ai.prepare_announcement' }, { type: 'approval' }, { type: 'social.schedule_post' }],
     ...overrides,
   };
@@ -157,7 +158,7 @@ test('activation queues the configured announcement once and returns the same ru
   assert.equal(queries.filter(({ sql }) => sql.includes('INSERT INTO job')).length, 1);
   const values = queries.find(({ sql }) => sql.includes('INSERT INTO workflow_run'))!.values;
   assert.equal(values[3], `pipeline:${pipelineId}:v1:activation`);
-  assert.deepEqual(values[4], { mode: 'publish', brief: 'Create a complete launch announcement for all selected channels.', targets: [{ platform: 'linkedin', accountId: `external-${accountId}` }] });
+  assert.deepEqual(values[4], { mode: 'publish', brief: 'Create a complete launch announcement for all selected channels.', modelBand: 'eco', targets: [{ platform: 'linkedin', accountId: `external-${accountId}` }] });
   assert.deepEqual(values[5], { tone: 'warm', language: 'es', forbiddenWords: [], approvalPolicy: 'required', allowedModelClasses: ['eco'] });
   assert.ok(queries.some(({ sql }) => sql.includes('FOR UPDATE OF w')));
 });

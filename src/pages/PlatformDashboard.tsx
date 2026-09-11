@@ -6,9 +6,10 @@ import BillingDashboard from './BillingDashboard';
 
 const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
 
-type Section = 'dashboard' | 'pipelines' | 'accounts' | 'activity' | 'settings';
+type Section = 'dashboard' | 'pipelines' | 'imports' | 'insights' | 'accounts' | 'activity' | 'settings';
 type WizardStep = 'start' | 'configure' | 'accounts' | 'review' | 'saved';
 type TemplateId = 'repurpose' | 'weekly_report' | 'comment_lead';
+type ModelBand = 'eco' | 'standard' | 'flagship';
 
 interface PipelineTemplate { id: TemplateId; name: string; description: string; steps: string[]; available: boolean; }
 interface PipelineDefinition {
@@ -18,9 +19,26 @@ interface PipelineDefinition {
   approvalPolicy: 'required' | 'auto_approve';
   tone: string;
   language: string;
+  modelBand?: ModelBand;
   steps: Array<{ type: string }>;
 }
 interface PipelineView { id: string; name: string; status: 'draft' | 'published' | 'archived'; version: number; updatedAt: string; definition: PipelineDefinition; lastRunStatus?: string; run?: RunView; }
+interface ImportBatchView { id: string; label: string; sourceType: 'csv' | 'paste' | 'link' | 'file'; status: 'pending' | 'classifying' | 'classified' | 'failed'; modelBand: ModelBand; itemCount: number; createdAt: string; tagDistribution: Record<string, number>; }
+interface ImportItemTagView { tag: string; confidence: number; evidence: string; }
+interface ImportItemView { id: string; platform: string; author: string | null; text: string; metrics: Record<string, number>; tags: ImportItemTagView[]; }
+interface ImportDetailView { batch: ImportBatchView; items: ImportItemView[]; }
+type InsightTemplate = 'content_recap' | 'comment_insights' | 'product_opportunities' | 'review_attribution' | 'community_digest' | 'daily_ops';
+interface ReportCitation { ref: string; snippet: string }
+interface InsightReportView { id: string; template: InsightTemplate; title: string; status: 'pending' | 'generating' | 'generated' | 'failed'; modelBand: string; batchIds: string[]; itemCount: number; droppedCitations: number; error: string | null; createdAt: string; generatedAt: string | null; report: Record<string, unknown> | null; }
+
+const INSIGHT_TEMPLATES: { id: InsightTemplate; name: string; tagline: string }[] = [
+  { id: 'content_recap', name: 'Content recap', tagline: 'What went viral, why, and what to post next' },
+  { id: 'comment_insights', name: 'Comment insights', tagline: 'What your fans actually want, from their own words' },
+  { id: 'product_opportunities', name: 'Product opportunities', tagline: 'Merch your audience is already asking for' },
+  { id: 'review_attribution', name: 'Review attribution', tagline: 'Why negative reviews happen and what to fix first' },
+  { id: 'community_digest', name: 'Community digest', tagline: 'Hot topics, open questions, and members worth recognizing' },
+  { id: 'daily_ops', name: 'Daily ops tasks', tagline: "Today's 3-5 most important tasks, decided from your insights" },
+];
 interface ConnectedAccount { id: string; externalAccountId: string; displayName: string; platform: string; capabilities: string[]; status: 'connected' | 'expired' | 'disconnected' | 'syncing'; lastSyncedAt?: string; }
 interface PipelineCheck { id: string; label: string; passed: boolean; detail: string; }
 interface PipelineReadiness { ready: boolean; checks: PipelineCheck[]; }
@@ -48,6 +66,7 @@ interface PipelineDraft {
   approvalPolicy: 'required' | 'auto_approve';
   tone: string;
   language: string;
+  modelBand: ModelBand;
 }
 
 const fallbackTemplates: PipelineTemplate[] = [
@@ -67,8 +86,47 @@ const socialPlatforms = [
 ] as const;
 
 function freshDraft(): PipelineDraft {
-  return { sourceType: 'template', templateId: 'repurpose', description: '', name: '', brief: '', targetAccountIds: [], approvalPolicy: 'required', tone: 'clear, helpful', language: 'en' };
+  return { sourceType: 'template', templateId: 'repurpose', description: '', name: '', brief: '', targetAccountIds: [], approvalPolicy: 'required', tone: 'clear, helpful', language: 'en', modelBand: 'eco' };
 }
+
+const MODEL_BAND_OPTIONS: { value: ModelBand; label: string; hint: string }[] = [
+  { value: 'eco', label: 'Eco', hint: '1 credit/run · fastest, cheapest' },
+  { value: 'standard', label: 'Standard', hint: '6 credits/run · balanced quality' },
+  { value: 'flagship', label: 'Flagship', hint: '20 credits/run · strongest model' },
+];
+
+function ModelBandPicker({ value, onChange }: { value: ModelBand; onChange: (band: ModelBand) => void }) {
+  return (
+    <div className="grid grid-cols-3 gap-2">
+      {MODEL_BAND_OPTIONS.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => onChange(option.value)}
+          title={option.hint}
+          className={`rounded-lg border px-3 py-2 text-left transition ${value === option.value ? 'border-sky-deep bg-sky-pale' : 'border-ink/20 bg-paper-card hover:bg-sky-pale/60'}`}
+        >
+          <span className={`block text-sm font-semibold ${value === option.value ? 'text-sky-deep' : ''}`}>{option.label}</span>
+          <span className="mt-0.5 block text-[11px] leading-tight text-ink-soft">{option.hint}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const TAG_LABELS: Record<string, string> = {
+  purchase_intent: 'Purchase intent',
+  product_demand: 'Product demand',
+  complaint: 'Complaint',
+  suggestion: 'Suggestion',
+  content_idea: 'Content idea',
+  urging_update: 'Urging update',
+  co_creation: 'Co-creation',
+  koc_kol_lead: 'KOC/KOL lead',
+  meme_material: 'Meme material',
+  risk_event: 'Risk event',
+  needs_reply: 'Needs reply',
+};
 
 export default function PlatformDashboard() {
   const [token, setToken] = useState(readSessionAccessToken);
@@ -101,6 +159,18 @@ export default function PlatformDashboard() {
   const [newPassword, setNewPassword] = useState('');
   const [passwordStatus, setPasswordStatus] = useState('');
   const [recoveringCheckout, setRecoveringCheckout] = useState(false);
+  const [importBatches, setImportBatches] = useState<ImportBatchView[]>([]);
+  const [importLabel, setImportLabel] = useState('');
+  const [importBand, setImportBand] = useState<ModelBand>('eco');
+  const [importContent, setImportContent] = useState('');
+  const [importDetail, setImportDetail] = useState<ImportDetailView | null>(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const [insights, setInsights] = useState<InsightReportView[]>([]);
+  const [insightTemplate, setInsightTemplate] = useState<InsightTemplate>('content_recap');
+  const [insightBand, setInsightBand] = useState<ModelBand>('standard');
+  const [insightBatchIds, setInsightBatchIds] = useState<string[]>([]);
+  const [insightDetail, setInsightDetail] = useState<InsightReportView | null>(null);
+  const [insightBusy, setInsightBusy] = useState(false);
   const applyBillingUsage = useCallback((next: UsageView) => {
     setUsage(next);
     setMe((current) => current ? { ...current, plan: next.plan, subscriptionStatus: next.subscriptionStatus } : current);
@@ -151,8 +221,10 @@ export default function PlatformDashboard() {
       fetch(`${gatewayUrl}/api/billing/usage`, { headers: headers() }),
       fetch(`${gatewayUrl}/api/billing/task-events`, { headers: headers() }),
       fetch(`${gatewayUrl}/api/audit-events`, { headers: headers() }),
+      fetch(`${gatewayUrl}/api/imports`, { headers: headers() }),
+      fetch(`${gatewayUrl}/api/insights`, { headers: headers() }),
     ]);
-      const [templatesResponse, pipelinesResponse, accountsResponse, approvalsResponse, usageResponse, tasksResponse, auditResponse] = requests;
+      const [templatesResponse, pipelinesResponse, accountsResponse, approvalsResponse, usageResponse, tasksResponse, auditResponse, importsResponse, insightsResponse] = requests;
       if (templatesResponse.ok) setTemplates(await templatesResponse.json() as PipelineTemplate[]);
       if (pipelinesResponse.ok) setPipelines(await pipelinesResponse.json() as PipelineView[]);
       if (accountsResponse.ok) setAccounts(await accountsResponse.json() as ConnectedAccount[]);
@@ -164,6 +236,8 @@ export default function PlatformDashboard() {
       }
       if (tasksResponse.ok) setTaskEvents(await tasksResponse.json() as TaskEventView[]);
       if (auditResponse.ok) setAuditEvents(await auditResponse.json() as AuditEventView[]);
+      if (importsResponse.ok) setImportBatches(await importsResponse.json() as ImportBatchView[]);
+      if (insightsResponse.ok) setInsights(await insightsResponse.json() as InsightReportView[]);
       if (requests.every((response) => !response.ok)) setMessage('The workspace could not be loaded. Check your session permissions.');
     } catch {
       setMessage('Piggybot could not reach the workspace service. Please try again.');
@@ -253,6 +327,7 @@ export default function PlatformDashboard() {
       approvalPolicy: pipeline.definition.approvalPolicy,
       tone: pipeline.definition.tone,
       language: pipeline.definition.language,
+      modelBand: pipeline.definition.modelBand ?? 'eco',
     });
     setSavedPipeline(pipeline); setReadiness(null); setWizardStep('configure');
   }
@@ -266,7 +341,7 @@ export default function PlatformDashboard() {
     const payload = {
       name: draft.name,
       source: draft.sourceType === 'template' ? { type: 'template', templateId: draft.templateId } : { type: 'description', description: draft.description || draft.brief },
-      configuration: { brief: draft.brief, targetAccountIds: draft.targetAccountIds, approvalPolicy: draft.approvalPolicy, tone: draft.tone, language: draft.language },
+      configuration: { brief: draft.brief, targetAccountIds: draft.targetAccountIds, approvalPolicy: draft.approvalPolicy, tone: draft.tone, language: draft.language, modelBand: draft.modelBand },
     };
     const editing = Boolean(savedPipeline?.status === 'draft');
     const response = await fetch(editing ? `${gatewayUrl}/api/pipelines/${savedPipeline!.id}` : `${gatewayUrl}/api/pipelines`, {
@@ -342,6 +417,97 @@ export default function PlatformDashboard() {
     await loadMe(token);
   }
 
+  async function createImport(sourceType: 'paste' | 'csv', content: string) {
+    setMessage(''); setImportBusy(true);
+    try {
+      const response = await fetch(`${gatewayUrl}/api/imports`, {
+        method: 'POST',
+        headers: headers(true),
+        body: JSON.stringify({ label: importLabel.trim() || undefined, sourceType, content, modelBand: importBand }),
+      });
+      const result = await response.json().catch(() => ({})) as { id?: string; status?: string; error?: string };
+      if (response.status === 402 || result.error === 'subscription_required') {
+        setMessage('Imports require an active subscription. Pick a plan to unlock AI classification.');
+        return;
+      }
+      if (!response.ok || !result.id) { setMessage(result.error ?? 'The import could not be created.'); return; }
+      setImportContent(''); setImportLabel('');
+      setMessage(`Import queued (${result.status ?? 'pending'}) — classification is running in the background.`);
+      await loadWorkspace();
+    } catch {
+      setMessage('The import could not reach the workspace service. Please retry.');
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  async function importCsvFile(file: File) {
+    if (file.size > 2 * 1024 * 1024) { setMessage('CSV files are limited to 2 MB. Split larger exports into batches.'); return; }
+    const content = await file.text();
+    if (!importLabel.trim()) setImportLabel(file.name.replace(/\.csv$/i, ''));
+    await createImport('csv', content);
+  }
+
+  async function loadImportDetail(batchId: string) {
+    const response = await fetch(`${gatewayUrl}/api/imports/${batchId}`, { headers: headers() });
+    if (!response.ok) { setImportDetail(null); setMessage('Import batch not found or access is denied.'); return; }
+    setImportDetail(await response.json() as ImportDetailView);
+  }
+
+  async function createInsight() {
+    setMessage(''); setInsightBusy(true);
+    try {
+      const response = await fetch(`${gatewayUrl}/api/insights`, {
+        method: 'POST',
+        headers: headers(true),
+        body: JSON.stringify({ template: insightTemplate, modelBand: insightBand, ...(insightBatchIds.length ? { batchIds: insightBatchIds } : {}) }),
+      });
+      const result = await response.json().catch(() => ({})) as { id?: string; error?: string };
+      if (response.status === 402 || result.error === 'subscription_required') {
+        setMessage('Insight reports require an active subscription. Pick a plan to unlock AI analysis.');
+        return;
+      }
+      if (!response.ok || !result.id) {
+        setMessage(result.error === 'insight_no_classified_batches' ? 'Import and classify a batch first — insights are built from tagged items.'
+          : result.error === 'insight_batches_not_ready' ? 'Some selected batches are still classifying. Wait for them to finish.'
+          : result.error ?? 'The insight report could not be created.');
+        return;
+      }
+      setInsightBatchIds([]);
+      setMessage('Insight report queued — the AI is reading your tagged evidence now.');
+      await loadWorkspace();
+    } catch {
+      setMessage('The insight request could not reach the workspace service. Please retry.');
+    } finally {
+      setInsightBusy(false);
+    }
+  }
+
+  const loadInsightDetail = useCallback(async (reportId: string) => {
+    const response = await fetch(`${gatewayUrl}/api/insights/${reportId}`, { headers: headers() });
+    if (!response.ok) { setInsightDetail(null); setMessage('Insight report not found or access is denied.'); return; }
+    setInsightDetail(await response.json() as InsightReportView);
+  }, [headers]);
+
+  // Poll while any batch is still being classified.
+  const importsInFlight = importBatches.some((batch) => batch.status === 'pending' || batch.status === 'classifying');
+  useEffect(() => {
+    if (!token || section !== 'imports' || !importsInFlight) return;
+    const timer = window.setInterval(() => void loadWorkspace(), 5_000);
+    return () => window.clearInterval(timer);
+  }, [token, section, importsInFlight, loadWorkspace]);
+
+  // Poll while an insight report is generating; refresh the open detail too.
+  const insightsInFlight = insights.some((report) => report.status === 'pending' || report.status === 'generating');
+  useEffect(() => {
+    if (!token || section !== 'insights' || !insightsInFlight) return;
+    const timer = window.setInterval(() => {
+      void loadWorkspace();
+      if (insightDetail && (insightDetail.status === 'pending' || insightDetail.status === 'generating')) void loadInsightDetail(insightDetail.id);
+    }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [token, section, insightsInFlight, insightDetail, loadWorkspace, loadInsightDetail]);
+
   if (!token) {
     return <EmailAuthScreen onSession={(session) => {
       storeSessionAccessToken(session);
@@ -372,7 +538,7 @@ export default function PlatformDashboard() {
         <div className="mx-auto flex max-w-7xl flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div><p className="font-hand text-lg text-sky-deep">Piggybot Platform</p><h1 className="font-display text-3xl">{me?.workspace.name ?? 'Marketing workspace'}</h1>{me && <p className="mt-1 text-sm text-ink-soft">Signed in as {me.user.email} · {me.role} · plan {me.plan}</p>}</div>
           <nav className="flex flex-wrap gap-2" aria-label="Workspace navigation">
-            {([['dashboard', 'Dashboard'], ['pipelines', 'Pipelines'], ['accounts', 'Accounts'], ['activity', 'Activity'], ['settings', 'Settings']] as const).map(([id, label]) => <button key={id} onClick={() => setSection(id)} className={`rounded-full px-4 py-2 text-sm font-medium ${section === id ? 'bg-sky-deep text-white' : 'bg-paper text-ink-soft hover:bg-sky-pale'}`}>{label}</button>)}
+            {([['dashboard', 'Dashboard'], ['pipelines', 'Pipelines'], ['imports', 'Imports'], ['insights', 'Insights'], ['accounts', 'Accounts'], ['activity', 'Activity'], ['settings', 'Settings']] as const).map(([id, label]) => <button key={id} onClick={() => setSection(id)} className={`rounded-full px-4 py-2 text-sm font-medium ${section === id ? 'bg-sky-deep text-white' : 'bg-paper text-ink-soft hover:bg-sky-pale'}`}>{label}</button>)}
           </nav>
           <div className="flex items-center gap-4 text-sm"><a className="text-ink-soft hover:text-ink" href="/contact">Help</a><a className="text-ink-soft hover:text-ink" href="/">Website</a><button onClick={signOut} className="rounded-md border border-ink/20 px-3 py-1.5 text-ink-soft hover:text-ink">Sign out</button></div>
         </div>
@@ -384,6 +550,8 @@ export default function PlatformDashboard() {
         {section === 'dashboard' && <BillingDashboard token={token} gatewayUrl={gatewayUrl} onUsage={applyBillingUsage} />}
         {message && <div className="mb-6 rounded-xl border border-sky-deep/20 bg-sky-pale p-4 text-sm text-sky-deep" role="status">{message}</div>}
         {section === 'pipelines' && <PipelinesSection templates={templates} pipelines={pipelines} usage={usage} loading={loading} onNew={() => { setDraft(freshDraft()); setSavedPipeline(null); setReadiness(null); setWizardStep('start'); }} onTemplate={startTemplate} onContinue={continuePipeline} onActivity={() => setSection('activity')} />}
+        {section === 'imports' && <ImportsSection batches={importBatches} label={importLabel} setLabel={setImportLabel} band={importBand} setBand={setImportBand} content={importContent} setContent={setImportContent} busy={importBusy} detail={importDetail} onPasteImport={() => void createImport('paste', importContent)} onCsvFile={(file) => void importCsvFile(file)} onOpenDetail={(id) => void loadImportDetail(id)} onCloseDetail={() => setImportDetail(null)} />}
+        {section === 'insights' && <InsightsSection reports={insights} batches={importBatches.filter((batch) => batch.status === 'classified')} template={insightTemplate} setTemplate={setInsightTemplate} band={insightBand} setBand={setInsightBand} selectedBatchIds={insightBatchIds} setSelectedBatchIds={setInsightBatchIds} busy={insightBusy} detail={insightDetail} onGenerate={() => void createInsight()} onOpenDetail={(id) => void loadInsightDetail(id)} onCloseDetail={() => setInsightDetail(null)} />}
         {section === 'accounts' && <><AccountsSection accounts={accounts.filter(account => !['snapchat', 'whatsapp'].includes(account.platform))} connecting={connecting} onConnect={connectSocial} onRefresh={() => void refreshAccounts(true)} />{telegram && <section className="mt-6 rounded-xl border border-ink/20 p-6"><h3 className="text-lg font-semibold">Connect Telegram</h3><p className="my-3">Code: <strong>{telegram.code}</strong> · Expires: {new Date(telegram.expiresAt).toLocaleString()}</p><ol className="space-y-2">{telegram.instructions.map((instruction, index) => <li key={index}>{instruction}</li>)}</ol><p className="mt-4">After the bot confirms, select Sync account health above to verify the connection.</p><button onClick={() => setTelegram(null)} className="mt-3 underline">Dismiss code</button></section>}</>}
         {section === 'activity' && <ActivitySection approvals={approvals} taskEvents={taskEvents} auditEvents={auditEvents} runId={runId} setRunId={setRunId} run={run} onLoadRun={() => void loadRun()} onDecision={decideApproval} />}
         {section === 'settings' && <SettingsSection me={me} locked={locked} newPassword={newPassword} setNewPassword={setNewPassword} passwordStatus={passwordStatus} onSavePassword={() => void savePassword()} onSignOut={signOut} feedbackCategory={feedbackCategory} setFeedbackCategory={setFeedbackCategory} feedbackMessage={feedbackMessage} setFeedbackMessage={setFeedbackMessage} feedbackStatus={feedbackStatus} onFeedback={() => void sendFeedback()} referralUrl={referralUrl} referralStatus={referralStatus} onReferral={() => void createReferralLink()} />}
@@ -451,6 +619,146 @@ function PipelinesSection({ templates, pipelines, usage, loading, onNew, onTempl
   </div>;
 }
 
+function CitationList({ citations }: { citations?: ReportCitation[] }) {
+  if (!citations?.length) return null;
+  return <div className="mt-2 space-y-1">{citations.map((citation, index) => <blockquote key={index} className="border-l-2 border-sky-deep/40 pl-2 text-xs italic text-ink-soft">“{citation.snippet}”</blockquote>)}</div>;
+}
+
+interface RecapReport { summary: string; topContent: { ref: string; note: string; successFactors: string[]; citations: ReportCitation[] }[]; successFactors: { factor: string; detail: string; citations: ReportCitation[] }[]; fanThemes: { theme: string; citations: ReportCitation[] }[]; nextTopics: string[]; draftTitles: string[]; }
+interface CommentReport { summary: string; frequentQuestions: { question: string; approxCount: number; citations: ReportCitation[] }[]; sentimentNotes: { sentiment: string; note: string; citations: ReportCitation[] }[]; demandRanking: { demand: string; approxCount: number; citations: ReportCitation[] }[]; productOpportunities: { opportunity: string; citations: ReportCitation[] }[]; memeMaterial: { meme: string; citations: ReportCitation[] }[]; highValueComments: { ref: string; reason: string; replyDraft: string; citations: ReportCitation[] }[]; }
+interface OpportunityReport { summary: string; opportunities: { name: string; formFactor: string; audience: string; difficulty: string; evidenceCount: number; risks: string[]; validationAction: string; listingDraft: string; citations: ReportCitation[] }[]; presalePollDraft: string; }
+interface ReviewReport { summary: string; issueClusters: { theme: string; approxCount: number; severity: string; affectedSkus: string[]; citations: ReportCitation[] }[]; returnReasons: { reason: string; approxCount: number; citations: ReportCitation[] }[]; expectationMismatches: { aspect: string; detail: string; citations: ReportCitation[] }[]; priorityFixes: { fix: string; sku?: string; priority: string; expectedImpact: string; citations: ReportCitation[] }[]; serviceReplyDrafts: { ref: string; issue: string; replyDraft: string; citations: ReportCitation[] }[]; listingFixSuggestions: string[]; }
+interface DigestReport { summary: string; hotTopics: { topic: string; citations: ReportCitation[] }[]; unresolvedQuestions: { question: string; citations: ReportCitation[] }[]; highValueMembers: { author: string; reason: string; signals: string[] }[]; conflictRisks: { risk: string; severity: string; citations: ReportCitation[] }[]; activityIdeas: string[]; announcementDraft: string; }
+interface DailyOpsReport { summary: string; tasks: { title: string; reason: string; suggestedAction: string; draftCopy?: string; priority: string; dueHint: string; citations: ReportCitation[] }[]; }
+
+const PRIORITY_STYLES: Record<string, string> = {
+  urgent: 'bg-sunset text-white', high: 'bg-sun/60 text-ink', normal: 'bg-sky-pale text-ink-soft',
+  critical: 'bg-sunset text-white', medium: 'bg-sun/60 text-ink', low: 'bg-sky-pale text-ink-soft',
+};
+function PriorityChip({ value }: { value: string }) {
+  return <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize ${PRIORITY_STYLES[value] ?? 'bg-sky-pale text-ink-soft'}`}>{value}</span>;
+}
+
+function InsightReportBody({ report }: { report: InsightReportView }) {
+  if (report.status !== 'generated' || !report.report) {
+    return <p className="p-6 text-sm text-ink-soft">{report.status === 'failed' ? `Generation failed: ${report.error ?? 'unknown error'}. You can safely generate a new report.` : 'The AI is reading your tagged evidence. This usually takes under a minute…'}</p>;
+  }
+  const body = report.report;
+  return <div className="space-y-6 p-6 md:p-8">
+    {'summary' in body && <p className="rounded-xl bg-sky-pale p-4 text-sm">{(body as { summary: string }).summary}</p>}
+    {report.droppedCitations > 0 && <p className="text-xs text-ink-soft">{report.droppedCitations} citation{report.droppedCitations === 1 ? '' : 's'} failed verbatim verification and were removed before saving.</p>}
+
+    {report.template === 'content_recap' && (() => { const recap = body as unknown as RecapReport; return <>
+      {recap.topContent?.length > 0 && <section><h3 className="text-lg font-semibold">Top content & why it worked</h3><div className="mt-3 space-y-3">{recap.topContent.map((item, index) => <div key={index} className="rounded-xl border border-ink/15 bg-paper-card p-4"><p className="text-sm font-medium">#{index + 1} · {item.note}</p>{item.successFactors?.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{item.successFactors.map((factor) => <span key={factor} className="rounded-full bg-sun/30 px-2 py-0.5 text-[11px]">{factor}</span>)}</div>}<CitationList citations={item.citations} /></div>)}</div></section>}
+      {recap.successFactors?.length > 0 && <section><h3 className="text-lg font-semibold">Repeatable success factors</h3><div className="mt-3 grid gap-3 md:grid-cols-2">{recap.successFactors.map((factor, index) => <div key={index} className="rounded-xl border border-ink/15 bg-paper-card p-4"><p className="text-sm font-semibold">{factor.factor}</p><p className="mt-1 text-xs text-ink-soft">{factor.detail}</p><CitationList citations={factor.citations} /></div>)}</div></section>}
+      {recap.fanThemes?.length > 0 && <section><h3 className="text-lg font-semibold">What fans care about now</h3><div className="mt-3 space-y-2">{recap.fanThemes.map((theme, index) => <div key={index} className="rounded-lg bg-paper-card p-3"><p className="text-sm font-medium">{theme.theme}</p><CitationList citations={theme.citations} /></div>)}</div></section>}
+      {recap.nextTopics?.length > 0 && <section><h3 className="text-lg font-semibold">Next batch: 10 topic ideas</h3><ol className="mt-3 list-decimal space-y-1 pl-6 text-sm">{recap.nextTopics.map((topic, index) => <li key={index}>{topic}</li>)}</ol></section>}
+      {recap.draftTitles?.length > 0 && <section><h3 className="text-lg font-semibold">Ready-to-publish titles</h3><div className="mt-3 space-y-2">{recap.draftTitles.map((title, index) => <p key={index} className="rounded-lg border border-ink/15 bg-paper-card p-3 text-sm">{title}</p>)}</div></section>}
+    </>; })()}
+
+    {report.template === 'comment_insights' && (() => { const insights = body as unknown as CommentReport; return <>
+      {insights.demandRanking?.length > 0 && <section><h3 className="text-lg font-semibold">Fan demand ranking</h3><div className="mt-3 space-y-2">{insights.demandRanking.map((demand, index) => <div key={index} className="flex items-start gap-3 rounded-lg bg-paper-card p-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-deep text-xs text-white">{index + 1}</span><div className="flex-1"><p className="text-sm font-medium">{demand.demand} <span className="text-xs text-ink-soft">· ~{demand.approxCount} mentions</span></p><CitationList citations={demand.citations} /></div></div>)}</div></section>}
+      {insights.frequentQuestions?.length > 0 && <section><h3 className="text-lg font-semibold">Frequent questions</h3><div className="mt-3 space-y-2">{insights.frequentQuestions.map((question, index) => <div key={index} className="rounded-lg bg-paper-card p-3"><p className="text-sm font-medium">{question.question} <span className="text-xs text-ink-soft">· ~{question.approxCount}×</span></p><CitationList citations={question.citations} /></div>)}</div></section>}
+      {insights.sentimentNotes?.length > 0 && <section><h3 className="text-lg font-semibold">Sentiment signals</h3><div className="mt-3 grid gap-3 md:grid-cols-2">{insights.sentimentNotes.map((note, index) => <div key={index} className="rounded-xl border border-ink/15 bg-paper-card p-4"><p className="text-xs font-semibold uppercase tracking-wide text-sky-deep">{note.sentiment.replace('_', ' ')}</p><p className="mt-1 text-sm">{note.note}</p><CitationList citations={note.citations} /></div>)}</div></section>}
+      {insights.highValueComments?.length > 0 && <section><h3 className="text-lg font-semibold">High-value comments & reply drafts</h3><div className="mt-3 space-y-3">{insights.highValueComments.map((comment, index) => <div key={index} className="rounded-xl border border-ink/15 bg-paper-card p-4"><p className="text-sm font-medium">{comment.reason}</p><CitationList citations={comment.citations} /><div className="mt-2 rounded-lg bg-meadow-light/60 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-meadow-deep">Reply draft</p><p className="mt-1 text-sm">{comment.replyDraft}</p></div></div>)}</div></section>}
+      {insights.memeMaterial?.length > 0 && <section><h3 className="text-lg font-semibold">Meme material</h3><div className="mt-3 space-y-2">{insights.memeMaterial.map((meme, index) => <div key={index} className="rounded-lg bg-paper-card p-3"><p className="text-sm">{meme.meme}</p><CitationList citations={meme.citations} /></div>)}</div></section>}
+      {insights.productOpportunities?.length > 0 && <section><h3 className="text-lg font-semibold">Productizable signals</h3><div className="mt-3 space-y-2">{insights.productOpportunities.map((opportunity, index) => <div key={index} className="rounded-lg bg-paper-card p-3"><p className="text-sm">{opportunity.opportunity}</p><CitationList citations={opportunity.citations} /></div>)}</div></section>}
+    </>; })()}
+
+    {report.template === 'product_opportunities' && (() => { const opportunities = body as unknown as OpportunityReport; return <>
+      {opportunities.opportunities?.length > 0 && <section><h3 className="text-lg font-semibold">Opportunity list</h3><div className="mt-3 space-y-3">{opportunities.opportunities.map((opportunity, index) => <div key={index} className="rounded-xl border border-ink/15 bg-paper-card p-4"><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-semibold">{opportunity.name}</p><span className="rounded-full bg-sky-pale px-2 py-0.5 text-[11px]">{opportunity.formFactor.replace('_', ' ')}</span><span className={`rounded-full px-2 py-0.5 text-[11px] ${opportunity.difficulty === 'low' ? 'bg-meadow-light text-meadow-deep' : opportunity.difficulty === 'medium' ? 'bg-sun/35' : 'bg-sunset/15 text-sunset'}`}>{opportunity.difficulty} difficulty</span><span className="text-[11px] text-ink-soft">{opportunity.evidenceCount} evidence</span></div><p className="mt-2 text-xs text-ink-soft">Audience: {opportunity.audience}</p>{opportunity.risks?.length > 0 && <p className="mt-1 text-xs text-sunset">Risks: {opportunity.risks.join(' · ')}</p>}<p className="mt-1 text-xs"><span className="font-semibold">Validate:</span> {opportunity.validationAction}</p><CitationList citations={opportunity.citations} /><div className="mt-2 rounded-lg bg-sky-pale/70 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-sky-deep">Listing draft</p><p className="mt-1 text-sm whitespace-pre-line">{opportunity.listingDraft}</p></div></div>)}</div></section>}
+      {opportunities.presalePollDraft && <section><h3 className="text-lg font-semibold">Presale poll draft</h3><p className="mt-3 rounded-xl bg-sky-pale p-4 text-sm whitespace-pre-line">{opportunities.presalePollDraft}</p></section>}
+    </>; })()}
+
+    {report.template === 'review_attribution' && (() => { const review = body as unknown as ReviewReport; return <>
+      {review.issueClusters?.length > 0 && <section><h3 className="text-lg font-semibold">Complaint themes</h3><div className="mt-3 space-y-3">{review.issueClusters.map((cluster, index) => <div key={index} className="rounded-xl border border-ink/15 bg-paper-card p-4"><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-semibold">{cluster.theme}</p><PriorityChip value={cluster.severity} /><span className="text-[11px] text-ink-soft">~{cluster.approxCount} reviews</span></div>{cluster.affectedSkus?.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{cluster.affectedSkus.map((sku) => <span key={sku} className="rounded-full bg-sky-pale px-2 py-0.5 text-[11px]">SKU: {sku}</span>)}</div>}<CitationList citations={cluster.citations} /></div>)}</div></section>}
+      {review.priorityFixes?.length > 0 && <section><h3 className="text-lg font-semibold">Priority fixes</h3><div className="mt-3 space-y-2">{review.priorityFixes.map((fix, index) => <div key={index} className="flex items-start gap-3 rounded-lg bg-paper-card p-3"><PriorityChip value={fix.priority} /><div className="flex-1"><p className="text-sm font-medium">{fix.fix}{fix.sku && <span className="text-xs text-ink-soft"> · SKU {fix.sku}</span>}</p><p className="mt-1 text-xs text-ink-soft">Expected impact: {fix.expectedImpact}</p><CitationList citations={fix.citations} /></div></div>)}</div></section>}
+      {review.returnReasons?.length > 0 && <section><h3 className="text-lg font-semibold">Return reasons</h3><div className="mt-3 space-y-2">{review.returnReasons.map((reason, index) => <div key={index} className="rounded-lg bg-paper-card p-3"><p className="text-sm">{reason.reason} <span className="text-xs text-ink-soft">· ~{reason.approxCount}×</span></p><CitationList citations={reason.citations} /></div>)}</div></section>}
+      {review.expectationMismatches?.length > 0 && <section><h3 className="text-lg font-semibold">Listing vs reality</h3><div className="mt-3 space-y-2">{review.expectationMismatches.map((mismatch, index) => <div key={index} className="rounded-lg bg-paper-card p-3"><p className="text-sm font-medium">{mismatch.aspect}</p><p className="mt-1 text-xs text-ink-soft">{mismatch.detail}</p><CitationList citations={mismatch.citations} /></div>)}</div></section>}
+      {review.serviceReplyDrafts?.length > 0 && <section><h3 className="text-lg font-semibold">Customer-service reply drafts</h3><div className="mt-3 space-y-3">{review.serviceReplyDrafts.map((draft, index) => <div key={index} className="rounded-xl border border-ink/15 bg-paper-card p-4"><p className="text-sm font-medium">{draft.issue}</p><CitationList citations={draft.citations} /><div className="mt-2 rounded-lg bg-meadow-light/60 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-meadow-deep">Reply draft</p><p className="mt-1 text-sm">{draft.replyDraft}</p></div></div>)}</div></section>}
+      {review.listingFixSuggestions?.length > 0 && <section><h3 className="text-lg font-semibold">Product page edits</h3><ul className="mt-3 list-disc space-y-1 pl-6 text-sm">{review.listingFixSuggestions.map((suggestion, index) => <li key={index}>{suggestion}</li>)}</ul></section>}
+    </>; })()}
+
+    {report.template === 'community_digest' && (() => { const digest = body as unknown as DigestReport; return <>
+      {digest.hotTopics?.length > 0 && <section><h3 className="text-lg font-semibold">Hot topics</h3><div className="mt-3 space-y-2">{digest.hotTopics.map((topic, index) => <div key={index} className="rounded-lg bg-paper-card p-3"><p className="text-sm font-medium">{topic.topic}</p><CitationList citations={topic.citations} /></div>)}</div></section>}
+      {digest.highValueMembers?.length > 0 && <section><h3 className="text-lg font-semibold">High-value members</h3><div className="mt-3 grid gap-3 md:grid-cols-2">{digest.highValueMembers.map((member, index) => <div key={index} className="rounded-xl border border-ink/15 bg-paper-card p-4"><p className="text-sm font-semibold">{member.author}</p><p className="mt-1 text-xs text-ink-soft">{member.reason}</p>{member.signals?.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{member.signals.map((signal) => <span key={signal} className="rounded-full bg-meadow-light px-2 py-0.5 text-[11px]">{signal}</span>)}</div>}</div>)}</div></section>}
+      {digest.unresolvedQuestions?.length > 0 && <section><h3 className="text-lg font-semibold">Unresolved questions</h3><div className="mt-3 space-y-2">{digest.unresolvedQuestions.map((question, index) => <div key={index} className="rounded-lg bg-paper-card p-3"><p className="text-sm">{question.question}</p><CitationList citations={question.citations} /></div>)}</div></section>}
+      {digest.conflictRisks?.length > 0 && <section><h3 className="text-lg font-semibold">Moderation watchlist</h3><div className="mt-3 space-y-2">{digest.conflictRisks.map((risk, index) => <div key={index} className="flex items-start gap-3 rounded-lg bg-paper-card p-3"><PriorityChip value={risk.severity} /><div className="flex-1"><p className="text-sm">{risk.risk}</p><CitationList citations={risk.citations} /></div></div>)}</div></section>}
+      {digest.activityIdeas?.length > 0 && <section><h3 className="text-lg font-semibold">Activity ideas</h3><ul className="mt-3 list-disc space-y-1 pl-6 text-sm">{digest.activityIdeas.map((idea, index) => <li key={index}>{idea}</li>)}</ul></section>}
+      {digest.announcementDraft && <section><h3 className="text-lg font-semibold">Announcement draft</h3><p className="mt-3 rounded-xl bg-sky-pale p-4 text-sm whitespace-pre-line">{digest.announcementDraft}</p></section>}
+    </>; })()}
+
+    {report.template === 'daily_ops' && (() => { const daily = body as unknown as DailyOpsReport; return <>
+      {daily.tasks?.length > 0 && <section><h3 className="text-lg font-semibold">Today's priorities</h3><div className="mt-3 space-y-3">{daily.tasks.map((task, index) => <div key={index} className="rounded-xl border border-ink/15 bg-paper-card p-4"><div className="flex flex-wrap items-center gap-2"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-deep text-xs text-white">{index + 1}</span><p className="flex-1 text-sm font-semibold">{task.title}</p><PriorityChip value={task.priority} /><span className="text-[11px] text-ink-soft">{task.dueHint}</span></div><p className="mt-2 text-xs text-ink-soft">{task.reason}</p><p className="mt-1 text-sm"><span className="font-semibold">Action:</span> {task.suggestedAction}</p>{task.draftCopy && <div className="mt-2 rounded-lg bg-sky-pale/70 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-sky-deep">Ready-to-use copy</p><p className="mt-1 text-sm whitespace-pre-line">{task.draftCopy}</p></div>}<CitationList citations={task.citations} /></div>)}</div></section>}
+    </>; })()}
+  </div>;
+}
+
+function InsightsSection({ reports, batches, template, setTemplate, band, setBand, selectedBatchIds, setSelectedBatchIds, busy, detail, onGenerate, onOpenDetail, onCloseDetail }: { reports: InsightReportView[]; batches: ImportBatchView[]; template: InsightTemplate; setTemplate: (template: InsightTemplate) => void; band: ModelBand; setBand: (band: ModelBand) => void; selectedBatchIds: string[]; setSelectedBatchIds: (ids: string[]) => void; busy: boolean; detail: InsightReportView | null; onGenerate: () => void; onOpenDetail: (id: string) => void; onCloseDetail: () => void; }) {
+  return <div className="space-y-8">
+    <section className="sketch bg-paper-card p-6 shadow-paint-sm">
+      <p className="font-hand text-lg text-sky-deep">Result templates</p>
+      <h2 className="font-display text-3xl">Insight reports</h2>
+      <p className="mt-2 max-w-2xl text-sm text-ink-soft">Each report is generated only from your imported, AI-tagged items — every conclusion carries verbatim evidence quotes verified by the platform.</p>
+      <div className="mt-5 grid gap-4 md:grid-cols-3">
+        {INSIGHT_TEMPLATES.map((option) => <button key={option.id} onClick={() => setTemplate(option.id)} className={`sketch p-5 text-left transition hover:-translate-y-1 ${template === option.id ? 'bg-sky-pale outline-2 outline-sky-deep' : 'bg-paper-card'}`}><span className="block text-lg font-semibold">{option.name}</span><span className="mt-2 block text-sm text-ink-soft">{option.tagline}</span></button>)}
+      </div>
+      <div className="mt-5 grid gap-4 md:grid-cols-2">
+        <Field label="AI model band"><ModelBandPicker value={band} onChange={setBand} /></Field>
+        {template === 'daily_ops'
+          ? <Field label="Source"><p className="rounded-md border border-ink/20 bg-paper p-3 text-xs text-ink-soft">Automatic — your latest classified items plus the findings of your recent insight reports. A fresh report is also auto-generated every morning for subscribed workspaces.</p></Field>
+          : <Field label={`Source batches (${selectedBatchIds.length ? `${selectedBatchIds.length} selected` : 'latest classified'})`}>
+            <div className="max-h-36 space-y-1 overflow-y-auto rounded-md border border-ink/20 bg-paper p-2">
+              {batches.length === 0 && <p className="p-2 text-xs text-ink-soft">No classified batches yet — import data first.</p>}
+              {batches.map((batch) => <label key={batch.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-sky-pale"><input type="checkbox" checked={selectedBatchIds.includes(batch.id)} onChange={() => setSelectedBatchIds(selectedBatchIds.includes(batch.id) ? selectedBatchIds.filter((id) => id !== batch.id) : [...selectedBatchIds, batch.id])} />{batch.label} · {batch.itemCount} items</label>)}
+            </div>
+          </Field>}
+      </div>
+      <button disabled={busy || (batches.length === 0 && reports.length === 0)} onClick={onGenerate} className="mt-4 rounded-md bg-sunset px-5 py-3 font-medium text-white shadow-paint-sm disabled:cursor-not-allowed disabled:opacity-40">{busy ? 'Queuing…' : template === 'daily_ops' ? "Generate today's tasks" : 'Generate insight report'}</button>
+    </section>
+
+    <section>
+      <p className="font-hand text-lg text-sky-deep">History</p>
+      <h2 className="font-display text-3xl">Reports</h2>
+      {reports.length === 0 ? <EmptyState title="No reports yet" detail="Pick a template above and generate your first evidence-backed report." /> : <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{reports.map((report) => <article key={report.id} className="sketch bg-paper-card p-5 shadow-paint-sm"><div className="flex items-center justify-between gap-3"><StatusBadge status={report.status} /><span className="text-xs text-ink-soft">{report.modelBand}</span></div><h3 className="mt-4 text-lg font-semibold">{report.title}</h3><p className="mt-1 text-xs text-ink-soft">{INSIGHT_TEMPLATES.find((t) => t.id === report.template)?.name} · {report.itemCount} items · {new Date(report.createdAt).toLocaleString()}</p><button onClick={() => onOpenDetail(report.id)} className="mt-4 w-full rounded-md border border-ink/25 px-4 py-2 text-sm font-medium hover:bg-sky-pale">Open report</button></article>)}</div>}
+    </section>
+
+    {detail && <div className="fixed inset-0 z-50 overflow-y-auto bg-ink/45 p-4 backdrop-blur-sm"><div className="mx-auto my-4 max-w-4xl rounded-2xl bg-paper shadow-2xl"><header className="flex items-start justify-between border-b border-ink/15 p-6"><div><p className="font-hand text-lg text-sky-deep">{INSIGHT_TEMPLATES.find((t) => t.id === detail.template)?.name} · {detail.itemCount} items</p><h2 className="font-display text-3xl">{detail.title}</h2></div><button onClick={onCloseDetail} className="rounded-full border border-ink/20 px-3 py-1 text-sm">Close</button></header><InsightReportBody report={detail} /></div></div>}
+  </div>;
+}
+
+function ImportsSection({ batches, label, setLabel, band, setBand, content, setContent, busy, detail, onPasteImport, onCsvFile, onOpenDetail, onCloseDetail }: { batches: ImportBatchView[]; label: string; setLabel: (value: string) => void; band: ModelBand; setBand: (band: ModelBand) => void; content: string; setContent: (value: string) => void; busy: boolean; detail: ImportDetailView | null; onPasteImport: () => void; onCsvFile: (file: File) => void; onOpenDetail: (id: string) => void; onCloseDetail: () => void; }) {
+  return <div className="space-y-8">
+    <section className="sketch bg-paper-card p-6 shadow-paint-sm">
+      <p className="font-hand text-lg text-sky-deep">Bring your own data</p>
+      <h2 className="font-display text-3xl">Import content for AI tagging</h2>
+      <p className="mt-2 max-w-2xl text-sm text-ink-soft">Paste comments, reviews, or posts — or upload a CSV export (columns like text, author, platform, views, likes). Every AI tag is stored with a verbatim evidence quote from the original text.</p>
+      <div className="mt-5 grid gap-4 md:grid-cols-2">
+        <Field label="Batch label"><input value={label} onChange={(event) => setLabel(event.target.value)} className="w-full rounded-md border border-ink/20 bg-paper p-3" placeholder="October comment export" maxLength={120} /></Field>
+        <Field label="AI model band"><ModelBandPicker value={band} onChange={setBand} /></Field>
+      </div>
+      <Field label="Paste content (one item per line)">
+        <textarea value={content} onChange={(event) => setContent(event.target.value)} className="min-h-28 w-full rounded-md border border-ink/20 bg-paper p-3" placeholder={'Love this serum — where can I buy it?\nThe new packaging leaks, please fix it\n…'} />
+      </Field>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button disabled={busy || content.trim().length === 0} onClick={onPasteImport} className="rounded-md bg-sky-deep px-5 py-3 font-medium text-white disabled:cursor-not-allowed disabled:opacity-40">{busy ? 'Importing…' : 'Import pasted items'}</button>
+        <label className={`rounded-md border border-ink/25 px-5 py-3 font-medium ${busy ? 'pointer-events-none opacity-40' : 'cursor-pointer hover:bg-sky-pale'}`}>Upload CSV<input type="file" accept=".csv,text/csv" className="hidden" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; if (file) onCsvFile(file); event.target.value = ''; }} /></label>
+        <span className="text-xs text-ink-soft">Up to 5,000 items or 2 MB per batch. Classification runs in the background.</span>
+      </div>
+    </section>
+
+    <section>
+      <div className="flex items-end justify-between gap-4"><div><p className="font-hand text-lg text-sky-deep">History</p><h2 className="font-display text-3xl">Import batches</h2></div></div>
+      {batches.length === 0 ? <EmptyState title="No imports yet" detail="Import a batch above. The AI will tag each item with intent labels and keep the exact evidence quote for every tag." /> : <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{batches.map((batch) => <article key={batch.id} className="sketch bg-paper-card p-5 shadow-paint-sm"><div className="flex items-center justify-between gap-3"><StatusBadge status={batch.status} /><span className="text-xs text-ink-soft">{batch.sourceType.toUpperCase()} · {batch.modelBand}</span></div><h3 className="mt-4 text-lg font-semibold">{batch.label}</h3><p className="mt-1 text-xs text-ink-soft">{batch.itemCount} item{batch.itemCount === 1 ? '' : 's'} · {new Date(batch.createdAt).toLocaleString()}</p>{Object.keys(batch.tagDistribution).length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{Object.entries(batch.tagDistribution).sort((a, b) => b[1] - a[1]).map(([tag, count]) => <span key={tag} className="rounded-full bg-sky-pale px-2 py-0.5 text-[11px]">{TAG_LABELS[tag] ?? tag} · {count}</span>)}</div>}<button onClick={() => onOpenDetail(batch.id)} className="mt-4 w-full rounded-md border border-ink/25 px-4 py-2 text-sm font-medium hover:bg-sky-pale">View tagged items</button></article>)}</div>}
+    </section>
+
+    {detail && <div className="fixed inset-0 z-50 overflow-y-auto bg-ink/45 p-4 backdrop-blur-sm"><div className="mx-auto my-4 max-w-4xl rounded-2xl bg-paper shadow-2xl"><header className="flex items-start justify-between border-b border-ink/15 p-6"><div><p className="font-hand text-lg text-sky-deep">{detail.batch.itemCount} items · {detail.batch.modelBand}</p><h2 className="font-display text-3xl">{detail.batch.label}</h2></div><button onClick={onCloseDetail} className="rounded-full border border-ink/20 px-3 py-1 text-sm">Close</button></header><div className="space-y-4 p-6 md:p-8">
+      {detail.items.length === 0 && <p className="text-sm text-ink-soft">No items in this batch.</p>}
+      {detail.items.map((item) => <article key={item.id} className="rounded-xl border border-ink/15 bg-paper-card p-4"><div className="flex flex-wrap items-center gap-2 text-xs text-ink-soft"><span className="font-semibold uppercase tracking-wide text-sky-deep">{platformLabel(item.platform)}</span>{item.author && <span>· {item.author}</span>}</div><p className="mt-2 text-sm">{item.text}</p>{item.tags.length > 0 && <div className="mt-3 space-y-2">{item.tags.map((tag) => <div key={tag.tag} className="rounded-lg bg-sky-pale/70 p-3"><div className="flex items-center justify-between gap-3"><span className="text-xs font-semibold">{TAG_LABELS[tag.tag] ?? tag.tag}</span><span className="text-[11px] text-ink-soft">{Math.round(tag.confidence * 100)}%</span></div><blockquote className="mt-1 border-l-2 border-sky-deep/40 pl-2 text-xs italic text-ink-soft">“{tag.evidence}”</blockquote></div>)}</div>}</article>)}
+    </div></div></div>}
+  </div>;
+}
+
 function AccountsSection({ accounts, connecting, onConnect, onRefresh }: { accounts: ConnectedAccount[]; connecting: string; onConnect: (platform: typeof socialPlatforms[number][0]) => void; onRefresh: () => void; }) {
   return <div className="space-y-8"><section><div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><p className="font-hand text-lg text-sky-deep">White-label connections</p><h2 className="font-display text-3xl">Connected Accounts</h2><p className="mt-2 max-w-2xl text-sm text-ink-soft">Authorize with the social network, then choose pages, organizations, boards, or phone numbers inside a Piggybot-branded flow.</p></div><button onClick={onRefresh} className="rounded-md border border-ink/25 px-4 py-2 text-sm font-medium hover:bg-sky-pale">Sync account health</button></div>{accounts.length === 0 ? <EmptyState title="No connected accounts" detail="Connect at least one destination before activating a pipeline." /> : <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{accounts.map((account) => <article key={account.id} className="sketch bg-paper-card p-5"><div className="flex items-start justify-between gap-4"><div><span className="text-xs font-semibold uppercase tracking-wide text-sky-deep">{platformLabel(account.platform)}</span><h3 className="mt-1 font-semibold">{account.displayName}</h3></div><StatusBadge status={account.status} /></div><p className="mt-4 text-xs text-ink-soft">{account.capabilities.length ? account.capabilities.join(' · ') : 'Capabilities update after the next sync.'}</p></article>)}</div>}</section><section><h3 className="text-lg font-semibold">Add another destination</h3><div className="mt-4 flex flex-wrap gap-2">{socialPlatforms.map(([id, label]) => <button key={id} disabled={Boolean(connecting)} onClick={() => onConnect(id)} className="rounded-md border border-ink/30 bg-paper-card px-4 py-2 text-sm font-medium hover:bg-sky-pale disabled:opacity-50">{connecting === id ? 'Opening…' : `Connect ${label}`}</button>)}</div></section></div>;
 }
@@ -468,16 +776,16 @@ function PipelineWizard({ step, draft, setDraft, templates, selectedTemplate, ac
   const index = ({ start: 0, configure: 1, accounts: 2, review: 3, saved: 4 } as const)[step];
   return <div className="fixed inset-0 z-50 overflow-y-auto bg-ink/45 p-4 backdrop-blur-sm"><div className="mx-auto my-4 max-w-4xl rounded-2xl bg-paper shadow-2xl"><header className="flex items-start justify-between border-b border-ink/15 p-6"><div><p className="font-hand text-lg text-sky-deep">New automation</p><h2 className="font-display text-3xl">Build your pipeline</h2></div><button onClick={onClose} className="rounded-full border border-ink/20 px-3 py-1 text-sm">Close</button></header><div className="grid gap-1 border-b border-ink/10 px-6 py-4 sm:grid-cols-5">{steps.map((label, stepIndex) => <div key={label} className={`rounded px-2 py-2 text-xs font-medium ${stepIndex === index ? 'bg-sky-deep text-white' : stepIndex < index ? 'bg-meadow-light text-ink' : 'bg-paper-card text-ink-soft'}`}>{stepIndex + 1}. {label}</div>)}</div><div className="p-6 md:p-8">
     {step === 'start' && <div><h3 className="text-xl font-semibold">How would you like to start?</h3><p className="mt-1 text-sm text-ink-soft">Both paths create an editable pipeline draft.</p><div className="mt-6 grid gap-4 md:grid-cols-2">{templates.map((template) => <TemplateCard key={template.id} template={template} onClick={() => onTemplate(template)} />)}<button onClick={onDescription} className="sketch border-2 border-dashed border-sky-deep/40 bg-sky-pale p-5 text-left transition hover:-translate-y-1"><span className="text-xs font-semibold uppercase tracking-wide text-sky-deep">Custom</span><span className="mt-2 block text-lg font-semibold">Describe an announcement</span><span className="mt-2 block text-sm text-ink-soft">Turn your announcement brief into posts for approval. Other automation types are not enabled.</span></button></div></div>}
-    {step === 'configure' && <div className="space-y-5"><div><h3 className="text-xl font-semibold">Configure the outcome</h3><p className="mt-1 text-sm text-ink-soft">Name the pipeline and give Piggybot the context it needs.</p></div>{draft.sourceType === 'description' && <Field label="What should this automation do?"><textarea value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value, brief: event.target.value }))} className="min-h-24 w-full rounded-md border border-ink/20 bg-paper-card p-3" placeholder="Example: Turn every product launch brief into LinkedIn and Instagram drafts for approval." /></Field>}<Field label="Pipeline name"><input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} className="w-full rounded-md border border-ink/20 bg-paper-card p-3" placeholder="Product launch distribution" /></Field><Field label="Working brief"><textarea value={draft.brief} onChange={(event) => setDraft((current) => ({ ...current, brief: event.target.value }))} className="min-h-28 w-full rounded-md border border-ink/20 bg-paper-card p-3" /></Field><div className="grid gap-4 md:grid-cols-3"><Field label="Tone"><input value={draft.tone} onChange={(event) => setDraft((current) => ({ ...current, tone: event.target.value }))} className="w-full rounded-md border border-ink/20 bg-paper-card p-3" /></Field><Field label="Language"><select value={draft.language} onChange={(event) => setDraft((current) => ({ ...current, language: event.target.value }))} className="w-full rounded-md border border-ink/20 bg-paper-card p-3"><option value="en">English</option><option value="zh">中文</option><option value="es">Español</option></select></Field><Field label="Approval policy"><select value={draft.approvalPolicy} onChange={(event) => setDraft((current) => ({ ...current, approvalPolicy: event.target.value as PipelineDraft['approvalPolicy'] }))} className="w-full rounded-md border border-ink/20 bg-paper-card p-3"><option value="required">Always require approval</option><option value="auto_approve">Assisted approval</option></select></Field></div><WizardActions back={() => onStep(savedPipeline ? 'saved' : 'start')} next={() => onStep('accounts')} nextDisabled={draft.name.trim().length < 3 || draft.brief.trim().length < 10 || (draft.sourceType === 'description' && draft.description.trim().length < 10)} /></div>}
+    {step === 'configure' && <div className="space-y-5"><div><h3 className="text-xl font-semibold">Configure the outcome</h3><p className="mt-1 text-sm text-ink-soft">Name the pipeline and give Piggybot the context it needs.</p></div>{draft.sourceType === 'description' && <Field label="What should this automation do?"><textarea value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value, brief: event.target.value }))} className="min-h-24 w-full rounded-md border border-ink/20 bg-paper-card p-3" placeholder="Example: Turn every product launch brief into LinkedIn and Instagram drafts for approval." /></Field>}<Field label="Pipeline name"><input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} className="w-full rounded-md border border-ink/20 bg-paper-card p-3" placeholder="Product launch distribution" /></Field><Field label="Working brief"><textarea value={draft.brief} onChange={(event) => setDraft((current) => ({ ...current, brief: event.target.value }))} className="min-h-28 w-full rounded-md border border-ink/20 bg-paper-card p-3" /></Field><div className="grid gap-4 md:grid-cols-3"><Field label="Tone"><input value={draft.tone} onChange={(event) => setDraft((current) => ({ ...current, tone: event.target.value }))} className="w-full rounded-md border border-ink/20 bg-paper-card p-3" /></Field><Field label="Language"><select value={draft.language} onChange={(event) => setDraft((current) => ({ ...current, language: event.target.value }))} className="w-full rounded-md border border-ink/20 bg-paper-card p-3"><option value="en">English</option><option value="zh">中文</option><option value="es">Español</option></select></Field><Field label="Approval policy"><select value={draft.approvalPolicy} onChange={(event) => setDraft((current) => ({ ...current, approvalPolicy: event.target.value as PipelineDraft['approvalPolicy'] }))} className="w-full rounded-md border border-ink/20 bg-paper-card p-3"><option value="required">Always require approval</option><option value="auto_approve">Assisted approval</option></select></Field></div><Field label="AI model band"><ModelBandPicker value={draft.modelBand} onChange={(band) => setDraft((current) => ({ ...current, modelBand: band }))} /></Field><WizardActions back={() => onStep(savedPipeline ? 'saved' : 'start')} next={() => onStep('accounts')} nextDisabled={draft.name.trim().length < 3 || draft.brief.trim().length < 10 || (draft.sourceType === 'description' && draft.description.trim().length < 10)} /></div>}
     {step === 'accounts' && <div><h3 className="text-xl font-semibold">Choose destinations</h3><p className="mt-1 text-sm text-ink-soft">Pipelines remain drafts until their selected accounts are connected and healthy.</p>{accounts.length === 0 ? <EmptyState title="Connect an account first" detail="Close this builder, open Accounts, and connect a destination through the Piggybot-branded flow." /> : <div className="mt-6 grid gap-3 md:grid-cols-2">{accounts.map((account) => <label key={account.id} className={`flex cursor-pointer gap-3 rounded-xl border p-4 ${draft.targetAccountIds.includes(account.id) ? 'border-sky-deep bg-sky-pale' : 'border-ink/15 bg-paper-card'}`}><input type="checkbox" checked={draft.targetAccountIds.includes(account.id)} onChange={() => onToggleAccount(account.id)} /><span><strong className="block">{account.displayName}</strong><small className="text-ink-soft">{platformLabel(account.platform)} · {account.status}</small></span></label>)}</div>}<WizardActions back={() => onStep('configure')} next={() => onStep('review')} nextLabel={draft.targetAccountIds.length ? 'Review pipeline' : 'Save without accounts'} /></div>}
-    {step === 'review' && <div><h3 className="text-xl font-semibold">Review the pipeline draft</h3><div className="mt-5 grid gap-5 md:grid-cols-2"><div className="rounded-xl bg-paper-card p-5"><span className="text-xs font-semibold uppercase tracking-wide text-sky-deep">Pipeline</span><h4 className="mt-2 text-lg font-semibold">{draft.name}</h4><p className="mt-2 text-sm text-ink-soft">{draft.brief}</p><dl className="mt-4 space-y-2 text-sm"><div className="flex justify-between gap-4"><dt>Tone</dt><dd className="text-ink-soft">{draft.tone}</dd></div><div className="flex justify-between gap-4"><dt>Approval</dt><dd className="text-ink-soft">{draft.approvalPolicy === 'required' ? 'Always required' : 'Assisted'}</dd></div><div className="flex justify-between gap-4"><dt>Destinations</dt><dd className="text-ink-soft">{draft.targetAccountIds.length}</dd></div></dl></div><div className="rounded-xl bg-sky-pale p-5"><span className="text-xs font-semibold uppercase tracking-wide text-sky-deep">Planned steps</span><ol className="mt-3 space-y-3">{(selectedTemplate?.steps ?? ['Understand outcome', 'AI prepares work', 'Human review', 'Execute safely']).map((item, stepIndex) => <li key={item} className="flex gap-3 text-sm"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-deep text-xs text-white">{stepIndex + 1}</span>{item}</li>)}</ol></div></div><WizardActions back={() => onStep('accounts')} next={onSave} nextLabel={loading ? 'Saving…' : savedPipeline ? 'Update draft' : 'Save pipeline draft'} nextDisabled={loading} /></div>}
+    {step === 'review' && <div><h3 className="text-xl font-semibold">Review the pipeline draft</h3><div className="mt-5 grid gap-5 md:grid-cols-2"><div className="rounded-xl bg-paper-card p-5"><span className="text-xs font-semibold uppercase tracking-wide text-sky-deep">Pipeline</span><h4 className="mt-2 text-lg font-semibold">{draft.name}</h4><p className="mt-2 text-sm text-ink-soft">{draft.brief}</p><dl className="mt-4 space-y-2 text-sm"><div className="flex justify-between gap-4"><dt>Tone</dt><dd className="text-ink-soft">{draft.tone}</dd></div><div className="flex justify-between gap-4"><dt>Approval</dt><dd className="text-ink-soft">{draft.approvalPolicy === 'required' ? 'Always required' : 'Assisted'}</dd></div><div className="flex justify-between gap-4"><dt>Model band</dt><dd className="text-ink-soft capitalize">{draft.modelBand}</dd></div><div className="flex justify-between gap-4"><dt>Destinations</dt><dd className="text-ink-soft">{draft.targetAccountIds.length}</dd></div></dl></div><div className="rounded-xl bg-sky-pale p-5"><span className="text-xs font-semibold uppercase tracking-wide text-sky-deep">Planned steps</span><ol className="mt-3 space-y-3">{(selectedTemplate?.steps ?? ['Understand outcome', 'AI prepares work', 'Human review', 'Execute safely']).map((item, stepIndex) => <li key={item} className="flex gap-3 text-sm"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-deep text-xs text-white">{stepIndex + 1}</span>{item}</li>)}</ol></div></div><WizardActions back={() => onStep('accounts')} next={onSave} nextLabel={loading ? 'Saving…' : savedPipeline ? 'Update draft' : 'Save pipeline draft'} nextDisabled={loading} /></div>}
     {step === 'saved' && savedPipeline && <div><h3 className="text-xl font-semibold">Test before activation</h3><p className="mt-1 text-sm text-ink-soft">This readiness test performs no external publishing action. Starting queues one announcement run; posts require approval. Recurring schedules are not enabled.</p><div className="mt-6 rounded-xl bg-paper-card p-5"><div className="flex items-center justify-between"><div><StatusBadge status={savedPipeline.status} /><h4 className="mt-3 text-lg font-semibold">{savedPipeline.name}</h4></div><button onClick={() => onStep('configure')} className="rounded-md border border-ink/20 px-4 py-2 text-sm">Edit setup</button></div>{readiness ? <div className="mt-5 space-y-3">{readiness.checks.map((check) => <div key={check.id} className="flex gap-3 rounded-lg border border-ink/10 bg-paper p-3"><span className={`font-bold ${check.passed ? 'text-meadow-deep' : 'text-sunset'}`}>{check.passed ? '✓' : '!'}</span><div><p className="text-sm font-medium">{check.label}</p><p className="text-xs text-ink-soft">{check.detail}</p></div></div>)}</div> : <p className="mt-5 rounded-lg bg-sky-pale p-4 text-sm">Run the readiness check to validate the brief, destinations, account health, and approval guardrail.</p>}</div><div className="mt-6 flex flex-wrap justify-end gap-3"><button onClick={onClose} className="rounded-md border border-ink/20 px-5 py-3 font-medium">Keep as draft</button><button disabled={loading} onClick={onTest} className="rounded-md border border-sky-deep px-5 py-3 font-medium text-sky-deep disabled:opacity-50">{loading ? 'Checking…' : 'Test setup'}</button><button disabled={!readiness?.ready || loading} onClick={onActivate} className="rounded-md bg-sky-deep px-5 py-3 font-medium text-white disabled:cursor-not-allowed disabled:opacity-40">Start run (approval required)</button></div></div>}
   </div></div></div>;
 }
 
 function TemplateCard({ template, onClick }: { template: PipelineTemplate; onClick: () => void; }) { return <button disabled={!template.available} onClick={onClick} className="wobble-2 sketch bg-paper-card p-5 text-left shadow-paint-sm transition hover:-translate-y-1 hover:bg-sky-pale"><span className="text-xs font-semibold uppercase tracking-wide text-sky-deep">Standard template</span><span className="mt-2 block text-lg font-semibold">{template.name}</span><span className="mt-2 block text-sm text-ink-soft">{template.description}</span><span className="mt-4 block text-xs font-medium text-sky-deep">{template.available ? 'Use this template →' : 'Coming soon — not executable yet'}</span></button>; }
 function Stat({ label, value, detail }: { label: string; value: string; detail: string; }) { return <div className="sketch bg-paper-card p-5 shadow-paint-sm"><p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">{label}</p><p className="mt-2 font-display text-3xl">{value}</p><p className="mt-1 text-xs text-ink-soft">{detail}</p></div>; }
-function StatusBadge({ status }: { status: string }) { const active = status === 'published' || status === 'connected' || status === 'succeeded'; return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${active ? 'bg-meadow-light text-meadow-deep' : status === 'draft' || status === 'syncing' ? 'bg-sun/35 text-ink' : 'bg-sunset/15 text-sunset'}`}>{status === 'published' ? 'Published' : status}</span>; }
+function StatusBadge({ status }: { status: string }) { const active = status === 'published' || status === 'connected' || status === 'succeeded' || status === 'classified'; const working = status === 'draft' || status === 'syncing' || status === 'pending' || status === 'classifying'; return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${active ? 'bg-meadow-light text-meadow-deep' : working ? 'bg-sun/35 text-ink' : 'bg-sunset/15 text-sunset'}`}>{status === 'published' ? 'Published' : status}</span>; }
 function EmptyState({ title, detail, action, onAction }: { title: string; detail: string; action?: string; onAction?: () => void; }) { return <div className="mt-5 rounded-xl border-2 border-dashed border-ink/15 bg-paper-card p-8 text-center"><h3 className="font-semibold">{title}</h3><p className="mx-auto mt-2 max-w-lg text-sm text-ink-soft">{detail}</p>{action && onAction && <button onClick={onAction} className="mt-4 rounded-md bg-sky-deep px-5 py-2 text-sm font-medium text-white">{action}</button>}</div>; }
 function Feed({ title, empty, children }: { title: string; empty: string; children: ReactNode }) { return <section className="wobble sketch bg-paper-card p-5"><h3 className="text-lg font-semibold">{title}</h3><div className="mt-3">{children || <p className="text-sm text-ink-soft">{empty}</p>}</div></section>; }
 function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="block"><span className="mb-2 block text-sm font-medium">{label}</span>{children}</label>; }
