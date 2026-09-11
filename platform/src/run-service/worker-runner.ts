@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { z } from 'zod';
 
 import { actionPlanSchema, type ActionPlan, type AiRuntimeEvent } from '../contracts/ai-runtime-event';
@@ -6,7 +8,7 @@ import { insightResultSchemas, insightTemplateSchema, reportDeliverySchema, type
 import { buildEvidencePack, validateReportCitations, type EvidenceSourceRow } from '../insight-service/evidence-pack';
 import { renderReportDigest, sendReportEmail, type ReportEmailConfig } from '../insight-service/delivery';
 import type { BrandContextSnapshot } from '../contracts/domain';
-import { MODEL_BAND_POLICIES, MODEL_BANDS } from '../billing/plans';
+import { MODEL_BAND_POLICIES, MODEL_BANDS, type ModelBand } from '../billing/plans';
 import { projectedActionUsage, recordSuccessfulAction, reserveAiRun, type AiReservation, type UsageSnapshot } from '../billing/guardrails';
 import { isAnnouncementWorkflow } from '../contracts/workflow-definition';
 import { assertExecutableAction, type ConnectedAccountView } from '../connector-service/actions';
@@ -54,6 +56,12 @@ export interface RunWorkerOptions {
   stripeSecretKey?: string;
   /** Resend 配置（迭代 4 报告外发）；缺省时 email 渠道投递会失败并重试。 */
   email?: ReportEmailConfig;
+}
+
+/** 分类 chunk 的幂等计费键：同一批 item 重试产生同一 attempt，不重复扣费。 */
+function chunkAttemptKey(itemIds: string[]): number {
+  const digest = createHash('sha256').update(itemIds.join(',')).digest();
+  return (digest.readUInt32BE(0) % 2_000_000_000) + 1;
 }
 
 /**
@@ -336,8 +344,25 @@ export class RunWorker {
             LIMIT $2`,
           [batchId, CLASSIFY_CHUNK],
         );
-        return { modelBand: batch.rows[0].modelBand, rows: pending.rows };
+        if (!pending.rows.length) return { deferred: false as const, modelBand: batch.rows[0].modelBand as ModelBand, rows: pending.rows };
+        // 迭代 5：按 chunk 计量 AI credits。attempt 取 chunk 内容哈希 —— 同一批
+        // item 重试不会重复扣费（task_event 幂等索引 ON CONFLICT DO NOTHING）；
+        // 额度暂停时延迟 job 而非失败（与 referral credit 的 deferral 同模式），
+        // 充值/账期重置后自动续跑，已分类 chunk 不会重做。
+        const reservation = await reserveAiRun(
+          tx,
+          [batch.rows[0].modelBand],
+          { subjectId: batchId, attempt: chunkAttemptKey(pending.rows.map((row) => row.id)), actionType: 'ai.classify' },
+          batch.rows[0].modelBand as ModelBand,
+        );
+        if (reservation.guardrail.status === 'paused') {
+          await this.deferJobForCredits(tx, job, 'import.classify_deferred', { batchId });
+          return { deferred: true as const };
+        }
+        return { deferred: false as const, modelBand: reservation.band, rows: pending.rows };
       });
+
+      if (items.deferred) return;
 
       if (!items.rows.length) {
         await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
@@ -408,6 +433,18 @@ export class RunWorker {
       const reportRow = report.rows[0];
       if (!reportRow) throw new Error('insight report not found or already terminal');
       const template = insightTemplateSchema.parse(reportRow.template);
+      // 迭代 5：每份报告按档位计量一次 AI credits（attempt=1，幂等去重 ——
+      // job 重试不会重复扣费）；额度暂停时延迟 job，充值/账期重置后自动续跑。
+      const reservation = await reserveAiRun(
+        tx,
+        [reportRow.modelBand],
+        { subjectId: reportId, actionType: 'ai.insight' },
+        reportRow.modelBand as ModelBand,
+      );
+      if (reservation.guardrail.status === 'paused') {
+        await this.deferJobForCredits(tx, job, 'insight.generate_deferred', { reportId });
+        return { deferred: true as const };
+      }
       const items = await tx.query<EvidenceSourceRow>(
         `SELECT i.id, i.platform, i.author, i.text, i.metrics,
                 COALESCE((SELECT jsonb_agg(jsonb_build_object('tag', t.tag, 'evidence', t.evidence, 'confidence', t.confidence::float8))
@@ -431,8 +468,9 @@ export class RunWorker {
         );
         priorReports = prior.rows.filter((row) => row.summary).map((row) => ({ template: row.template, title: row.title, summary: row.summary! }));
       }
-      return { template, modelBand: reportRow.modelBand, pack: buildEvidencePack(items.rows), priorReports, fullTextById: new Map(items.rows.map((row) => [row.id, row.text])) };
+      return { deferred: false as const, template, modelBand: reservation.band, pack: buildEvidencePack(items.rows), priorReports, fullTextById: new Map(items.rows.map((row) => [row.id, row.text])) };
     });
+    if (prepared.deferred) return;
 
     // 引用校验对照原文全文（证据包内文本被截断到 600 字符，snippet 可能落在截断点之后）。
     const textByRef = new Map<string, string>();
@@ -612,6 +650,19 @@ export class RunWorker {
       "UPDATE job SET status = 'queued', attempt = GREATEST(attempt - 1, 0), available_at = now() + interval '30 seconds', locked_at = NULL, locked_by = NULL, last_error = $3, updated_at = now() WHERE id = $1 AND workspace_id = $2",
       [job.id, job.workspaceId, error.message],
     ));
+  }
+
+  /**
+   * 额度暂停时延迟 job 而非失败（与 referral credit deferral 同模式）：
+   * 不消耗 attempt，6 小时后重试；充值或账期重置后自动续跑。
+   * 必须在预订所在的同一租户事务内调用，保证状态原子性。
+   */
+  private async deferJobForCredits(tx: TenantTransaction, job: ClaimedJob, auditEvent: string, payload: Record<string, unknown>): Promise<void> {
+    await tx.query('INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)', [job.workspaceId, auditEvent, payload]);
+    await tx.query(
+      "UPDATE job SET status = 'queued', attempt = GREATEST(attempt - 1, 0), available_at = now() + interval '6 hours', locked_at = NULL, locked_by = NULL, last_error = 'ai_credits_deferred', updated_at = now() WHERE id = $1 AND workspace_id = $2",
+      [job.id, job.workspaceId],
+    );
   }
 }
 

@@ -502,7 +502,7 @@ export class PlatformService {
   async taskEvents(actor: ActorContext): Promise<unknown[]> {
     requirePermission(actor.role, 'billing:view');
     const events = await this.database.withWorkspace(actor.workspaceId, (tx) => tx.query(
-      'SELECT id, run_id AS "runId", action_type AS "actionType", billable_units AS "billableUnits", status, created_at AS "createdAt" FROM task_event WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 100',
+      'SELECT id, run_id AS "runId", action_type AS "actionType", billable_units AS "billableUnits", ai_credits::text AS "aiCredits", status, created_at AS "createdAt" FROM task_event WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 100',
       [actor.workspaceId],
     ));
     return events.rows;

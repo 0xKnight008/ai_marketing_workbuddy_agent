@@ -132,10 +132,29 @@ export interface AiReservation {
   provider: 'primary' | 'fallback';
   credits: number;
   supplierCostMicros: number;
+  /** 本次是否实际写入了计费事件（幂等冲突/暂停时为 false）。 */
+  charged: boolean;
   guardrail: UsageSnapshot;
 }
 
-export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: string[], runId: string, requestedBand?: ModelBand): Promise<AiReservation> {
+/**
+ * 计费主体：workflow_run（runId）或无 run 的 AI 任务（subjectId =
+ * import_batch.id / insight_report.id）。attempt 用于幂等去重 —— 同一主体 +
+ * action_type + attempt 只计费一次，job 重试不重复扣费。
+ */
+export interface AiUsageSubject {
+  runId?: string;
+  subjectId?: string;
+  attempt?: number;
+  /** 计费动作前缀（默认 'ai'）：无 run 的主题任务用 'ai.classify' / 'ai.insight'。 */
+  actionType?: string;
+}
+
+export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: string[], subject: string | AiUsageSubject, requestedBand?: ModelBand): Promise<AiReservation> {
+  const resolved: AiUsageSubject = typeof subject === 'string' ? { runId: subject } : subject;
+  if (!resolved.runId && !resolved.subjectId) throw new Error('AI usage subject is missing');
+  const attempt = resolved.attempt ?? 1;
+  if (!Number.isSafeInteger(attempt) || attempt < 1) throw new Error('attempt must be a positive integer');
   const current = await usageSnapshot(tx);
   // 用户显式选择的档位（对话框 eco/standard/flagship 选择器）在策略允许时优先生效；
   // 未选择或超出 allowedModelClasses 时维持原默认（取允许的最高档）。
@@ -155,16 +174,19 @@ export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: s
   const provider = resourceStatus === 'degraded' ? 'fallback' as const : 'primary' as const;
   const effectiveSpend = current.supplierSpendMicros + effectivePolicy.supplierCostMicros;
   const effectiveGuardrail = { ...projected, supplierSpendMicros: effectiveSpend, status: executionStatus(current, guardrailStatus(current.taskUsed, current.taskQuota, effectiveSpend, current.supplierSpendLimitMicros)) };
-  if (projected.status === 'paused' || current.aiCreditsAvailable <= 0) return { band: effectiveBand, provider, credits: 0, supplierCostMicros: effectivePolicy.supplierCostMicros, guardrail: { ...projected, status: 'paused' } };
-  const recorded = await tx.query(`INSERT INTO task_event (workspace_id, run_id, action_type, billable_units, ai_credits, supplier_cost_micros, supplier, status)
-    VALUES (current_setting('app.workspace_id')::uuid, $1, $2, 0, $3, $4, $5, 'succeeded') ON CONFLICT DO NOTHING RETURNING id`, [runId, `ai.${effectiveBand}.${provider}`, credits, effectivePolicy.supplierCostMicros, provider]);
+  if (projected.status === 'paused' || current.aiCreditsAvailable <= 0) return { band: effectiveBand, provider, credits: 0, supplierCostMicros: effectivePolicy.supplierCostMicros, charged: false, guardrail: { ...projected, status: 'paused' } };
+  // action_type 前缀区分任务来源：ai.* 是 workflow run，ai.classify.*/ai.insight.*
+  // 是无 run 的主题计费（导入批次/洞察报告）。
+  const actionPrefix = resolved.actionType ?? 'ai';
+  const recorded = await tx.query(`INSERT INTO task_event (workspace_id, run_id, subject_id, action_type, billable_units, ai_credits, supplier_cost_micros, supplier, status, attempt)
+    VALUES (current_setting('app.workspace_id')::uuid, $1, $2, $7, 0, $3, $4, $5, 'succeeded', $6) ON CONFLICT DO NOTHING RETURNING id`, [resolved.runId ?? null, resolved.subjectId ?? null, credits, effectivePolicy.supplierCostMicros, provider, attempt, `${actionPrefix}.${effectiveBand}.${provider}`]);
   if (recorded.rowCount && current.subscriptionStatus !== 'trialing') {
     const includedRemaining = Math.max(0, PLAN_CATALOG[current.plan].aiCredits - current.aiCreditsUsed);
     const purchasedSpent = Math.max(0, credits - includedRemaining);
     if (purchasedSpent) await tx.query(`UPDATE workspace_billing SET purchased_ai_credits = purchased_ai_credits - $1
       WHERE workspace_id = current_setting('app.workspace_id')::uuid`, [purchasedSpent]);
   }
-  return { band: effectiveBand, provider, credits, supplierCostMicros: effectivePolicy.supplierCostMicros, guardrail: effectiveGuardrail };
+  return { band: effectiveBand, provider, credits, supplierCostMicros: effectivePolicy.supplierCostMicros, charged: Boolean(recorded.rowCount), guardrail: effectiveGuardrail };
 }
 
 export function supplierActionCostMicros(input: { actionType: string; platform: string; payload?: Record<string, unknown> }): number {

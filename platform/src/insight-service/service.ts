@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { usageSnapshot } from '../billing/guardrails';
 import type { ActorContext } from '../contracts/domain';
 import {
   INSIGHT_TEMPLATE_LABELS,
@@ -46,6 +47,12 @@ export class InsightService {
       const trialActive = billingRow?.trialEndsAt ? new Date(billingRow.trialEndsAt).getTime() > Date.now() : false;
       if (!billingRow || (billingRow.status !== 'active' && billingRow.status !== 'trialing' && !trialActive)) {
         throw new HttpError(402, 'subscription_required');
+      }
+      // 迭代 5：额度耗尽在请求时即反馈（订阅有效性由上方门禁负责；
+      // worker 侧 reserveAiRun 仍是权威扣费点，供应商超限等暂停场景由它兜底延迟）。
+      const usage = await usageSnapshot(tx);
+      if (usage.aiCreditsAvailable <= 0) {
+        throw new HttpError(402, 'ai_credits_exhausted');
       }
 
       // 未指定批次时取最近已分类的批次；指定时必须全部属于本租户且已分类。
