@@ -159,8 +159,14 @@ test('import.classify writes evidence-verified tags and drops hallucinated citat
       }
       if (sql.startsWith('INSERT INTO item_tag')) {
         insertedTags.push([...(values ?? [])]);
-        return { rows: [] as Row[], rowCount: 1 };
+        if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: 0, supplierSpendMicros: 0 }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }] as unknown as Row[], rowCount: 1 };
+      return { rows: [] as Row[], rowCount: 1 };
       }
+      if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: 0, supplierSpendMicros: 0 }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }] as unknown as Row[], rowCount: 1 };
       return { rows: [] as Row[], rowCount: 1 };
     },
   } as TenantTransaction;
@@ -214,6 +220,9 @@ test('import.classify retries when the AI runtime returns a schema-invalid resul
       if (sql.startsWith('UPDATE job SET status')) {
         return { rows: [{ status: 'queued' }] as unknown as Row[], rowCount: 1 };
       }
+      if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: 0, supplierSpendMicros: 0 }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }] as unknown as Row[], rowCount: 1 };
       return { rows: [] as Row[], rowCount: 1 };
     },
   } as TenantTransaction;
@@ -259,8 +268,14 @@ test('insight.generate stores citation-verified report and drops hallucinated re
       if (sql.includes("UPDATE insight_report") && sql.includes("'generated'")) {
         persistedReport = JSON.parse(String(values?.[2])) as Record<string, unknown>;
         persistedDropped = Number(values?.[3]);
-        return { rows: [] as Row[], rowCount: 1 };
+        if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: 0, supplierSpendMicros: 0 }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }] as unknown as Row[], rowCount: 1 };
+      return { rows: [] as Row[], rowCount: 1 };
       }
+      if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: 0, supplierSpendMicros: 0 }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }] as unknown as Row[], rowCount: 1 };
       return { rows: [] as Row[], rowCount: 1 };
     },
   } as TenantTransaction;
@@ -329,6 +344,9 @@ test('insight.generate retries when the AI runtime result fails schema validatio
       if (sql.startsWith('UPDATE job SET status')) {
         return { rows: [{ status: 'queued' }] as unknown as Row[], rowCount: 1 };
       }
+      if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: 0, supplierSpendMicros: 0 }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }] as unknown as Row[], rowCount: 1 };
       return { rows: [] as Row[], rowCount: 1 };
     },
   } as TenantTransaction;
@@ -365,6 +383,9 @@ test('insight.generate daily_ops aggregates prior report summaries into the evid
         return { rows: [{ template: 'comment_insights', title: 'Weekly', summary: 'Fans want merch badly.' }] as unknown as Row[], rowCount: 1 };
       }
       void values;
+      if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: 0, supplierSpendMicros: 0 }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }] as unknown as Row[], rowCount: 1 };
       return { rows: [] as Row[], rowCount: 1 };
     },
   } as TenantTransaction;
@@ -425,11 +446,17 @@ function insightDeliveryWorker(options: {
       }
       if (sql.startsWith('UPDATE insight_report SET delivery = delivery ||')) {
         options.deliveryPatches.push(JSON.parse(String(values?.[2])));
-        return { rows: [] as Row[], rowCount: 1 };
+        if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: 0, supplierSpendMicros: 0 }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }] as unknown as Row[], rowCount: 1 };
+      return { rows: [] as Row[], rowCount: 1 };
       }
       if (sql.startsWith('UPDATE job SET status')) {
         return { rows: [{ status: 'queued' }] as unknown as Row[], rowCount: 1 };
       }
+      if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: 0, supplierSpendMicros: 0 }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }] as unknown as Row[], rowCount: 1 };
       return { rows: [] as Row[], rowCount: 1 };
     },
   } as TenantTransaction;
@@ -538,6 +565,9 @@ test('insight.deliver dead-letters mark the delivery failed with an audit event'
       if (sql.startsWith('UPDATE job SET status')) {
         return { rows: [{ status: 'dead_lettered' }] as unknown as Row[], rowCount: 1 };
       }
+      if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: 0, supplierSpendMicros: 0 }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }] as unknown as Row[], rowCount: 1 };
       return { rows: [] as Row[], rowCount: 1 };
     },
   } as TenantTransaction;
@@ -565,4 +595,137 @@ test('insight.deliver dead-letters mark the delivery failed with an audit event'
   }
   assert.ok(statements.some((sql) => sql.includes('UPDATE insight_report SET delivery = COALESCE')));
   assert.ok(auditEvents.includes('insight.delivery_failed'));
+});
+
+// ---------- 迭代 5：分类与洞察生成的 AI credits 计量 ----------
+
+interface UsageMockOptions { aiCreditsUsed?: number }
+
+/** usageSnapshot 的最小 mock：active 订阅 + 可控的已用额度。 */
+function usageHandlers(options: UsageMockOptions) {
+  return {
+    match(sql: string): { rows: Record<string, unknown>[]; rowCount: number } | null {
+      if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }], rowCount: 1 };
+      if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: options.aiCreditsUsed ?? 0, supplierSpendMicros: 0 }], rowCount: 1 };
+      if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }], rowCount: 1 };
+      return null;
+    },
+  };
+}
+
+test('import.classify reserves credits per chunk with an idempotent content-hash attempt', async () => {
+  const usage = usageHandlers({});
+  const statements: string[] = [];
+  const chargeEvents: unknown[][] = [];
+  let pendingCalls = 0;
+  const items = [
+    { id: 'item-1', text: 'where can I buy it', author: null, platform: 'instagram' },
+    { id: 'item-2', text: 'love this', author: null, platform: 'rednote' },
+  ];
+  const tx: TenantTransaction = {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
+      statements.push(sql);
+      const usageRow = usage.match(sql);
+      if (usageRow) return usageRow as { rows: Row[]; rowCount: number };
+      if (sql.startsWith('INSERT INTO task_event')) chargeEvents.push([...(values ?? [])]);
+      if (sql.includes("UPDATE import_batch SET status = 'classifying'")) return { rows: [{ status: 'classifying', modelBand: 'standard' }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('classified_at IS NULL')) {
+        pendingCalls += 1;
+        return { rows: (pendingCalls === 1 ? items : []) as unknown as Row[], rowCount: 0 };
+      }
+      return { rows: [] as Row[], rowCount: 1 };
+    },
+  } as TenantTransaction;
+  const jobs: ClaimedJob[] = [{ id: 'job-c1', workspaceId: 'workspace-1', runId: null, kind: 'import.classify', payload: { batchId: 'batch-1' }, attempt: 1 }];
+  let chargedBand: string | null = null;
+  const worker = new RunWorker({
+    workerName: 'meter-test',
+    database: { claimNextJob: async () => jobs.shift(), withWorkspace: async (_id, op) => op(tx) },
+    aiRuntime: {
+      async prepareAnnouncement() { throw new Error('unexpected'); },
+      async getAnnouncementRun() { throw new Error('unexpected'); },
+      async classifyItems(payload) { chargedBand = (payload as { modelBand: string }).modelBand; return { assignments: [] }; },
+      async generateInsightReport() { throw new Error('unexpected'); },
+    },
+  });
+
+  assert.equal(await worker.runOne(), true);
+  assert.equal(chargeEvents.length, 1);
+  const event = chargeEvents[0]!;
+  assert.equal(event[0], null); // run_id 可空
+  assert.equal(event[1], 'batch-1'); // subject_id
+  assert.equal(event[2], 6); // standard = 6 credits
+  assert.equal(event[6], 'ai.classify.standard.primary');
+  assert.ok(Number(event[5]) >= 1); // 内容哈希 attempt
+  assert.equal(chargedBand, 'standard');
+});
+
+test('import.classify defers instead of charging when credits are exhausted', async () => {
+  const usage = usageHandlers({ aiCreditsUsed: 400 }); // creator 400 已用完
+  const statements: string[] = [];
+  const auditEvents: unknown[] = [];
+  const tx: TenantTransaction = {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
+      statements.push(sql);
+      const usageRow = usage.match(sql);
+      if (usageRow) return usageRow as { rows: Row[]; rowCount: number };
+      if (sql.startsWith('INSERT INTO audit_event')) auditEvents.push(values?.[1]);
+      if (sql.includes("UPDATE import_batch SET status = 'classifying'")) return { rows: [{ status: 'classifying', modelBand: 'eco' }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('classified_at IS NULL')) return { rows: [{ id: 'item-1', text: 'hello', author: null, platform: 'instagram' }] as unknown as Row[], rowCount: 1 };
+      return { rows: [] as Row[], rowCount: 1 };
+    },
+  } as TenantTransaction;
+  const jobs: ClaimedJob[] = [{ id: 'job-c2', workspaceId: 'workspace-1', runId: null, kind: 'import.classify', payload: { batchId: 'batch-1' }, attempt: 1 }];
+  let aiCalled = false;
+  const worker = new RunWorker({
+    workerName: 'meter-test',
+    database: { claimNextJob: async () => jobs.shift(), withWorkspace: async (_id, op) => op(tx) },
+    aiRuntime: {
+      async prepareAnnouncement() { throw new Error('unexpected'); },
+      async getAnnouncementRun() { throw new Error('unexpected'); },
+      async classifyItems() { aiCalled = true; return { assignments: [] }; },
+      async generateInsightReport() { throw new Error('unexpected'); },
+    },
+  });
+
+  assert.equal(await worker.runOne(), true);
+  assert.equal(aiCalled, false);
+  assert.ok(auditEvents.includes('import.classify_deferred'));
+  assert.ok(statements.some((sql) => sql.includes("interval '6 hours'")));
+  assert.equal(statements.some((sql) => sql.startsWith('INSERT INTO task_event')), false);
+});
+
+test('insight.generate reserves credits once per report and defers when exhausted', async () => {
+  const usage = usageHandlers({ aiCreditsUsed: 400 });
+  const statements: string[] = [];
+  const auditEvents: unknown[] = [];
+  const tx: TenantTransaction = {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
+      statements.push(sql);
+      const usageRow = usage.match(sql);
+      if (usageRow) return usageRow as { rows: Row[]; rowCount: number };
+      if (sql.startsWith('INSERT INTO audit_event')) auditEvents.push(values?.[1]);
+      if (sql.includes("UPDATE insight_report SET status = 'generating'")) {
+        return { rows: [{ template: 'content_recap', modelBand: 'eco', batchIds: ['batch-1'] }] as unknown as Row[], rowCount: 1 };
+      }
+      return { rows: [] as Row[], rowCount: 1 };
+    },
+  } as TenantTransaction;
+  const jobs: ClaimedJob[] = [{ id: 'job-g1', workspaceId: 'workspace-1', runId: null, kind: 'insight.generate', payload: { reportId: 'report-1' }, attempt: 1 }];
+  let aiCalled = false;
+  const worker = new RunWorker({
+    workerName: 'meter-test',
+    database: { claimNextJob: async () => jobs.shift(), withWorkspace: async (_id, op) => op(tx) },
+    aiRuntime: {
+      async prepareAnnouncement() { throw new Error('unexpected'); },
+      async getAnnouncementRun() { throw new Error('unexpected'); },
+      async classifyItems() { throw new Error('unexpected'); },
+      async generateInsightReport() { aiCalled = true; return {}; },
+    },
+  });
+
+  assert.equal(await worker.runOne(), true);
+  assert.equal(aiCalled, false);
+  assert.ok(auditEvents.includes('insight.generate_deferred'));
+  assert.equal(statements.some((sql) => sql.startsWith('INSERT INTO task_event')), false);
 });

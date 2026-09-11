@@ -9,7 +9,7 @@ import { ImportService } from './service';
 
 const actor: ActorContext = { actorId: 'user-1', workspaceId: 'workspace-1', role: 'owner' };
 
-interface MockOptions { subscriptionStatus?: string; trialEndsAt?: string | null }
+interface MockOptions { subscriptionStatus?: string; trialEndsAt?: string | null; creditsExhausted?: boolean }
 
 function mockDatabase(options: MockOptions = {}) {
   const statements: string[] = [];
@@ -20,6 +20,15 @@ function mockDatabase(options: MockOptions = {}) {
         if (options.subscriptionStatus === undefined) return { rows: [] as Row[], rowCount: 0 };
         return { rows: [{ status: options.subscriptionStatus, trialEndsAt: options.trialEndsAt ?? null }] as unknown as Row[], rowCount: 1 };
       }
+      // usageSnapshot（迭代 5 额度门禁）的四条查询。
+      if (sql.includes('RETURNING plan')) {
+        return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: options.subscriptionStatus ?? 'active', trialEndsAt: options.trialEndsAt ?? null, paymentGraceEndsAt: null }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.includes('AS "taskUsed"')) {
+        return { rows: [{ taskUsed: 0, aiCreditsUsed: options.creditsExhausted ? 400 : 0, supplierSpendMicros: 0 }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('AS "trialCreditsUsed"')) return { rows: [{ trialCreditsUsed: 0 }] as unknown as Row[], rowCount: 1 };
       if (sql.startsWith('INSERT INTO import_batch')) {
         return { rows: [{ id: 'batch-1', createdAt: new Date().toISOString() }] as unknown as Row[], rowCount: 1 };
       }
@@ -46,7 +55,7 @@ test('createImport rejects unpaid workspaces with 402 before inserting anything'
 });
 
 test('createImport accepts trialing workspaces and enqueues classification', async () => {
-  const { database, statements } = mockDatabase({ subscriptionStatus: 'trialing' });
+  const { database, statements } = mockDatabase({ subscriptionStatus: 'trialing', trialEndsAt: new Date(Date.now() + 86_400_000).toISOString() });
   const service = new ImportService(database);
   const view = await service.createImport(actor, { label: 'Batch', sourceType: 'paste', content: 'one\ntwo' });
   assert.equal(view.id, 'batch-1');
@@ -74,4 +83,14 @@ test('createImport rejects empty parses and oversized batches with 422', async (
     () => service.createImport(actor, { label: 'Batch', sourceType: 'paste', content: huge }),
     (error) => error instanceof HttpError && error.statusCode === 422 && error.message === 'import_too_large',
   );
+});
+
+test('createImport rejects with ai_credits_exhausted when the balance is empty', async () => {
+  const { database, statements } = mockDatabase({ subscriptionStatus: 'active', creditsExhausted: true });
+  const service = new ImportService(database);
+  await assert.rejects(
+    () => service.createImport(actor, { label: 'Batch', sourceType: 'paste', content: 'one\ntwo' }),
+    (error) => error instanceof HttpError && error.statusCode === 402 && error.message === 'ai_credits_exhausted',
+  );
+  assert.equal(statements.some((sql) => sql.startsWith('INSERT INTO import_batch')), false);
 });

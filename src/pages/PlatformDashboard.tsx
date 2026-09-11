@@ -45,9 +45,9 @@ interface PipelineCheck { id: string; label: string; passed: boolean; detail: st
 interface PipelineReadiness { ready: boolean; checks: PipelineCheck[]; }
 interface RunView { id: string; status: string; workflowId: string; createdAt: string; }
 interface ApprovalView { id: string; runId: string | null; requestedAction: { summary?: string }; requestedAt: string; }
-interface TaskEventView { id: string; runId: string; actionType: string; billableUnits: string; status: string; createdAt: string; }
+interface TaskEventView { id: string; runId: string | null; actionType: string; billableUnits: string; aiCredits: string; status: string; createdAt: string; }
 interface AuditEventView { id: string; runId?: string; eventType: string; createdAt: string; }
-interface UsageView { status: string; taskUsed: number; taskQuota: number; subscriptionStatus: string; plan: string; }
+interface UsageView { status: string; taskUsed: number; taskQuota: number; aiCreditsUsed: number; aiCreditsAvailable: number; subscriptionStatus: string; plan: string; }
 interface MeView {
   user: { email: string; displayName: string; passwordSet: boolean };
   workspace: { id: string; name: string };
@@ -428,7 +428,9 @@ export default function PlatformDashboard() {
       });
       const result = await response.json().catch(() => ({})) as { id?: string; status?: string; error?: string };
       if (response.status === 402 || result.error === 'subscription_required') {
-        setMessage('Imports require an active subscription. Pick a plan to unlock AI classification.');
+        setMessage(result.error === 'ai_credits_exhausted'
+          ? 'AI credits are exhausted for this period — top up or wait for the next billing cycle.'
+          : 'Imports require an active subscription. Pick a plan to unlock AI classification.');
         return;
       }
       if (!response.ok || !result.id) { setMessage(result.error ?? 'The import could not be created.'); return; }
@@ -465,7 +467,9 @@ export default function PlatformDashboard() {
       });
       const result = await response.json().catch(() => ({})) as { id?: string; error?: string };
       if (response.status === 402 || result.error === 'subscription_required') {
-        setMessage('Insight reports require an active subscription. Pick a plan to unlock AI analysis.');
+        setMessage(result.error === 'ai_credits_exhausted'
+          ? 'AI credits are exhausted for this period — top up or wait for the next billing cycle.'
+          : 'Insight reports require an active subscription. Pick a plan to unlock AI analysis.');
         return;
       }
       if (!response.ok || !result.id) {
@@ -629,6 +633,7 @@ function PipelinesSection({ templates, pipelines, usage, loading, onNew, onTempl
     <section className="grid gap-4 md:grid-cols-3">
       <Stat label="Published pipelines" value={String(active)} detail={`${pipelines.length - active} draft${pipelines.length - active === 1 ? '' : 's'}`} />
       <Stat label="Task usage" value={usage ? `${usage.taskUsed} / ${usage.taskQuota}` : '—'} detail={usage?.status === 'degraded' ? 'Energy-saving mode' : 'Current billing period'} />
+      <Stat label="AI credits" value={usage ? String(usage.aiCreditsAvailable) : '—'} detail={usage ? `${usage.aiCreditsUsed} used this period` : 'Current billing period'} />
       <button onClick={onNew} className="wobble sketch bg-sunset p-5 text-left text-white shadow-paint transition hover:-translate-y-1"><span className="block text-sm font-semibold uppercase tracking-wide">Create</span><span className="mt-2 block font-display text-2xl">New automation →</span></button>
     </section>
 
@@ -820,7 +825,7 @@ function AccountsSection({ accounts, connecting, onConnect, onRefresh }: { accou
 }
 
 function ActivitySection({ approvals, taskEvents, auditEvents, runId, setRunId, run, onLoadRun, onDecision }: { approvals: ApprovalView[]; taskEvents: TaskEventView[]; auditEvents: AuditEventView[]; runId: string; setRunId: (value: string) => void; run: RunView | null; onLoadRun: () => void; onDecision: (id: string, decision: 'approved' | 'rejected') => Promise<void>; }) {
-  return <div className="space-y-8"><section><p className="font-hand text-lg text-sky-deep">Human control</p><h2 className="font-display text-3xl">Approvals & Activity</h2><div className="mt-5 grid gap-6 lg:grid-cols-3"><Feed title="Approvals" empty="No actions are waiting for approval.">{approvals.map((approval) => <div key={approval.id} className="border-b border-ink/10 py-3 text-sm"><p>{approval.requestedAction.summary ?? 'Publishing action'}</p><p className="mt-1 text-xs text-ink-soft">{new Date(approval.requestedAt).toLocaleString()}</p><div className="mt-2 flex gap-2"><button className="rounded bg-sky-deep px-2 py-1 text-xs text-white" onClick={() => void onDecision(approval.id, 'approved')}>Approve</button><button className="rounded border border-ink/30 px-2 py-1 text-xs" onClick={() => void onDecision(approval.id, 'rejected')}>Reject</button></div></div>)}</Feed><Feed title="Successful actions" empty="No billable actions yet.">{taskEvents.map((event) => <div key={event.id} className="border-b border-ink/10 py-3 text-sm"><p>{event.actionType}: {event.billableUnits} unit(s)</p><p className="mt-1 text-xs text-ink-soft">{event.status} · {new Date(event.createdAt).toLocaleString()}</p></div>)}</Feed><Feed title="Audit trail" empty="No audit events yet.">{auditEvents.map((event) => <div key={event.id} className="border-b border-ink/10 py-3 text-sm"><p>{event.eventType}</p><p className="mt-1 text-xs text-ink-soft">{new Date(event.createdAt).toLocaleString()}</p></div>)}</Feed></div></section><section className="rounded-xl border border-ink/20 bg-paper-card p-5"><h3 className="text-lg font-semibold">Find a specific run</h3><div className="mt-4 flex flex-col gap-3 md:flex-row"><input value={runId} onChange={(event) => setRunId(event.target.value)} className="flex-1 rounded-md border border-ink/20 bg-paper p-3" placeholder="Workflow run UUID" /><button onClick={onLoadRun} className="rounded-md bg-sky-deep px-5 py-3 font-medium text-white">Load run</button></div>{run && <div className="mt-5 grid gap-3 rounded-lg bg-sky-pale p-4 text-sm md:grid-cols-3"><span>Status: <b>{run.status}</b></span><span>Workflow: {run.workflowId}</span><span>Created: {new Date(run.createdAt).toLocaleString()}</span></div>}</section></div>;
+  return <div className="space-y-8"><section><p className="font-hand text-lg text-sky-deep">Human control</p><h2 className="font-display text-3xl">Approvals & Activity</h2><div className="mt-5 grid gap-6 lg:grid-cols-3"><Feed title="Approvals" empty="No actions are waiting for approval.">{approvals.map((approval) => <div key={approval.id} className="border-b border-ink/10 py-3 text-sm"><p>{approval.requestedAction.summary ?? 'Publishing action'}</p><p className="mt-1 text-xs text-ink-soft">{new Date(approval.requestedAt).toLocaleString()}</p><div className="mt-2 flex gap-2"><button className="rounded bg-sky-deep px-2 py-1 text-xs text-white" onClick={() => void onDecision(approval.id, 'approved')}>Approve</button><button className="rounded border border-ink/30 px-2 py-1 text-xs" onClick={() => void onDecision(approval.id, 'rejected')}>Reject</button></div></div>)}</Feed><Feed title="Successful actions" empty="No billable actions yet.">{taskEvents.map((event) => <div key={event.id} className="border-b border-ink/10 py-3 text-sm"><p>{event.actionType}: {event.actionType.startsWith('ai.') ? `${event.aiCredits} credit(s)` : `${event.billableUnits} unit(s)`}</p><p className="mt-1 text-xs text-ink-soft">{event.status} · {new Date(event.createdAt).toLocaleString()}</p></div>)}</Feed><Feed title="Audit trail" empty="No audit events yet.">{auditEvents.map((event) => <div key={event.id} className="border-b border-ink/10 py-3 text-sm"><p>{event.eventType}</p><p className="mt-1 text-xs text-ink-soft">{new Date(event.createdAt).toLocaleString()}</p></div>)}</Feed></div></section><section className="rounded-xl border border-ink/20 bg-paper-card p-5"><h3 className="text-lg font-semibold">Find a specific run</h3><div className="mt-4 flex flex-col gap-3 md:flex-row"><input value={runId} onChange={(event) => setRunId(event.target.value)} className="flex-1 rounded-md border border-ink/20 bg-paper p-3" placeholder="Workflow run UUID" /><button onClick={onLoadRun} className="rounded-md bg-sky-deep px-5 py-3 font-medium text-white">Load run</button></div>{run && <div className="mt-5 grid gap-3 rounded-lg bg-sky-pale p-4 text-sm md:grid-cols-3"><span>Status: <b>{run.status}</b></span><span>Workflow: {run.workflowId}</span><span>Created: {new Date(run.createdAt).toLocaleString()}</span></div>}</section></div>;
 }
 
 function SettingsSection({ me, locked, newPassword, setNewPassword, passwordStatus, onSavePassword, onSignOut, feedbackCategory, setFeedbackCategory, feedbackMessage, setFeedbackMessage, feedbackStatus, onFeedback, referralUrl, referralStatus, onReferral }: { me: MeView | null; locked: boolean; newPassword: string; setNewPassword: (value: string) => void; passwordStatus: string; onSavePassword: () => void; onSignOut: () => void; feedbackCategory: string; setFeedbackCategory: (value: string) => void; feedbackMessage: string; setFeedbackMessage: (value: string) => void; feedbackStatus: string; onFeedback: () => void; referralUrl: string; referralStatus: string; onReferral: () => void; }) {

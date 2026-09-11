@@ -93,3 +93,41 @@ test('projects the exact X linked-post supplier cost', async () => {
   const projected = await projectedActionUsage(tx, { platform: 'x', actionType: 'social.create_post', payload: { content: 'Visit https://piggybot.me' } });
   assert.equal(projected.supplierSpendMicros, 200_000);
 });
+
+// ---------- 迭代 5：无 workflow_run 的 AI 主题计量（import_batch / insight_report） ----------
+
+test('reserveAiRun charges a subject-metered run once with the action prefix', async () => {
+  const { inserted, tx } = usageTransaction(0);
+  const reservation = await reserveAiRun(tx, ['standard'], { subjectId: 'batch-1', attempt: 7, actionType: 'ai.classify' }, 'standard');
+  assert.equal(reservation.band, 'standard');
+  assert.equal(reservation.credits, 6);
+  assert.equal(reservation.charged, true);
+  const event = inserted[0]!;
+  assert.equal(event[0], null); // run_id
+  assert.equal(event[1], 'batch-1'); // subject_id
+  assert.equal(event[2], 6); // ai_credits
+  assert.equal(event[5], 7); // attempt
+  assert.equal(event[6], 'ai.classify.standard.primary');
+});
+
+test('reserveAiRun with a subject pauses instead of charging when credits are exhausted', async () => {
+  const inserted: unknown[][] = [];
+  const query = async (sql: string, values: readonly unknown[] = []) => {
+    if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }], rowCount: 1 };
+    if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: 400, supplierSpendMicros: 0 }], rowCount: 1 };
+    if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }], rowCount: 1 };
+    inserted.push([...values]);
+    return { rows: [], rowCount: 1 };
+  };
+  const tx = { query: query as TenantTransaction['query'] } as TenantTransaction;
+  const reservation = await reserveAiRun(tx, ['eco'], { subjectId: 'report-1', actionType: 'ai.insight' }, 'eco');
+  assert.equal(reservation.guardrail.status, 'paused');
+  assert.equal(reservation.credits, 0);
+  assert.equal(reservation.charged, false);
+  assert.equal(inserted.length, 0);
+});
+
+test('reserveAiRun requires a subject', async () => {
+  const { tx } = usageTransaction(0);
+  await assert.rejects(() => reserveAiRun(tx, ['eco'], {} as never), /subject is missing/);
+});

@@ -14,6 +14,7 @@ interface MockOptions {
   trialEndsAt?: string | null;
   classifiedBatchIds?: string[];
   itemCount?: number;
+  creditsExhausted?: boolean;
 }
 
 function mockDatabase(options: MockOptions = {}) {
@@ -25,6 +26,15 @@ function mockDatabase(options: MockOptions = {}) {
         if (options.subscriptionStatus === undefined) return { rows: [] as Row[], rowCount: 0 };
         return { rows: [{ status: options.subscriptionStatus, trialEndsAt: options.trialEndsAt ?? null }] as unknown as Row[], rowCount: 1 };
       }
+      // usageSnapshot（迭代 5 额度门禁）的四条查询。
+      if (sql.includes('RETURNING plan')) {
+        return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: options.subscriptionStatus ?? 'active', trialEndsAt: options.trialEndsAt ?? null, paymentGraceEndsAt: null }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.includes('AS "taskUsed"')) {
+        return { rows: [{ taskUsed: 0, aiCreditsUsed: options.creditsExhausted ? 400 : 0, supplierSpendMicros: 0 }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('AS "trialCreditsUsed"')) return { rows: [{ trialCreditsUsed: 0 }] as unknown as Row[], rowCount: 1 };
       if (sql.includes('FROM import_batch')) {
         return { rows: (options.classifiedBatchIds ?? ['batch-1']).map((id) => ({ id })) as unknown as Row[], rowCount: 1 };
       }
@@ -80,7 +90,7 @@ test('createInsight rejects explicitly selected batches that are not all classif
 });
 
 test('createInsight enqueues insight.generate and audits creation', async () => {
-  const { database, statements } = mockDatabase({ subscriptionStatus: 'trialing' });
+  const { database, statements } = mockDatabase({ subscriptionStatus: 'trialing', trialEndsAt: new Date(Date.now() + 86_400_000).toISOString() });
   const service = new InsightService(database);
   const view = await service.createInsight(actor, { template: 'product_opportunities', modelBand: 'standard' });
   assert.equal(view.id, 'report-1');
@@ -100,6 +110,9 @@ test('createInsight daily_ops works from prior reports alone (no classified batc
     async query<Row extends QueryResultRow = QueryResultRow>(sql: string): Promise<{ rows: Row[]; rowCount: number }> {
       statements.push(sql);
       if (sql.includes('FROM workspace_billing')) return { rows: [{ status: 'active', trialEndsAt: null }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: 0, supplierSpendMicros: 0 }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }] as unknown as Row[], rowCount: 1 };
       if (sql.includes('FROM import_batch')) return { rows: [] as Row[], rowCount: 0 };
       if (sql.includes("status = 'generated'")) return { rows: [{ id: 'old-report' }] as unknown as Row[], rowCount: 1 };
       if (sql.includes('COUNT(*)::text AS count FROM import_item')) return { rows: [{ count: '0' }] as unknown as Row[], rowCount: 1 };
@@ -123,6 +136,9 @@ test('createInsight daily_ops still requires at least one prior report when no b
   const tx: TenantTransaction = {
     async query<Row extends QueryResultRow = QueryResultRow>(sql: string): Promise<{ rows: Row[]; rowCount: number }> {
       if (sql.includes('FROM workspace_billing')) return { rows: [{ status: 'active', trialEndsAt: null }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: 0, supplierSpendMicros: 0 }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }] as unknown as Row[], rowCount: 1 };
       return { rows: [] as Row[], rowCount: 0 };
     },
   } as TenantTransaction;
@@ -252,4 +268,14 @@ test('requestDelivery fails when no owner email exists and none was provided', a
     () => service.requestDelivery(actor, '11111111-1111-4111-8111-111111111111', { channel: 'email' }),
     (error) => error instanceof HttpError && error.statusCode === 422 && error.message === 'insight_delivery_target_missing',
   );
+});
+
+test('createInsight rejects with ai_credits_exhausted when the balance is empty', async () => {
+  const { database, statements } = mockDatabase({ subscriptionStatus: 'active', creditsExhausted: true });
+  const service = new InsightService(database);
+  await assert.rejects(
+    () => service.createInsight(actor, { template: 'content_recap' }),
+    (error) => error instanceof HttpError && error.statusCode === 402 && error.message === 'ai_credits_exhausted',
+  );
+  assert.equal(statements.some((sql) => sql.startsWith('INSERT INTO insight_report')), false);
 });
