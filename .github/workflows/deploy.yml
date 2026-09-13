@@ -63,6 +63,11 @@ jobs:
       - name: Install website dependencies
         run: npm ci
 
+      - name: Browser import regression (stubbed API, no external messages)
+        run: |
+          npx playwright install --with-deps chromium
+          npx playwright test
+
       - name: Install platform dependencies
         working-directory: platform
         run: npm ci

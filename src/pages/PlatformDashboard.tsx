@@ -418,13 +418,14 @@ export default function PlatformDashboard() {
     await loadMe(token);
   }
 
-  async function createImport(sourceType: 'paste' | 'csv', content: string) {
+  async function createImport(sourceType: 'paste' | 'csv', content: string, label = importLabel) {
+    if (new TextEncoder().encode(content).byteLength > 2 * 1024 * 1024) { setMessage('Import content exceeds 2 MiB. Split it into smaller batches.'); return; }
     setMessage(''); setImportBusy(true);
     try {
       const response = await fetch(`${gatewayUrl}/api/imports`, {
         method: 'POST',
         headers: headers(true),
-        body: JSON.stringify({ label: importLabel.trim() || undefined, sourceType, content, modelBand: importBand }),
+        body: JSON.stringify({ label: label.trim() || undefined, sourceType, content, modelBand: importBand }),
       });
       const result = await response.json().catch(() => ({})) as { id?: string; status?: string; error?: string };
       if (response.status === 402 || result.error === 'subscription_required') {
@@ -447,8 +448,9 @@ export default function PlatformDashboard() {
   async function importCsvFile(file: File) {
     if (file.size > 2 * 1024 * 1024) { setMessage('CSV files are limited to 2 MB. Split larger exports into batches.'); return; }
     const content = await file.text();
-    if (!importLabel.trim()) setImportLabel(file.name.replace(/\.csv$/i, ''));
-    await createImport('csv', content);
+    const label = importLabel.trim() || file.name.replace(/\.csv$/i, '').trim().slice(0, 120) || 'CSV import';
+    setImportLabel(label);
+    await createImport('csv', content, label);
   }
 
   async function loadImportDetail(batchId: string) {

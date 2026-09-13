@@ -43,9 +43,9 @@ test('normalizePlatform maps aliases and sanitizes unknown values', () => {
   assert.equal(normalizePlatform(undefined), 'unknown');
 });
 
-test('pasteToItems splits non-empty lines and caps length', () => {
+test('pasteToItems preserves long content for explicit validation instead of silent truncation', () => {
   const items = pasteToItems('first\n\n  \nsecond\r\nthird');
   assert.deepEqual(items.map((item) => item.text), ['first', 'second', 'third']);
   const long = pasteToItems(`x${'a'.repeat(5_000)}`);
-  assert.equal(long[0]!.text.length, 2_000);
+  assert.equal(long[0]!.text.length, 5_001);
 });

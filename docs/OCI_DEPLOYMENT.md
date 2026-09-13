@@ -133,6 +133,7 @@ For `app.example.com`, proxy `/` to the website and `/api/` to the Egg platform 
 
 ```nginx
 location /api/ {
+  client_max_body_size 16m; # JSON escaping overhead; decoded imports are capped at 2 MiB
   proxy_pass http://127.0.0.1:4100;
   proxy_set_header Host $host;
   proxy_set_header X-Forwarded-Proto $scheme;

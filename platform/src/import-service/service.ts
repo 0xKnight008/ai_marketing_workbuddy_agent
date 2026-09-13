@@ -9,7 +9,7 @@ import { HttpError } from '../http/errors';
 import { csvRecordToItem, parseCsv, pasteToItems, type ParsedItem } from './csv';
 
 const MAX_ITEMS_PER_BATCH = 5_000;
-const MAX_CONTENT_BYTES = 2_000_000;
+const MAX_CONTENT_BYTES = 2 * 1024 * 1024;
 
 const createImportSchema = z.object({
   label: z.string().trim().min(1).max(120),
@@ -46,11 +46,17 @@ export class ImportService {
   async createImport(actor: ActorContext, body: unknown): Promise<ImportBatchView> {
     requirePermission(actor.role, 'workflow:run');
     const input = createImportSchema.parse(body);
+    if (Buffer.byteLength(input.content, 'utf8') > MAX_CONTENT_BYTES) throw new HttpError(413, 'import_content_exceeds_2_mib');
     const items = input.sourceType === 'csv'
       ? parseCsv(input.content).map(csvRecordToItem).filter((item): item is ParsedItem => Boolean(item))
       : pasteToItems(input.content);
     if (!items.length) throw new HttpError(422, 'import_no_items');
     if (items.length > MAX_ITEMS_PER_BATCH) throw new HttpError(422, 'import_too_large');
+    // Reject invalid runtime inputs before storing jobs or reserving credits.
+    for (const [index, item] of items.entries()) {
+      if (item.text.length > 2_000) throw new HttpError(422, `import_item_${index + 1}_text_exceeds_2000_characters`);
+      if ((item.author?.length ?? 0) > 120) throw new HttpError(422, `import_item_${index + 1}_author_exceeds_120_characters`);
+    }
 
     return this.database.withWorkspace(actor.workspaceId, async (tx) => {
       // 未订阅工作区只允许预览（灰度）；导入会触发 LLM 分类，必须在付费态。
@@ -87,7 +93,7 @@ export class ImportService {
         const tuples = slice.map((item, index) => {
           const base = index * 6;
           values.push(batchId, item.platform, item.externalId ?? null, item.author ?? null, item.text, JSON.stringify(item.metrics));
-          return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}::jsonb)`;
+          return `($${base + 1}::uuid, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}::jsonb)`;
         });
         await tx.query(
           `INSERT INTO import_item (workspace_id, batch_id, platform, external_id, author, text, metrics)
