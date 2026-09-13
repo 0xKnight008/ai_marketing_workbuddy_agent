@@ -729,3 +729,142 @@ test('insight.generate reserves credits once per report and defers when exhauste
   assert.ok(auditEvents.includes('insight.generate_deferred'));
   assert.equal(statements.some((sql) => sql.startsWith('INSERT INTO task_event')), false);
 });
+
+test('import.classify retries items the model skipped instead of marking them processed', async () => {
+  const usage = usageHandlers({});
+  const items = [
+    { id: 'item-1', text: 'where can I buy it', author: null, platform: 'instagram' },
+    { id: 'item-2', text: 'love this', author: null, platform: 'rednote' },
+  ];
+  const auditPayloads: Array<{ event: unknown; payload: unknown }> = [];
+  const classifyCalls: number[] = [];
+  let pendingCalls = 0;
+  const tx: TenantTransaction = {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
+      const usageRow = usage.match(sql);
+      if (usageRow) return usageRow as { rows: Row[]; rowCount: number };
+      if (sql.startsWith('INSERT INTO audit_event')) auditPayloads.push({ event: values?.[1], payload: values?.[2] });
+      if (sql.includes("UPDATE import_batch SET status = 'classifying'")) return { rows: [{ status: 'classifying', modelBand: 'eco' }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('classified_at IS NULL')) {
+        pendingCalls += 1;
+        // 第一轮返回两条；第二轮只剩被漏掉的 item-2；第三轮为空结束。
+        const rows = pendingCalls === 1 ? items : pendingCalls === 2 ? [items[1]] : [];
+        return { rows: rows as unknown as Row[], rowCount: 0 };
+      }
+      return { rows: [] as Row[], rowCount: 1 };
+    },
+  } as TenantTransaction;
+  const jobs: ClaimedJob[] = [{ id: 'job-c3', workspaceId: 'workspace-1', runId: null, kind: 'import.classify', payload: { batchId: 'batch-1' }, attempt: 1 }];
+  const worker = new RunWorker({
+    workerName: 'meter-test',
+    database: { claimNextJob: async () => jobs.shift(), withWorkspace: async (_id, op) => op(tx) },
+    aiRuntime: {
+      async prepareAnnouncement() { throw new Error('unexpected'); },
+      async getAnnouncementRun() { throw new Error('unexpected'); },
+      async classifyItems(payload) {
+        const payloadItems = (payload as { items: unknown[] }).items;
+        classifyCalls.push(payloadItems.length);
+        // 第一轮模型漏掉第 2 条（只返回 itemIndex 0）；第二轮补上了。
+        return { assignments: [{ itemIndex: 0, tags: [] }] };
+      },
+      async generateInsightReport() { throw new Error('unexpected'); },
+    },
+  });
+
+  assert.equal(await worker.runOne(), true);
+  assert.deepEqual(classifyCalls, [2, 1]); // 漏处理的 item-2 被重试
+  assert.ok(auditPayloads.some((entry) => entry.event === 'import.classify_coverage_gap' && (entry.payload as { retrying: boolean }).retrying === true));
+  assert.ok(!auditPayloads.some((entry) => entry.event === 'import.classify_incomplete'));
+  assert.ok(auditPayloads.some((entry) => entry.event === 'import.classified'));
+});
+
+test('import.classify gives up after two zero-progress rounds and audits the gap', async () => {
+  const usage = usageHandlers({});
+  const auditPayloads: Array<{ event: unknown; payload: unknown }> = [];
+  let classifyCalls = 0;
+  let pendingCalls = 0;
+  const tx: TenantTransaction = {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
+      const usageRow = usage.match(sql);
+      if (usageRow) return usageRow as { rows: Row[]; rowCount: number };
+      if (sql.startsWith('INSERT INTO audit_event')) auditPayloads.push({ event: values?.[1], payload: values?.[2] });
+      if (sql.includes("UPDATE import_batch SET status = 'classifying'")) return { rows: [{ status: 'classifying', modelBand: 'eco' }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('classified_at IS NULL')) {
+        pendingCalls += 1;
+        // 前两轮模型都不覆盖该条目；放弃标记后第三轮 fetch 返回空。
+        const rows = pendingCalls <= 2 ? [{ id: 'item-1', text: 'stubborn item', author: null, platform: 'unknown' }] : [];
+        return { rows: rows as unknown as Row[], rowCount: 0 };
+      }
+      return { rows: [] as Row[], rowCount: 1 };
+    },
+  } as TenantTransaction;
+  const jobs: ClaimedJob[] = [{ id: 'job-c4', workspaceId: 'workspace-1', runId: null, kind: 'import.classify', payload: { batchId: 'batch-1' }, attempt: 1 }];
+  const worker = new RunWorker({
+    workerName: 'meter-test',
+    database: { claimNextJob: async () => jobs.shift(), withWorkspace: async (_id, op) => op(tx) },
+    aiRuntime: {
+      async prepareAnnouncement() { throw new Error('unexpected'); },
+      async getAnnouncementRun() { throw new Error('unexpected'); },
+      async classifyItems() { classifyCalls += 1; return { assignments: [] }; }, // 模型持续漏处理
+      async generateInsightReport() { throw new Error('unexpected'); },
+    },
+  });
+
+  assert.equal(await worker.runOne(), true);
+  assert.equal(classifyCalls, 2); // 两轮零进展即放弃（重试同 chunk 幂等不重复扣费），不无限循环
+  const incomplete = auditPayloads.find((entry) => entry.event === 'import.classify_incomplete');
+  assert.ok(incomplete);
+  assert.equal((incomplete!.payload as { gaveUp: number }).gaveUp, 1);
+});
+
+test('insight.generate fails the report when no conclusion is grounded in verbatim evidence', async () => {
+  const usage = usageHandlers({});
+  const auditPayloads: Array<{ event: unknown; payload: unknown }> = [];
+  let failedError: string | null = null;
+  let generated = false;
+  const tx: TenantTransaction = {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
+      const usageRow = usage.match(sql);
+      if (usageRow) return usageRow as { rows: Row[]; rowCount: number };
+      if (sql.startsWith('INSERT INTO audit_event')) auditPayloads.push({ event: values?.[1], payload: values?.[2] });
+      if (sql.includes("UPDATE insight_report SET status = 'generating'")) {
+        return { rows: [{ template: 'comment_insights', modelBand: 'eco', batchIds: ['batch-1'] }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.includes('FROM import_item')) {
+        return { rows: [{ id: 'aaaa-1', platform: 'youtube', author: null, text: 'take my money please', metrics: {}, tags: [] }] as unknown as Row[], rowCount: 1 };
+      }
+      if (sql.includes("UPDATE insight_report") && sql.includes("'failed'")) { failedError = String(values?.[2]); }
+      if (sql.includes("UPDATE insight_report") && sql.includes("'generated'")) { generated = true; }
+      return { rows: [] as Row[], rowCount: 1 };
+    },
+  } as TenantTransaction;
+  const jobs: ClaimedJob[] = [{ id: 'job-g2', workspaceId: 'workspace-1', runId: null, kind: 'insight.generate', payload: { reportId: 'report-1' }, attempt: 1 }];
+  const worker = new RunWorker({
+    workerName: 'meter-test',
+    database: { claimNextJob: async () => jobs.shift(), withWorkspace: async (_id, op) => op(tx) },
+    aiRuntime: {
+      async prepareAnnouncement() { throw new Error('unexpected'); },
+      async getAnnouncementRun() { throw new Error('unexpected'); },
+      async classifyItems() { throw new Error('unexpected'); },
+      async generateInsightReport() {
+        return {
+          summary: 'Made-up conclusions.',
+          frequentQuestions: [{ question: 'q?', approxCount: 5, citations: [{ ref: 'i9', snippet: 'not in the source' }] }],
+          sentimentNotes: [],
+          demandRanking: [{ demand: 'ghost', approxCount: 3, citations: [] }],
+          productOpportunities: [],
+          memeMaterial: [],
+          highValueComments: [],
+        };
+      },
+    },
+  });
+
+  assert.equal(await worker.runOne(), true);
+  assert.equal(generated, false); // 空壳报告不得标记为 generated
+  assert.ok(failedError && failedError.startsWith('insufficient_grounded_evidence'));
+  assert.ok(auditPayloads.some((entry) => entry.event === 'insight.insufficient_evidence'));
+  // 失败是终态：job 正常结束而不是重试烧额度。
+  assert.ok(auditPayloads.every((entry) => entry.event !== 'insight.generate_deferred'));
+});
+

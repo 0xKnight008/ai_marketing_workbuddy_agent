@@ -1,17 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildEvidencePack, engagementScore, validateReportCitations, type EvidenceSourceRow } from './evidence-pack';
+import { buildEvidencePack, enforceGroundedConclusions, engagementScore, validateReportCitations, type EvidenceSourceRow, type GroundingStats } from './evidence-pack';
 
 function row(overrides: Partial<EvidenceSourceRow>): EvidenceSourceRow {
   return { id: crypto.randomUUID(), platform: 'instagram', author: null, text: 'sample text', metrics: {}, tags: [], ...overrides };
 }
 
-test('engagementScore weights interactions over raw views', () => {
+test('engagementScore weights interactions over raw views and ignores rating', () => {
   assert.equal(engagementScore({}), 0);
   assert.equal(engagementScore({ views: 100 }), 100);
   assert.ok(engagementScore({ likes: 10 }) > engagementScore({ views: 40 }));
-  assert.ok(engagementScore({ rating: 5 }) > engagementScore({ views: 50 }));
+  // 评分不参与互动分：高评分加分会让差评归因系统性偏向好评（审核 #4）。
+  assert.equal(engagementScore({ rating: 5 }), 0);
+  assert.equal(engagementScore({ rating: 1, views: 10 }), engagementScore({ rating: 5, views: 10 }));
 });
 
 test('buildEvidencePack aggregates tag distribution and assigns opaque refs', () => {
@@ -112,3 +114,57 @@ test('buildEvidencePack aggregates member stats for community digest', () => {
   assert.ok(pack.memberStats![0]!.tags.includes('co_creation'));
   assert.equal(pack.memberStats!.find((m) => m.author === 'Newbie')?.tags[0], 'needs_reply');
 });
+
+test('buildEvidencePack keeps long-tail tag samples and negative reviews in the pack', () => {
+  // 审核 #4 的复现场景：500 条高互动样本之外，1 条低互动购买意向 + 1 条低分差评。
+  const rows: EvidenceSourceRow[] = [];
+  for (let i = 0; i < 500; i += 1) {
+    rows.push(row({ text: `great video ${i}`, metrics: { views: 10_000 - i }, tags: [{ tag: 'suggestion', evidence: `video ${i}`, confidence: 0.5 }] }));
+  }
+  const tail = row({ text: 'would pay for a plushie version', metrics: { views: 1 }, tags: [{ tag: 'purchase_intent', evidence: 'would pay', confidence: 0.95 }] });
+  const badReview = row({ text: 'broke after one day, refund please', metrics: { views: 0, rating: 1 }, tags: [{ tag: 'complaint', evidence: 'broke after one day', confidence: 0.99 }] });
+  rows.push(tail, badReview);
+  const pack = buildEvidencePack(rows);
+
+  assert.equal(pack.totals.items, 502);
+  assert.equal(pack.totals.tagDistribution.purchase_intent, 1);
+  assert.ok(pack.topItems.length <= 64);
+  // 长尾购买意向与低分差评都进入了可引用集合。
+  const tailRef = Object.entries(pack.refMap).find(([, id]) => id === tail.id)?.[0];
+  const badRef = Object.entries(pack.refMap).find(([, id]) => id === badReview.id)?.[0];
+  assert.ok(tailRef, 'long-tail purchase_intent item must be citable');
+  assert.ok(badRef, 'low-rating negative review must be citable');
+  const intent = pack.tagSamples.find((sample) => sample.tag === 'purchase_intent');
+  assert.equal(intent?.samples[0]?.snippet, 'would pay');
+  // 头部排序不变：互动分最高的仍排最前。
+  assert.equal(pack.topItems[0]!.text, 'great video 0');
+});
+
+test('buildEvidencePack passes publishedAt through for time attribution', () => {
+  const item = row({ text: 'loved the launch stream', metrics: { views: 5, publishedAt: '2026-09-01T12:00:00Z' } });
+  const pack = buildEvidencePack([item]);
+  assert.equal(pack.topItems[0]!.publishedAt, '2026-09-01T12:00:00Z');
+});
+
+test('enforceGroundedConclusions drops evidence-free conclusions and floors model counts', () => {
+  const stats: GroundingStats = { totalConclusions: 0, groundedConclusions: 0, droppedConclusions: 0 };
+  const report = {
+    summary: 's',
+    demandRanking: [
+      { demand: 'plushie', approxCount: 1, citations: [{ ref: 'i1', snippet: 'take my money' }, { ref: 'i2', snippet: 'x' }, { ref: 'i3', snippet: 'y' }] },
+      { demand: 'ghost demand', approxCount: 9, citations: [] }, // 引用被清空 → 整条移除
+    ],
+    highValueComments: [
+      { ref: 'i1', reason: 'real anchor', replyDraft: 'thanks', citations: [] }, // ref 锚定 → 保留
+    ],
+  };
+  const cleaned = enforceGroundedConclusions(report, stats) as typeof report;
+  assert.equal(stats.totalConclusions, 3);
+  assert.equal(stats.groundedConclusions, 2);
+  assert.equal(stats.droppedConclusions, 1);
+  assert.equal(cleaned.demandRanking.length, 1);
+  // 模型自报计数不得低于可核验引用数。
+  assert.equal(cleaned.demandRanking[0]!.approxCount, 3);
+  assert.equal(cleaned.highValueComments.length, 1);
+});
+

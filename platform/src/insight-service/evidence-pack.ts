@@ -23,6 +23,8 @@ export interface EvidencePackItem {
   metrics?: Record<string, number>;
   /** 差评归因模板依赖的 SKU 维度（导入时从 CSV sku 列捕获）。 */
   sku?: string;
+  /** 发布时刻（导入时从 CSV published_at 列捕获），时间归因依赖该字段。 */
+  publishedAt?: string;
   tags: string[];
 }
 
@@ -42,17 +44,30 @@ export interface EvidencePack {
   refMap: Record<string, string>;
 }
 
-const MAX_TOP_ITEMS = 40;
+// 分层采样配额（V1 审核 #4）：头部高互动 + 每标签代表 + 低分差评。
+// 旧实现只取互动分前 40 条且 rating 参与加分，长尾需求与高评分偏好会
+// 同时发生（低互动购买意向、低分差评都进不了证据包）。
+const HEAD_COUNT = 24;
+const PER_TAG_REPS = 2;
+const NEGATIVE_REVIEW_COUNT = 8;
 const MAX_SAMPLES_PER_TAG = 8;
 const MAX_TEXT_CHARS = 600;
+/** 证据包条目硬上限：24 头部 + 11 标签 × 2 + 8 差评 ≈ 54，封顶 64。 */
+export const MAX_EVIDENCE_ITEMS = 64;
 
-/** 互动分：跨平台粗略可比，仅用于排序取头部内容。 */
+/** 互动分：跨平台粗略可比，仅用于排序取头部内容。评分不参与互动分 ——
+ *  高评分加分会让差评归因模板系统性偏向好评。 */
 export function engagementScore(metrics: Record<string, unknown>): number {
   const num = (key: string) => {
     const value = metrics[key];
     return typeof value === 'number' && Number.isFinite(value) ? value : 0;
   };
-  return num('views') + num('likes') * 5 + num('comments') * 10 + num('shares') * 15 + num('saves') * 8 + num('rating') * 20;
+  return num('views') + num('likes') * 5 + num('comments') * 10 + num('shares') * 15 + num('saves') * 8;
+}
+
+function numericMetric(metrics: Record<string, unknown>, key: string): number | undefined {
+  const value = metrics[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 export function buildEvidencePack(rows: EvidenceSourceRow[]): EvidencePack {
@@ -66,8 +81,28 @@ export function buildEvidencePack(rows: EvidenceSourceRow[]): EvidencePack {
     }
   }
 
-  const sorted = [...rows].sort((a, b) => engagementScore(b.metrics) - engagementScore(a.metrics));
-  const picked = sorted.slice(0, MAX_TOP_ITEMS);
+  // 分层采样：三类来源取并集，保证长尾标签与低分差评一定可被引用。
+  const indexed = rows.map((row, index) => ({ row, index, score: engagementScore(row.metrics) }));
+  const byEngagement = (a: (typeof indexed)[number], b: (typeof indexed)[number]) => b.score - a.score || a.index - b.index;
+  const pickedIds = new Set<string>();
+  // 1) 头部高互动内容（内容复盘模板的主样本）。
+  for (const entry of [...indexed].sort(byEngagement).slice(0, HEAD_COUNT)) pickedIds.add(entry.row.id);
+  // 2) 每个标签置信度最高的代表 —— 哪怕全库只出现 1 次的长尾需求也入包。
+  for (const tag of CONTENT_TAGS) {
+    const reps = indexed
+      .filter((entry) => entry.row.tags.some((t) => t.tag === tag))
+      .sort((a, b) => (b.row.tags.find((t) => t.tag === tag)?.confidence ?? 0) - (a.row.tags.find((t) => t.tag === tag)?.confidence ?? 0) || byEngagement(a, b))
+      .slice(0, PER_TAG_REPS);
+    for (const entry of reps) pickedIds.add(entry.row.id);
+  }
+  // 3) 低分差评（rating ≤ 2）：按严重度优先（分数低者在前），不看互动量。
+  const negatives = indexed
+    .filter((entry) => { const rating = numericMetric(entry.row.metrics, 'rating'); return rating !== undefined && rating <= 2; })
+    .sort((a, b) => (numericMetric(a.row.metrics, 'rating')! - numericMetric(b.row.metrics, 'rating')!) || byEngagement(a, b))
+    .slice(0, NEGATIVE_REVIEW_COUNT);
+  for (const entry of negatives) pickedIds.add(entry.row.id);
+  // ref 按互动分顺序分配（头部内容仍排最前），总量封顶。
+  const picked = indexed.filter((entry) => pickedIds.has(entry.row.id)).sort(byEngagement).slice(0, MAX_EVIDENCE_ITEMS).map((entry) => entry.row);
   const refMap: Record<string, string> = {};
   const textByRef = new Map<string, string>();
   const topItems: EvidencePackItem[] = picked.map((row, index) => {
@@ -80,6 +115,7 @@ export function buildEvidencePack(rows: EvidenceSourceRow[]): EvidencePack {
       if (typeof value === 'number' && Number.isFinite(value)) metrics[key] = value;
     }
     const sku = typeof row.metrics.sku === 'string' && row.metrics.sku.trim() ? row.metrics.sku.trim().slice(0, 80) : undefined;
+    const publishedAt = typeof row.metrics.publishedAt === 'string' && row.metrics.publishedAt.trim() ? row.metrics.publishedAt.trim().slice(0, 40) : undefined;
     return {
       ref,
       platform: row.platform,
@@ -87,6 +123,7 @@ export function buildEvidencePack(rows: EvidenceSourceRow[]): EvidencePack {
       text,
       ...(Object.keys(metrics).length ? { metrics } : {}),
       ...(sku ? { sku } : {}),
+      ...(publishedAt ? { publishedAt } : {}),
       tags: row.tags.map((tag) => tag.tag).filter((tag) => (CONTENT_TAGS as readonly string[]).includes(tag)).slice(0, 4),
     };
   });
@@ -131,7 +168,7 @@ export function buildEvidencePack(rows: EvidenceSourceRow[]): EvidencePack {
     for (const { row, tagEntry } of candidates) {
       if (samples.length >= MAX_SAMPLES_PER_TAG) break;
       const ref = refByItemId.get(row.id);
-      if (!ref) continue; // 未进 topItems 的条目不可被引用，跳过其样本。
+      if (!ref) continue; // 未进证据包（分层采样并集）的条目不可被引用，跳过其样本。
       samples.push({ ref, snippet: tagEntry.evidence, ...(row.author ? { author: row.author } : {}) });
     }
     if (samples.length) tagSamples.push({ tag, count, samples });
@@ -196,5 +233,58 @@ export function validateReportCitations(
 }
 
 const REMOVED = Symbol('removed');
+
+export interface GroundingStats {
+  /** 结论总数：所有带 citations 字段的条目（无论最终是否保留）。 */
+  totalConclusions: number;
+  /** 保留的结论：至少有 1 条逐字引用，或自身 ref 锚定证据包内的真实条目。 */
+  groundedConclusions: number;
+  /** 被移除的结论：引用在硬校验后被清空且没有 ref 锚定。 */
+  droppedConclusions: number;
+}
+
+/**
+ * 结论证据门槛（V1 审核 #3）：在 validateReportCitations 清掉幻觉引用之后
+ * 调用。任何带 citations 字段的条目若引用已空、且自身没有 ref 锚定真实
+ * 条目，则整条移除 —— 无证据结论不得作为有依据的建议出现在报告里。
+ * 模型自报的 approxCount/evidenceCount 同时被抬升到不少于其逐字引用数：
+ * 引用数是可核验的下限，估计值不允许低于下限。
+ */
+export function enforceGroundedConclusions(
+  node: unknown,
+  stats: GroundingStats = { totalConclusions: 0, groundedConclusions: 0, droppedConclusions: 0 },
+): unknown {
+  if (Array.isArray(node)) {
+    const kept: unknown[] = [];
+    for (const entry of node) {
+      const cleaned = enforceGroundedConclusions(entry, stats);
+      if (cleaned === REMOVED) { stats.droppedConclusions += 1; continue; }
+      kept.push(cleaned);
+    }
+    return kept;
+  }
+  if (node && typeof node === 'object') {
+    const record = node as Record<string, unknown>;
+    if (Array.isArray(record.citations)) {
+      stats.totalConclusions += 1;
+      const citations = record.citations;
+      const hasRefAnchor = typeof record.ref === 'string' && record.ref.length > 0;
+      if (!citations.length && !hasRefAnchor) return REMOVED;
+      stats.groundedConclusions += 1;
+      const out: Record<string, unknown> = { ...record };
+      for (const key of ['approxCount', 'evidenceCount'] as const) {
+        const value = out[key];
+        if (typeof value === 'number' && Number.isFinite(value)) out[key] = Math.max(value, citations.length);
+      }
+      return out;
+    }
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(record)) {
+      out[key] = enforceGroundedConclusions(value, stats);
+    }
+    return out;
+  }
+  return node;
+}
 
 export type { ContentTag };
