@@ -33,7 +33,7 @@ function usageTransaction(taskUsed: number, supplierSpendMicros = 0, subscriptio
       if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed, aiCreditsUsed: 0, supplierSpendMicros }], rowCount: 1 };
       if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }], rowCount: 1 };
       if (sql.includes('AS "trialCreditsUsed"')) return { rows: [{ trialCreditsUsed }], rowCount: 1 };
-      inserted.push([...values]);
+      if (sql.startsWith('INSERT INTO task_event')) inserted.push([...values]);
       return { rows: [], rowCount: 1 };
   };
   const tx: TenantTransaction = { query: query as TenantTransaction['query'] };
@@ -96,18 +96,22 @@ test('projects the exact X linked-post supplier cost', async () => {
 
 // ---------- 迭代 5：无 workflow_run 的 AI 主题计量（import_batch / insight_report） ----------
 
-test('reserveAiRun charges a subject-metered run once with the action prefix', async () => {
+test('reserveAiRun charges a subject-metered run once with a stable action prefix', async () => {
   const { inserted, tx } = usageTransaction(0);
   const reservation = await reserveAiRun(tx, ['standard'], { subjectId: 'batch-1', attempt: 7, actionType: 'ai.classify' }, 'standard');
   assert.equal(reservation.band, 'standard');
   assert.equal(reservation.credits, 6);
   assert.equal(reservation.charged, true);
+  assert.equal(reservation.replayed, false);
   const event = inserted[0]!;
   assert.equal(event[0], null); // run_id
   assert.equal(event[1], 'batch-1'); // subject_id
   assert.equal(event[2], 6); // ai_credits
   assert.equal(event[5], 7); // attempt
-  assert.equal(event[6], 'ai.classify.standard.primary');
+  // 幂等键（action_type）只含稳定前缀 —— band/provider 落独立列，
+  // 降档重算不再产生另一条计费键（审核 #5）。
+  assert.equal(event[6], 'ai.classify');
+  assert.equal(event[7], 'standard'); // model_band 列
 });
 
 test('reserveAiRun with a subject pauses instead of charging when credits are exhausted', async () => {
@@ -116,7 +120,8 @@ test('reserveAiRun with a subject pauses instead of charging when credits are ex
     if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }], rowCount: 1 };
     if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: 400, supplierSpendMicros: 0 }], rowCount: 1 };
     if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }], rowCount: 1 };
-    inserted.push([...values]);
+    // 只记录计费写入；幂等回放的 SELECT 不产生扣费（审核 #5 起先于暂停判断）。
+    if (sql.startsWith('INSERT INTO task_event')) inserted.push([...values]);
     return { rows: [], rowCount: 1 };
   };
   const tx = { query: query as TenantTransaction['query'] } as TenantTransaction;
@@ -131,3 +136,26 @@ test('reserveAiRun requires a subject', async () => {
   const { tx } = usageTransaction(0);
   await assert.rejects(() => reserveAiRun(tx, ['eco'], {} as never), /subject is missing/);
 });
+
+test('reserveAiRun replays an already-paid attempt instead of pausing on empty balance', async () => {
+  // 审核 #5 的核心场景：任务预扣最后额度后 LLM 失败，重试时余额已耗尽 ——
+  // 必须命中既有计费事件直接复用，而不是被暂停门禁拦死。
+  const query = async (sql: string, values: readonly unknown[] = []) => {
+    if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }], rowCount: 1 };
+    if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: 400, supplierSpendMicros: 0 }], rowCount: 1 }; // 额度已耗尽
+    if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }], rowCount: 1 };
+    if (sql.includes('FROM task_event') && sql.includes('attempt')) {
+      return { rows: [{ band: 'standard', provider: 'primary', credits: 6, cost: 200_000 }], rowCount: 1 };
+    }
+    if (sql.startsWith('INSERT INTO task_event')) throw new Error('replay must not insert a second billing event');
+    void values;
+    return { rows: [], rowCount: 1 };
+  };
+  const tx = { query: query as TenantTransaction['query'] } as TenantTransaction;
+  const reservation = await reserveAiRun(tx, ['eco'], { subjectId: 'batch-1', attempt: 3, actionType: 'ai.classify' }, 'eco');
+  assert.equal(reservation.replayed, true);
+  assert.equal(reservation.charged, false);
+  assert.equal(reservation.band, 'standard'); // 复用首次计费时的档位，不因余额变化降档
+  assert.equal(reservation.credits, 6);
+});
+

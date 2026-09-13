@@ -42,6 +42,8 @@ export const tagSampleSchema = z.object({
 export const insightReportRequestSchema = z.object({
   template: z.enum(INSIGHT_TEMPLATES),
   modelBand: modelBandSchema.default('eco'),
+  // 平台计费预订决定的供应商路由（degraded → fallback）；缺省 primary 兼容旧调用。
+  provider: z.enum(['primary', 'fallback']).default('primary'),
   language: z.string().min(2).max(10).default('auto'),
   workspaceLabel: z.string().max(120).optional(),
   totals: z.object({

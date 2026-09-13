@@ -114,7 +114,7 @@ export class RunWorker {
       // 合法且在品牌策略允许范围内时优先于默认档位。
       const requestedBand = z.enum(MODEL_BANDS).safeParse(found.input?.modelBand);
       const reservation = await reserveAiRun(tx, found.context.allowedModelClasses, found.id, requestedBand.success ? requestedBand.data : undefined);
-      if (reservation.guardrail.status === 'paused') {
+      if (!reservation.replayed && reservation.guardrail.status === 'paused') {
         await this.pauseForBilling(tx, job, reservation.guardrail, 'ai_run');
         return undefined;
       }
@@ -358,11 +358,11 @@ export class RunWorker {
           { subjectId: batchId, attempt: chunkAttemptKey(pending.rows.map((row) => row.id)), actionType: 'ai.classify' },
           batch.rows[0].modelBand as ModelBand,
         );
-        if (reservation.guardrail.status === 'paused') {
+        if (!reservation.replayed && reservation.guardrail.status === 'paused') {
           await this.deferJobForCredits(tx, job, 'import.classify_deferred', { batchId });
           return { deferred: true as const };
         }
-        return { deferred: false as const, modelBand: reservation.band, rows: pending.rows };
+        return { deferred: false as const, modelBand: reservation.band, provider: reservation.provider, rows: pending.rows };
       });
 
       if (items.deferred) return;
@@ -393,6 +393,9 @@ export class RunWorker {
 
       const result = await this.options.aiRuntime.classifyItems({
         modelBand: items.modelBand,
+        // 计费预订决定的供应商路由必须透传（审核 #5）：degraded 状态记录的
+        // 是 fallback，runtime 不能再硬编码 primary。
+        provider: items.provider,
         items: items.rows.map((row, index) => ({ index, text: row.text, author: row.author ?? undefined, platform: row.platform })),
       });
 
@@ -488,7 +491,7 @@ export class RunWorker {
         { subjectId: reportId, actionType: 'ai.insight' },
         reportRow.modelBand as ModelBand,
       );
-      if (reservation.guardrail.status === 'paused') {
+      if (!reservation.replayed && reservation.guardrail.status === 'paused') {
         await this.deferJobForCredits(tx, job, 'insight.generate_deferred', { reportId });
         return { deferred: true as const };
       }
@@ -515,7 +518,7 @@ export class RunWorker {
         );
         priorReports = prior.rows.filter((row) => row.summary).map((row) => ({ template: row.template, title: row.title, summary: row.summary! }));
       }
-      return { deferred: false as const, template, modelBand: reservation.band, pack: buildEvidencePack(items.rows), priorReports, fullTextById: new Map(items.rows.map((row) => [row.id, row.text])) };
+      return { deferred: false as const, template, modelBand: reservation.band, provider: reservation.provider, pack: buildEvidencePack(items.rows), priorReports, fullTextById: new Map(items.rows.map((row) => [row.id, row.text])) };
     });
     if (prepared.deferred) return;
 
@@ -530,6 +533,7 @@ export class RunWorker {
     const result = await this.options.aiRuntime.generateInsightReport({
       template: prepared.template,
       modelBand: prepared.modelBand,
+      provider: prepared.provider,
       totals: prepared.pack.totals,
       topItems: prepared.pack.topItems,
       tagSamples: prepared.pack.tagSamples,

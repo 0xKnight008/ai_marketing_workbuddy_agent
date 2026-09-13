@@ -158,9 +158,9 @@ export const internalApiRoutes = [
       if (!parsed.success) {
         return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
       }
-      const { items, modelBand, language } = parsed.data;
+      const { items, modelBand, provider, language } = parsed.data;
       try {
-        const agent = createItemClassifierAgent(modelForBand(config, modelBand, 'primary'));
+        const agent = createItemClassifierAgent(modelForBand(config, modelBand, provider));
         const { object } = await agent.generate(
           `Classify each of the following ${items.length} item(s)${language === 'auto' ? '' : ` (expected language: ${language})`}. Items as JSON:\n${JSON.stringify(items)}`,
           { structuredOutput: { schema: classifyResultSchema } },
@@ -189,7 +189,7 @@ export const internalApiRoutes = [
       }
       const request = parsed.data;
       try {
-        const agent = createInsightReportAgent(request.template, modelForBand(config, request.modelBand, 'primary'));
+        const agent = createInsightReportAgent(request.template, modelForBand(config, request.modelBand, request.provider));
         const prompt = `Generate the ${request.template} insight report from this evidence pack. Evidence pack as JSON:\n${JSON.stringify({
           workspaceLabel: request.workspaceLabel,
           totals: request.totals,

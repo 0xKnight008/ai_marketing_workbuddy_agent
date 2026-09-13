@@ -655,9 +655,73 @@ test('import.classify reserves credits per chunk with an idempotent content-hash
   assert.equal(event[0], null); // run_id 可空
   assert.equal(event[1], 'batch-1'); // subject_id
   assert.equal(event[2], 6); // standard = 6 credits
-  assert.equal(event[6], 'ai.classify.standard.primary');
+  assert.equal(event[6], 'ai.classify'); // 稳定前缀幂等键
+  assert.equal(event[7], 'standard'); // model_band 独立列
   assert.ok(Number(event[5]) >= 1); // 内容哈希 attempt
   assert.equal(chargedBand, 'standard');
+});
+
+test('import.classify replays the paid chunk reservation after an LLM failure on an empty balance', async () => {
+  // 审核 #5：chunk 预扣最后额度后 LLM 失败 → 重试时余额为 0 —— 必须复用
+  // 已付额度完成分类，而不是被暂停门禁延迟 6 小时。
+  const items = [{ id: 'item-1', text: 'where can I buy it', author: null, platform: 'instagram' }];
+  let taskEventCalls = 0;
+  let pendingCalls = 0;
+  const chargeEvents: unknown[][] = [];
+  const tx: TenantTransaction = {
+    async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
+      if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }] as unknown as Row[], rowCount: 1 };
+      // 第二次 runOne 起余额耗尽（首次扣了最后 6 点）。
+      if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: taskEventCalls > 0 ? 400 : 394, supplierSpendMicros: 0 }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }] as unknown as Row[], rowCount: 1 };
+      if (sql.startsWith('INSERT INTO task_event')) { taskEventCalls += 1; chargeEvents.push([...(values ?? [])]); return { rows: [{ id: 'evt-1' }] as unknown as Row[], rowCount: 1 }; }
+      // 幂等回放查询：首轮无既有事件；重试轮命中首次写入的事件。
+      if (sql.includes('FROM task_event')) {
+        const replayed = taskEventCalls > 0;
+        return { rows: (replayed ? [{ band: 'standard', provider: 'fallback', credits: 6, cost: 200_000 }] : []) as unknown as Row[], rowCount: 0 };
+      }
+      if (sql.includes("UPDATE import_batch SET status = 'classifying'")) return { rows: [{ status: 'classifying', modelBand: 'standard' }] as unknown as Row[], rowCount: 1 };
+      if (sql.includes('classified_at IS NULL')) {
+        pendingCalls += 1;
+        // 两次 runOne 各取一轮 pending；成功后第二轮 fetch 返回空结束。
+        return { rows: (pendingCalls <= 2 ? items : []) as unknown as Row[], rowCount: 0 };
+      }
+      return { rows: [] as Row[], rowCount: 1 };
+    },
+  } as TenantTransaction;
+  let capturedProvider: string | null = null;
+  const job: ClaimedJob = { id: 'job-r1', workspaceId: 'workspace-1', runId: null, kind: 'import.classify', payload: { batchId: 'batch-1' }, attempt: 1 };
+
+  // 第一次执行：扣费成功但 LLM 失败 → job 重试。
+  const jobs1: ClaimedJob[] = [job];
+  const w1 = new RunWorker({
+    workerName: 'replay-test',
+    database: { claimNextJob: async () => jobs1.shift(), withWorkspace: async (_id, op) => op(tx) },
+    aiRuntime: {
+      async prepareAnnouncement() { throw new Error('unexpected'); },
+      async getAnnouncementRun() { throw new Error('unexpected'); },
+      async classifyItems() { throw new Error('LLM provider timeout'); },
+      async generateInsightReport() { throw new Error('unexpected'); },
+    },
+  });
+  assert.equal(await w1.runOne(), true);
+  assert.equal(chargeEvents.length, 1); // 首轮已扣费
+
+  // 第二次执行：余额已耗尽，但幂等回放直接复用已付额度，分类照常完成。
+  const jobs2: ClaimedJob[] = [{ ...job, attempt: 2 }];
+  const w2 = new RunWorker({
+    workerName: 'replay-test',
+    database: { claimNextJob: async () => jobs2.shift(), withWorkspace: async (_id, op) => op(tx) },
+    aiRuntime: {
+      async prepareAnnouncement() { throw new Error('unexpected'); },
+      async getAnnouncementRun() { throw new Error('unexpected'); },
+      async classifyItems(payload) { capturedProvider = (payload as { provider: string }).provider; return { assignments: [{ itemIndex: 0, tags: [] }] }; },
+      async generateInsightReport() { throw new Error('unexpected'); },
+    },
+  });
+  assert.equal(await w2.runOne(), true);
+  assert.equal(chargeEvents.length, 1); // 没有第二次扣费
+  assert.equal(capturedProvider, 'fallback'); // 复用首次预订记录的供应商路由
 });
 
 test('import.classify defers instead of charging when credits are exhausted', async () => {
@@ -820,7 +884,7 @@ test('import.classify gives up after two zero-progress rounds and audits the gap
 test('insight.generate fails the report when no conclusion is grounded in verbatim evidence', async () => {
   const usage = usageHandlers({});
   const auditPayloads: Array<{ event: unknown; payload: unknown }> = [];
-  let failedError: string | null = null;
+  const failedErrors: string[] = [];
   let generated = false;
   const tx: TenantTransaction = {
     async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
@@ -833,7 +897,7 @@ test('insight.generate fails the report when no conclusion is grounded in verbat
       if (sql.includes('FROM import_item')) {
         return { rows: [{ id: 'aaaa-1', platform: 'youtube', author: null, text: 'take my money please', metrics: {}, tags: [] }] as unknown as Row[], rowCount: 1 };
       }
-      if (sql.includes("UPDATE insight_report") && sql.includes("'failed'")) { failedError = String(values?.[2]); }
+      if (sql.includes("UPDATE insight_report") && sql.includes("'failed'")) { failedErrors.push(String(values?.[2])); }
       if (sql.includes("UPDATE insight_report") && sql.includes("'generated'")) { generated = true; }
       return { rows: [] as Row[], rowCount: 1 };
     },
@@ -862,7 +926,7 @@ test('insight.generate fails the report when no conclusion is grounded in verbat
 
   assert.equal(await worker.runOne(), true);
   assert.equal(generated, false); // 空壳报告不得标记为 generated
-  assert.ok(failedError && failedError.startsWith('insufficient_grounded_evidence'));
+  assert.ok(failedErrors[0]?.startsWith('insufficient_grounded_evidence'));
   assert.ok(auditPayloads.some((entry) => entry.event === 'insight.insufficient_evidence'));
   // 失败是终态：job 正常结束而不是重试烧额度。
   assert.ok(auditPayloads.every((entry) => entry.event !== 'insight.generate_deferred'));
