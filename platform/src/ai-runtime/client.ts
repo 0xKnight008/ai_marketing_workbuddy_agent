@@ -58,7 +58,7 @@ export class AiRuntimeClient {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-internal-token': this.options.internalToken },
       body: JSON.stringify(payload),
-      // 证据包最大 ~40 条 × 600 字 + 标签样本，flagship 档位生成可能显著更慢。
+      // 证据包最大 ~64 条 × 600 字 + 标签样本，flagship 档位生成可能显著更慢。
       signal: AbortSignal.timeout(180_000),
     });
     if (!response.ok) throw new Error(`AI runtime insight report failed: ${response.status}`);

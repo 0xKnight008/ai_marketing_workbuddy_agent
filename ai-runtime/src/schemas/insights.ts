@@ -24,6 +24,8 @@ export const evidenceItemSchema = z.object({
   text: z.string().min(1).max(600),
   metrics: z.record(z.string(), z.number()).optional(),
   sku: z.string().max(80).optional(),
+  // 发布时刻：时间归因依赖字段（平台侧从 CSV published_at 列透传）。
+  publishedAt: z.string().max(40).optional(),
   tags: z.array(z.string()).max(4).default([]),
 });
 
@@ -40,6 +42,8 @@ export const tagSampleSchema = z.object({
 export const insightReportRequestSchema = z.object({
   template: z.enum(INSIGHT_TEMPLATES),
   modelBand: modelBandSchema.default('eco'),
+  // 平台计费预订决定的供应商路由（degraded → fallback）；缺省 primary 兼容旧调用。
+  provider: z.enum(['primary', 'fallback']).default('primary'),
   language: z.string().min(2).max(10).default('auto'),
   workspaceLabel: z.string().max(120).optional(),
   totals: z.object({
@@ -49,7 +53,8 @@ export const insightReportRequestSchema = z.object({
     // 平台侧确定性计算的评分分布（差评归因模板用；rating ≤ 2 为差评）。
     ratings: z.object({ rated: z.number().int().nonnegative(), negative: z.number().int().nonnegative() }).optional(),
   }),
-  topItems: z.array(evidenceItemSchema).max(40),
+  // 平台侧分层采样（头部 24 + 每标签 2 + 低分差评 8）的并集上限。
+  topItems: z.array(evidenceItemSchema).max(64),
   tagSamples: z.array(tagSampleSchema).max(11),
   // 社群摘要模板的成员活跃统计（平台侧聚合，至多 20 人）。
   memberStats: z.array(z.object({

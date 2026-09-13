@@ -22,6 +22,8 @@ export const classifyItemSchema = z.object({
 export const classifyRequestSchema = z.object({
   items: z.array(classifyItemSchema).min(1).max(50),
   modelBand: modelBandSchema.default('eco'),
+  // 平台计费预订决定的供应商路由（degraded → fallback）；缺省 primary 兼容旧调用。
+  provider: z.enum(['primary', 'fallback']).default('primary'),
   language: z.string().min(2).max(10).default('auto'),
 }).strict();
 

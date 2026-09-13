@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { actionPlanSchema, type ActionPlan, type AiRuntimeEvent } from '../contracts/ai-runtime-event';
 import { classifyResultSchema, type TagAssignment } from '../contracts/tagging';
 import { insightResultSchemas, insightTemplateSchema, reportDeliverySchema, type InsightTemplate } from '../contracts/insights';
-import { buildEvidencePack, validateReportCitations, type EvidenceSourceRow } from '../insight-service/evidence-pack';
+import { buildEvidencePack, enforceGroundedConclusions, validateReportCitations, type EvidenceSourceRow, type GroundingStats } from '../insight-service/evidence-pack';
 import { renderReportDigest, sendReportEmail, type ReportEmailConfig } from '../insight-service/delivery';
 import type { BrandContextSnapshot } from '../contracts/domain';
 import { MODEL_BAND_POLICIES, MODEL_BANDS, type ModelBand } from '../billing/plans';
@@ -114,7 +114,7 @@ export class RunWorker {
       // 合法且在品牌策略允许范围内时优先于默认档位。
       const requestedBand = z.enum(MODEL_BANDS).safeParse(found.input?.modelBand);
       const reservation = await reserveAiRun(tx, found.context.allowedModelClasses, found.id, requestedBand.success ? requestedBand.data : undefined);
-      if (reservation.guardrail.status === 'paused') {
+      if (!reservation.replayed && reservation.guardrail.status === 'paused') {
         await this.pauseForBilling(tx, job, reservation.guardrail, 'ai_run');
         return undefined;
       }
@@ -326,6 +326,9 @@ export class RunWorker {
     // Chunked synchronous classification; each chunk writes tags transactionally
     // so a mid-batch failure can be retried without duplicating rows (UNIQUE item+tag).
     const CLASSIFY_CHUNK = 50;
+    // 模型漏处理（itemIndex 未覆盖）会触发整 chunk 重试；连续两轮零进展
+    // 才放弃并标记剩余条目（留审计），避免 job 无限循环。
+    let stagnantRounds = 0;
     for (;;) {
       const items = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
         const batch = await tx.query<{ status: string; modelBand: string }>(
@@ -355,11 +358,11 @@ export class RunWorker {
           { subjectId: batchId, attempt: chunkAttemptKey(pending.rows.map((row) => row.id)), actionType: 'ai.classify' },
           batch.rows[0].modelBand as ModelBand,
         );
-        if (reservation.guardrail.status === 'paused') {
+        if (!reservation.replayed && reservation.guardrail.status === 'paused') {
           await this.deferJobForCredits(tx, job, 'import.classify_deferred', { batchId });
           return { deferred: true as const };
         }
-        return { deferred: false as const, modelBand: reservation.band, rows: pending.rows };
+        return { deferred: false as const, modelBand: reservation.band, provider: reservation.provider, rows: pending.rows };
       });
 
       if (items.deferred) return;
@@ -370,9 +373,18 @@ export class RunWorker {
             "UPDATE import_batch SET status = 'classified', classified_at = now() WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid",
             [batchId],
           );
+          // 批次级覆盖率指标：打标条目占比（区分"有信号"与"无信号/放弃"的规模）。
+          const statsRow = await tx.query<{ items: string | number; tagged: string | number }>(
+            `SELECT COUNT(*) AS items, COUNT(DISTINCT t.item_id) AS tagged
+               FROM import_item i LEFT JOIN item_tag t ON t.item_id = i.id
+              WHERE i.batch_id = $1 AND i.workspace_id = current_setting('app.workspace_id')::uuid`,
+            [batchId],
+          );
+          const itemCount = Number(statsRow.rows[0]?.items ?? 0);
+          const taggedItems = Number(statsRow.rows[0]?.tagged ?? 0);
           await tx.query(
             'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
-            [job.workspaceId, 'import.classified', { batchId }],
+            [job.workspaceId, 'import.classified', { batchId, items: itemCount, taggedItems, tagCoverageRate: itemCount ? taggedItems / itemCount : 1 }],
           );
           await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
         });
@@ -381,15 +393,26 @@ export class RunWorker {
 
       const result = await this.options.aiRuntime.classifyItems({
         modelBand: items.modelBand,
+        // 计费预订决定的供应商路由必须透传（审核 #5）：degraded 状态记录的
+        // 是 fallback，runtime 不能再硬编码 primary。
+        provider: items.provider,
         items: items.rows.map((row, index) => ({ index, text: row.text, author: row.author ?? undefined, platform: row.platform })),
       });
 
-      await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+      const coverage = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
         let written = 0;
         let dropped = 0;
+        // 覆盖判定（V1 审核 #3）：条目出现在 assignments 里即算被模型处理 ——
+        // 空 tags 是"明确无信号"的合法结论；未出现的条目是"漏处理"，必须重试。
+        // 同一 itemIndex 重复返回以第一条为准，越界 index 计为丢弃。
+        const seenIndexes = new Set<number>();
+        const coveredIds: string[] = [];
         for (const assignment of parsedAssignments(result)) {
           const item = items.rows[assignment.itemIndex];
           if (!item) { dropped += 1; continue; }
+          if (seenIndexes.has(assignment.itemIndex)) continue;
+          seenIndexes.add(assignment.itemIndex);
+          coveredIds.push(item.id);
           for (const tag of assignment.tags) {
             // 证据引用硬校验：LLM 必须给出原文逐字摘录，否则该标签作废。
             if (!item.text.includes(tag.evidence)) { dropped += 1; continue; }
@@ -402,17 +425,44 @@ export class RunWorker {
             written += inserted.rowCount;
           }
         }
-        // 无论是否有标签都标记已处理；无标签是合法结果（无信号评论）。
-        await tx.query(
-          `UPDATE import_item SET classified_at = now()
-            WHERE batch_id = $1 AND id = ANY($2::uuid[])`,
-          [batchId, items.rows.map((row) => row.id)],
-        );
+        if (coveredIds.length) {
+          await tx.query(
+            `UPDATE import_item SET classified_at = now()
+              WHERE batch_id = $1 AND id = ANY($2::uuid[])`,
+            [batchId, coveredIds],
+          );
+        }
         if (dropped > 0) {
           await tx.query(
             'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
             [job.workspaceId, 'import.classify_evidence_dropped', { batchId, dropped, written }],
           );
+        }
+        const coveredSet = new Set(coveredIds);
+        return { covered: coveredIds.length, missedIds: items.rows.map((row) => row.id).filter((id) => !coveredSet.has(id)) };
+      });
+
+      if (!coverage.missedIds.length) { stagnantRounds = 0; continue; }
+      stagnantRounds = coverage.covered === 0 ? stagnantRounds + 1 : 0;
+      const giveUp = stagnantRounds >= 2;
+      await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+        await tx.query(
+          'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
+          [job.workspaceId, 'import.classify_coverage_gap', { batchId, covered: coverage.covered, missed: coverage.missedIds.length, retrying: !giveUp }],
+        );
+        if (giveUp) {
+          // 模型连续两轮完全不覆盖剩余条目：放弃重试并标记，防止无限循环。
+          // 放弃不额外扣费（chunk 内容哈希幂等，重试同 chunk 不重复计费）。
+          await tx.query(
+            `UPDATE import_item SET classified_at = now()
+              WHERE batch_id = $1 AND id = ANY($2::uuid[])`,
+            [batchId, coverage.missedIds],
+          );
+          await tx.query(
+            'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
+            [job.workspaceId, 'import.classify_incomplete', { batchId, gaveUp: coverage.missedIds.length }],
+          );
+          stagnantRounds = 0;
         }
       });
     }
@@ -441,7 +491,7 @@ export class RunWorker {
         { subjectId: reportId, actionType: 'ai.insight' },
         reportRow.modelBand as ModelBand,
       );
-      if (reservation.guardrail.status === 'paused') {
+      if (!reservation.replayed && reservation.guardrail.status === 'paused') {
         await this.deferJobForCredits(tx, job, 'insight.generate_deferred', { reportId });
         return { deferred: true as const };
       }
@@ -468,7 +518,7 @@ export class RunWorker {
         );
         priorReports = prior.rows.filter((row) => row.summary).map((row) => ({ template: row.template, title: row.title, summary: row.summary! }));
       }
-      return { deferred: false as const, template, modelBand: reservation.band, pack: buildEvidencePack(items.rows), priorReports, fullTextById: new Map(items.rows.map((row) => [row.id, row.text])) };
+      return { deferred: false as const, template, modelBand: reservation.band, provider: reservation.provider, pack: buildEvidencePack(items.rows), priorReports, fullTextById: new Map(items.rows.map((row) => [row.id, row.text])) };
     });
     if (prepared.deferred) return;
 
@@ -483,6 +533,7 @@ export class RunWorker {
     const result = await this.options.aiRuntime.generateInsightReport({
       template: prepared.template,
       modelBand: prepared.modelBand,
+      provider: prepared.provider,
       totals: prepared.pack.totals,
       topItems: prepared.pack.topItems,
       tagSamples: prepared.pack.tagSamples,
@@ -495,18 +546,46 @@ export class RunWorker {
 
     // 3. 引用硬校验：幻觉引用（ref 未知 / snippet 非逐字）一律丢弃并计数。
     const stats = { dropped: 0 };
-    const cleaned = schema.parse(validateReportCitations(parsed.data, textByRef, stats));
+    const validated = validateReportCitations(parsed.data, textByRef, stats);
+    // 4. 结论证据门槛（V1 审核 #3）：证据被清空的结论整条移除，模型自报的
+    // approxCount/evidenceCount 抬升到不少于其逐字引用数。全部结论都无证据
+    // 时不发布空壳报告 —— 报告置为 failed（可操作错误），不再无意义重试。
+    // daily_ops 例外：其结论基于历史报告摘要（priorReports）而非条目引用，
+    // 引用硬校验仍然生效，但不做逐条证据门槛。
+    const grounding: GroundingStats = { totalConclusions: 0, groundedConclusions: 0, droppedConclusions: 0 };
+    const groundedReport = prepared.template === 'daily_ops' ? validated : enforceGroundedConclusions(validated, grounding);
+    if (prepared.template !== 'daily_ops' && grounding.groundedConclusions === 0) {
+      await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+        await tx.query(
+          `UPDATE insight_report SET status = 'failed', error = $3
+             WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND status = 'generating'`,
+          [reportId, job.workspaceId, 'insufficient_grounded_evidence: no conclusion is backed by verbatim evidence'],
+        );
+        await tx.query(
+          'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
+          [job.workspaceId, 'insight.insufficient_evidence', { reportId, template: prepared.template, droppedCitations: stats.dropped, droppedConclusions: grounding.droppedConclusions, totalConclusions: grounding.totalConclusions }],
+        );
+        await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
+      });
+      return;
+    }
+    const cleaned = schema.parse(groundedReport);
+    const groundedRate = grounding.totalConclusions ? grounding.groundedConclusions / grounding.totalConclusions : 1;
 
     await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
       await tx.query(
         `UPDATE insight_report
             SET status = 'generated', report = $3::jsonb, dropped_citations = $4, generated_at = now()
           WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND status = 'generating'`,
-        [reportId, job.workspaceId, JSON.stringify({ ...cleaned, _evidence: prepared.pack.refMap }), stats.dropped],
+        [reportId, job.workspaceId, JSON.stringify({
+          ...cleaned,
+          _evidence: prepared.pack.refMap,
+          _metrics: { droppedCitations: stats.dropped, droppedConclusions: grounding.droppedConclusions, groundedConclusions: grounding.groundedConclusions, totalConclusions: grounding.totalConclusions, groundedRate },
+        }), stats.dropped],
       );
       await tx.query(
         'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
-        [job.workspaceId, 'insight.generated', { reportId, template: prepared.template, droppedCitations: stats.dropped }],
+        [job.workspaceId, 'insight.generated', { reportId, template: prepared.template, droppedCitations: stats.dropped, droppedConclusions: grounding.droppedConclusions, groundedRate }],
       );
       await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
     });
