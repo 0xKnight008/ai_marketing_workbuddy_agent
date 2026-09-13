@@ -109,7 +109,7 @@ export function pasteToItems(content: string): ParsedItem[] {
   return content.split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => ({ platform: 'unknown', text: line.slice(0, 2_000), metrics: {} }));
+    .map((line) => ({ platform: 'unknown', text: line, metrics: {} }));
 }
 
 function emptyToUndefined(value: string | undefined): string | undefined {

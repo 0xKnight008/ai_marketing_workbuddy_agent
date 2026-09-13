@@ -27,7 +27,7 @@ const config = loadGatewayConfig();
 const database = new Database(config.DATABASE_URL);
 try { await assertAuthSchema(database); } catch (error) { await database.close(); throw error; }
 const platformService = new PlatformService(config, database, {} as PlatformOrm);
-const app = Fastify({ logger: true });
+const app = Fastify({ logger: true, bodyLimit: 16 * 1024 * 1024 });
 const rawBodies = new WeakMap<FastifyRequest, string>();
 const adminActors = new WeakMap<FastifyRequest, ActorContext>();
 const adminCookie = (request: FastifyRequest) => request.headers.cookie?.split(';').map(s => s.trim()).find(s => s.startsWith(`${ADMIN_COOKIE}=`))?.slice(ADMIN_COOKIE.length + 1) ?? '';

@@ -9,6 +9,19 @@ import { ImportService } from './service';
 
 const actor: ActorContext = { actorId: 'user-1', workspaceId: 'workspace-1', role: 'owner' };
 
+test('invalid import fields and UTF-8 byte overflow are rejected before database access', async () => {
+  const database = { withWorkspace: () => assert.fail('validation must precede storage and billing') } as unknown as Database;
+  const service = new ImportService(database);
+  for (const [sourceType, content, code] of [
+    ['csv', `text\n${'x'.repeat(2001)}`, 'import_item_1_text_exceeds_2000_characters'],
+    ['paste', 'x'.repeat(2001), 'import_item_1_text_exceeds_2000_characters'],
+    ['csv', `text,author\nhello,${'a'.repeat(121)}`, 'import_item_1_author_exceeds_120_characters'],
+    ['paste', '中'.repeat(700000), 'import_content_exceeds_2_mib'],
+  ]) {
+    await assert.rejects(service.createImport(actor, { label: 'Validation', sourceType, content }), (error) => error instanceof HttpError && error.code === code);
+  }
+});
+
 interface MockOptions { subscriptionStatus?: string; trialEndsAt?: string | null; creditsExhausted?: boolean }
 
 function mockDatabase(options: MockOptions = {}) {

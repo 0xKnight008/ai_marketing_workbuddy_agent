@@ -17,6 +17,7 @@ import { applyCreditTopup, applyCreditRefund } from '../src/billing/customer-bil
 import { AdminEmailLogin, adminPrincipal } from '../src/admin/email-login';
 import { AdminService } from '../src/admin/service';
 import { createHash } from 'node:crypto';
+import { ImportService } from '../src/import-service/service';
 
 test('migration 0013 upgrades missing auth columns and enables register/login/me on PostgreSQL', async (t) => {
   const url = process.env.TEST_DATABASE_URL;
@@ -81,6 +82,36 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
     });
     const registration = await auth.register(credentials, 'test-client');
     const registered = verifyAccessToken(registration.accessToken, secret);
+    await t.test('real import service persists UUID batches, crosses chunk boundaries, and rolls back atomically', async () => {
+      const owner = verifyAccessToken((await auth.register({ email: 'imports@example.invalid', password: 'test-only-password' }, 'import-test')).accessToken, secret);
+      // Registration creates identity/workspace only, not a billing row.
+      // Seed an explicit subscription fixture; an UPDATE alone silently affects zero rows.
+      await database.withWorkspace(owner.workspaceId, async tx => {
+        const seeded = await tx.query(`INSERT INTO workspace_billing (workspace_id, subscription_status, trial_ends_at)
+          VALUES (current_setting('app.workspace_id')::uuid, 'trialing', now()+interval '7 days')
+          ON CONFLICT (workspace_id) DO UPDATE SET subscription_status=EXCLUDED.subscription_status, trial_ends_at=EXCLUDED.trial_ends_at
+          RETURNING workspace_id`);
+        assert.equal(seeded.rowCount, 1);
+        const usage = await usageSnapshot(tx);
+        assert.equal(usage.subscriptionStatus, 'trialing');
+        assert.equal(usage.aiCreditsAvailable, 30);
+        assert.equal(usage.status, 'normal');
+      });
+      const imports = new ImportService(database);
+      const single = await imports.createImport(owner, { label: 'Single', sourceType: 'paste', content: 'hello' });
+      assert.equal(single.itemCount, 1);
+      const batch = await imports.createImport(owner, { label: '500 comments', sourceType: 'csv', content: 'text,author\n' + Array.from({ length: 500 }, (_, i) => `comment ${i},reader ${i}`).join('\n') });
+      assert.equal(batch.itemCount, 500);
+      assert.equal((await client.query('SELECT count(*)::int AS n FROM import_item WHERE batch_id=$1', [batch.id])).rows[0].n, 500);
+      assert.equal((await client.query("SELECT count(*)::int AS n FROM job WHERE kind='import.classify' AND payload->>'batchId'=$1", [batch.id])).rows[0].n, 1);
+      const before = (await client.query('SELECT count(*)::int AS n FROM import_batch')).rows[0].n;
+      await client.query("ALTER TABLE import_item ADD CONSTRAINT import_test_failure CHECK (text <> 'force transaction rollback')");
+      try {
+        await assert.rejects(imports.createImport(owner, { label: 'Rollback', sourceType: 'paste', content: [...Array(200).fill('valid'), 'force transaction rollback'].join('\n') }), { code: '23514' });
+      } finally { await client.query('ALTER TABLE import_item DROP CONSTRAINT import_test_failure'); }
+      assert.equal((await client.query('SELECT count(*)::int AS n FROM import_batch')).rows[0].n, before);
+      assert.equal((await client.query("SELECT count(*)::int AS n FROM import_item WHERE text='valid'")).rows[0].n, 0);
+    });
     await t.test('unlinked historical trial recovers by verified subscription ID with exactly thirty credits', async recovery => {
       const owner = verifyAccessToken((await auth.register({ email: 'trial-recovery@example.invalid', password: 'test-only-password' }, 'recovery-test')).accessToken, secret);
       const end = Math.floor(Date.now()/1000) + 86400;

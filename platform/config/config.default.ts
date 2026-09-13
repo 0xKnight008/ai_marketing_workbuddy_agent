@@ -23,7 +23,9 @@ export default (appInfo: EggAppInfo) => ({
     // Signed runtime and Stripe events cover original bytes, so these endpoints
     // are parsed by runtimeRawBody before the standard JSON parser sees them.
     ignore: (ctx: { path: string }) => ctx.path === '/internal/ai-runtime-events' || ctx.path === '/webhooks/stripe' || ctx.path === '/api/webhooks/stripe',
-    jsonLimit: '1mb',
+    // 2 MiB import content can expand up to 6x when JSON-escaped.
+    // The import service enforces the decoded UTF-8 content limit separately.
+    jsonLimit: '16mb',
   },
   middleware: ['platformError', 'platformCors', 'runtimeRawBody', 'adminEmailSession'],
   platformCors: {
