@@ -420,21 +420,26 @@ export default function PlatformDashboard() {
 
   async function createImport(sourceType: 'paste' | 'csv', content: string, label = importLabel) {
     if (new TextEncoder().encode(content).byteLength > 2 * 1024 * 1024) { setMessage('Import content exceeds 2 MiB. Split it into smaller batches.'); return; }
-    setMessage(''); setImportBusy(true);
+    setMessage('');
+    // 后端 label 必填：粘贴导入没有文件名兜底，空标题直接在本地拦下并提示。
+    const trimmedLabel = label.trim();
+    if (!trimmedLabel) { setMessage('Give this import a title first — it is how you will recognize the batch later.'); return; }
+    setImportBusy(true);
     try {
       const response = await fetch(`${gatewayUrl}/api/imports`, {
         method: 'POST',
         headers: headers(true),
-        body: JSON.stringify({ label: label.trim() || undefined, sourceType, content, modelBand: importBand }),
+        body: JSON.stringify({ label: trimmedLabel, sourceType, content, modelBand: importBand }),
       });
-      const result = await response.json().catch(() => ({})) as { id?: string; status?: string; error?: string };
+      const result = await response.json().catch(() => ({})) as { id?: string; status?: string; error?: string; message?: string };
       if (response.status === 402 || result.error === 'subscription_required') {
         setMessage(result.error === 'ai_credits_exhausted'
           ? 'AI credits are exhausted for this period — top up or wait for the next billing cycle.'
           : 'Imports require an active subscription. Pick a plan to unlock AI classification.');
         return;
       }
-      if (!response.ok || !result.id) { setMessage(result.error ?? 'The import could not be created.'); return; }
+      // 服务端 HttpError 的 message 带可操作细节（如超限条目序号），优先展示。
+      if (!response.ok || !result.id) { setMessage(result.message ?? result.error ?? 'The import could not be created.'); return; }
       setImportContent(''); setImportLabel('');
       setMessage(`Import queued (${result.status ?? 'pending'}) — classification is running in the background.`);
       await loadWorkspace();
