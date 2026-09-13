@@ -84,7 +84,19 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
     const registered = verifyAccessToken(registration.accessToken, secret);
     await t.test('real import service persists UUID batches, crosses chunk boundaries, and rolls back atomically', async () => {
       const owner = verifyAccessToken((await auth.register({ email: 'imports@example.invalid', password: 'test-only-password' }, 'import-test')).accessToken, secret);
-      await client.query("UPDATE workspace_billing SET subscription_status='trialing', trial_ends_at=now()+interval '7 days' WHERE workspace_id=$1", [owner.workspaceId]);
+      // Registration creates identity/workspace only, not a billing row.
+      // Seed an explicit subscription fixture; an UPDATE alone silently affects zero rows.
+      await database.withWorkspace(owner.workspaceId, async tx => {
+        const seeded = await tx.query(`INSERT INTO workspace_billing (workspace_id, subscription_status, trial_ends_at)
+          VALUES (current_setting('app.workspace_id')::uuid, 'trialing', now()+interval '7 days')
+          ON CONFLICT (workspace_id) DO UPDATE SET subscription_status=EXCLUDED.subscription_status, trial_ends_at=EXCLUDED.trial_ends_at
+          RETURNING workspace_id`);
+        assert.equal(seeded.rowCount, 1);
+        const usage = await usageSnapshot(tx);
+        assert.equal(usage.subscriptionStatus, 'trialing');
+        assert.equal(usage.aiCreditsAvailable, 30);
+        assert.equal(usage.status, 'normal');
+      });
       const imports = new ImportService(database);
       const single = await imports.createImport(owner, { label: 'Single', sourceType: 'paste', content: 'hello' });
       assert.equal(single.itemCount, 1);
