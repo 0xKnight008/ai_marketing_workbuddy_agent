@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { templateAcceptanceIssues } from '../insight-service/template-acceptance';
+import { rankReviewReport } from '../insight-service/review-ranking';
 
 import { z } from 'zod';
 
@@ -532,7 +533,10 @@ export class RunWorker {
       });
       return;
     }
-    const cleaned = schema.parse(groundedReport);
+    const validatedReport = schema.parse(groundedReport);
+    const cleaned = prepared.template === 'review_attribution'
+      ? rankReviewReport(insightResultSchemas.review_attribution.parse(validatedReport), new Map(prepared.pack.topItems.filter(item => item.sku).map(item => [item.ref, item.sku!])))
+      : validatedReport;
     const groundedRate = grounding.totalConclusions ? grounding.groundedConclusions / grounding.totalConclusions : 1;
 
     await this.options.database.withWorkspace(job.workspaceId, async (tx) => {

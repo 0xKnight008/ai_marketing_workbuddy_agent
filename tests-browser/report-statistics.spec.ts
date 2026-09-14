@@ -29,7 +29,7 @@ test('report shows full totals separately from sampled quotations and supports h
   let includeDataset = true;
   const report = () => ({ id: 'report-1', title: 'Dataset regression', template: 'review_attribution',
     status: 'generated', modelBand: 'eco', itemCount: 5000, droppedCitations: 0, createdAt: '2026-09-14', delivery: null,
-    report: { summary: 'Packaging feedback', issueClusters: [], returnReasons: [], expectationMismatches: [], priorityFixes: [], serviceReplyDrafts: [], listingFixSuggestions: [],
+    report: { summary: 'Packaging feedback', issueClusters: [{ theme: 'Broken packaging', severity: 'high', approxCount: 1, affectedSkus: ['SKU-A'], citations: [{ ref: 'i1', snippet: 'broken packaging' }] }], returnReasons: [], expectationMismatches: [], priorityFixes: [], serviceReplyDrafts: [], listingFixSuggestions: [], _reviewRanking: { basis: 'model_severity_then_distinct_cited_sources', candidateIssues: 1, displayedIssues: 1 },
       ...(includeDataset ? { _dataset: { items: 5000, taggedItems: 3000, sampledItems: 32, tagDistribution: { complaint: 3000 }, ratings: { rated: 4000, negative: 3000 }, sentiments: { classified: 4000, unknown: 1000, distribution: { excited: 1000, neutral: 3000 } } } } : {}),
     },
   });
@@ -46,6 +46,9 @@ test('report shows full totals separately from sampled quotations and supports h
   await page.getByRole('button', { name: 'Insights', exact: true }).click();
   await page.getByRole('button', { name: 'Open report', exact: true }).click();
   const stats = page.getByRole('region', { name: 'Full dataset statistics' });
+  await expect(page.getByText(/Top 1 issues \(up to 5\)/)).toBeVisible();
+  await expect(page.getByText(/not a sales-impact or full-dataset frequency ranking/)).toBeVisible();
+  await expect(page.getByText('SKU: SKU-A', { exact: true })).toBeVisible();
   await expect(stats).toContainText('5000 source items');
   await expect(stats).toContainText('3000 with intent labels (60.0%)');
   await expect(stats).toContainText('32 sampled for quotations');

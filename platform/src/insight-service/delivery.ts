@@ -57,7 +57,7 @@ function highlights(template: InsightTemplate, report: Record<string, unknown>):
       ].filter((line): line is string => Boolean(line));
     case 'review_attribution':
       return [
-        ...pick('issueClusters').slice(0, 3).map((item) => bullet(text(item.theme), `引用来源 ${citedSources(item)} 条 · 严重度 ${text(item.severity) ?? '-'}`)),
+        ...pick('issueClusters').slice(0, 5).map((item) => bullet(text(item.theme), `引用来源 ${citedSources(item)} 条 · 严重度 ${text(item.severity) ?? '-'}`)),
         ...pick('priorityFixes').slice(0, 2).map((item) => bullet(`优先修复: ${text(item.fix) ?? ''}`, item.expectedImpact)),
       ].filter((line): line is string => Boolean(line));
     case 'community_digest':
@@ -78,6 +78,7 @@ export function renderReportDigest(input: DigestInput): string {
   const summary = text(input.report.summary, 1_500) ?? '（无摘要）';
   const lines = highlights(input.template, input.report);
   const evidence = [`基于 ${input.itemCount} 条导入内容，所有引用均经过平台逐字校验`];
+  if (input.template === 'review_attribution' && input.report._reviewRanking) evidence.push('问题最多 5 项，按模型判断的严重度、不同引用来源数排序；不代表销量影响或全量主题频次。SKU 仅保留引用来源元数据支持的值。');
   const dataset = z.object({
     items: z.number().int().nonnegative(), taggedItems: z.number().int().nonnegative(),
     sampledItems: z.number().int().nonnegative(),
