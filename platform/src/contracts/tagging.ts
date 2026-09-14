@@ -44,8 +44,17 @@ export type ModelBandChoice = z.infer<typeof modelBandSchema>;
  * evidence 确为 item 文本的子串，校验不过的 tag 一律丢弃——
  * 没有证据的 AI 结论不允许进入系统（文档 §四.3）。
  */
+export const SENTIMENTS = ['excited', 'confused', 'complaining', 'urging', 'purchase_intent', 'neutral', 'mixed'] as const;
+export const sentimentSchema = z.object({
+  label: z.enum(SENTIMENTS),
+  confidence: z.number().min(0).max(1),
+  evidence: z.string().trim().min(1).max(500),
+});
+
 export const tagAssignmentSchema = z.object({
   itemIndex: z.number().int().nonnegative(),
+  // Optional during rolling upgrades; absence is unknown, never neutral.
+  sentiment: sentimentSchema.optional(),
   tags: z.array(z.object({
     tag: contentTagSchema,
     confidence: z.number().min(0).max(1),

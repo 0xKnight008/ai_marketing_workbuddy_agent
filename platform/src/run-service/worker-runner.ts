@@ -405,6 +405,12 @@ export class RunWorker {
         // Empty tags mean explicitly no signal, never a missing assignment.
         for (const assignment of assignments) {
           const item = items.rows[assignment.itemIndex]!;
+          if (assignment.sentiment) {
+            await tx.query(
+              "UPDATE import_item SET sentiment = $2::jsonb WHERE id = $1 AND batch_id = $3 AND workspace_id = current_setting('app.workspace_id')::uuid",
+              [item.id, JSON.stringify(assignment.sentiment), batchId],
+            );
+          }
           for (const tag of assignment.tags) {
             await tx.query(
               `INSERT INTO item_tag (workspace_id, item_id, tag, confidence, evidence, model_band)
@@ -451,7 +457,7 @@ export class RunWorker {
         return { deferred: true as const };
       }
       const items = await tx.query<EvidenceSourceRow>(
-        `SELECT i.id, i.platform, i.author, i.text, i.metrics,
+        `SELECT i.id, i.platform, i.author, i.text, i.metrics, i.sentiment,
                 COALESCE((SELECT jsonb_agg(jsonb_build_object('tag', t.tag, 'evidence', t.evidence, 'confidence', t.confidence::float8))
                             FROM item_tag t WHERE t.item_id = i.id), '[]'::jsonb) AS tags
            FROM import_item i
@@ -743,6 +749,9 @@ export function validatedClassifications(result: Record<string, unknown>, items:
     const item = items[assignment.itemIndex];
     if (!item || seen.has(assignment.itemIndex)) throw new Error('classification_invalid_item_index');
     seen.add(assignment.itemIndex);
+    if (assignment.sentiment && !item.text.includes(assignment.sentiment.evidence)) {
+      throw new Error('classification_invalid_sentiment_evidence');
+    }
     const tags = new Set<string>();
     for (const tag of assignment.tags) {
       if (!item.text.includes(tag.evidence) || tags.has(tag.tag)) throw new Error('classification_invalid_evidence');

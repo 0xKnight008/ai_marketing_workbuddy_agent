@@ -30,7 +30,7 @@ test('report shows full totals separately from sampled quotations and supports h
   const report = () => ({ id: 'report-1', title: 'Dataset regression', template: 'review_attribution',
     status: 'generated', modelBand: 'eco', itemCount: 5000, droppedCitations: 0, createdAt: '2026-09-14', delivery: null,
     report: { summary: 'Packaging feedback', issueClusters: [], returnReasons: [], expectationMismatches: [], priorityFixes: [], serviceReplyDrafts: [], listingFixSuggestions: [],
-      ...(includeDataset ? { _dataset: { items: 5000, taggedItems: 3000, sampledItems: 32, tagDistribution: { complaint: 3000 }, ratings: { rated: 4000, negative: 3000 } } } : {}),
+      ...(includeDataset ? { _dataset: { items: 5000, taggedItems: 3000, sampledItems: 32, tagDistribution: { complaint: 3000 }, ratings: { rated: 4000, negative: 3000 }, sentiments: { classified: 4000, unknown: 1000, distribution: { excited: 1000, neutral: 3000 } } } } : {}),
     },
   });
   await page.addInitScript(() => sessionStorage.setItem('piggybot.ownerAccessToken', `test.${btoa(JSON.stringify({ exp: 4102444800 }))}.test`));
@@ -51,6 +51,10 @@ test('report shows full totals separately from sampled quotations and supports h
   await expect(stats).toContainText('32 sampled for quotations');
   await expect(stats).toContainText('Negative reviews: 3000 / 4000 rated items (75.0%)');
   await expect(stats).toContainText('not emotion percentages');
+  const emotions = page.getByRole('region', { name: 'Emotion distribution' });
+  await expect(emotions).toContainText('Classified: 4000 / 5000 · Unknown: 1000 (20.0%)');
+  await expect(emotions).toContainText('excited: 1000 (20.0%)');
+  await expect(emotions).toContainText('unknown is not neutral');
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   includeDataset = false;
   await page.getByRole('button', { name: 'Open report', exact: true }).click();

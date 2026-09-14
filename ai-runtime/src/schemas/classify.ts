@@ -27,8 +27,17 @@ export const classifyRequestSchema = z.object({
   language: z.string().min(2).max(10).default('auto'),
 }).strict();
 
+export const SENTIMENTS = ['excited', 'confused', 'complaining', 'urging', 'purchase_intent', 'neutral', 'mixed'] as const;
+export const sentimentSchema = z.object({
+  label: z.enum(SENTIMENTS),
+  confidence: z.number().min(0).max(1),
+  evidence: z.string().trim().min(1).max(500),
+});
+
 export const tagAssignmentSchema = z.object({
   itemIndex: z.number().int().nonnegative(),
+  // Optional during rolling upgrades; absence is unknown, never neutral.
+  sentiment: sentimentSchema.optional(),
   tags: z.array(z.object({
     tag: z.enum(CLASSIFY_TAGS),
     confidence: z.number().min(0).max(1),
@@ -39,6 +48,12 @@ export const tagAssignmentSchema = z.object({
 
 export const classifyResultSchema = z.object({
   assignments: z.array(tagAssignmentSchema).max(200),
+});
+
+// New generation must include emotion for every item; readers accept legacy
+// responses without it during rolling upgrades and mark them unknown.
+export const classifyGenerationSchema = z.object({
+  assignments: z.array(tagAssignmentSchema.extend({ sentiment: sentimentSchema })).max(200),
 });
 
 export type ClassifyRequest = z.infer<typeof classifyRequestSchema>;

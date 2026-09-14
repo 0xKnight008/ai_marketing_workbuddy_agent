@@ -1,4 +1,4 @@
-import { CONTENT_TAGS, type ContentTag } from '../contracts/tagging';
+import { CONTENT_TAGS, SENTIMENTS, sentimentSchema, type ContentTag } from '../contracts/tagging';
 
 /**
  * 证据包构建器（迭代 2）：把 import_item + item_tag 行聚合成发给
@@ -12,6 +12,7 @@ export interface EvidenceSourceRow {
   author: string | null;
   text: string;
   metrics: Record<string, unknown>;
+  sentiment?: unknown;
   tags: Array<{ tag: string; evidence: string; confidence: number }>;
 }
 
@@ -33,6 +34,7 @@ export interface EvidencePack {
     items: number;
     taggedItems: number;
     tagDistribution: Record<string, number>;
+    sentiments: { classified: number; unknown: number; distribution: Record<string, number> };
     /** 平台侧确定性计算的评分分布（rating ≤ 2 计为差评），LLM 不得编造。 */
     ratings?: { rated: number; negative: number };
   };
@@ -71,6 +73,14 @@ function numericMetric(metrics: Record<string, unknown>, key: string): number | 
 }
 
 export function buildEvidencePack(rows: EvidenceSourceRow[]): EvidencePack {
+  const distribution: Record<string, number> = Object.fromEntries(SENTIMENTS.map(label => [label, 0]));
+  let classified = 0;
+  for (const row of rows) {
+    const parsed = sentimentSchema.safeParse(row.sentiment);
+    if (!parsed.success || !row.text.includes(parsed.data.evidence)) continue;
+    distribution[parsed.data.label] = (distribution[parsed.data.label] ?? 0) + 1;
+    classified += 1;
+  }
   const tagDistribution: Record<string, number> = {};
   const taggedItems = new Set<string>();
   for (const row of rows) {
@@ -182,6 +192,7 @@ export function buildEvidencePack(rows: EvidenceSourceRow[]): EvidencePack {
       items: rows.length,
       taggedItems: taggedItems.size,
       tagDistribution,
+      sentiments: { classified, unknown: rows.length - classified, distribution },
       ...(rated > 0 ? { ratings: { rated, negative } } : {}),
     },
     topItems,

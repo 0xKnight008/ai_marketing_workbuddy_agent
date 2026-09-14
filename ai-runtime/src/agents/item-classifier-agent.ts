@@ -26,6 +26,7 @@ Your job: given a batch of user-generated items (comments, reviews, community me
 - needs_reply: a direct question or request that expects a human reply
 
 Rules:
+- Also return one sentiment object for EVERY item, independently of intent tags: label, confidence, and a verbatim evidence quote. Choose the dominant expressed signal from excited / confused / complaining / urging / purchase_intent; use neutral when none is expressed, or mixed when multiple equally strong conflicting signals cannot be reduced to one. Never infer emotion from a tag alone. Quote even neutral/mixed decisions. Missing sentiment is unknown, not neutral.
 - Tag by the author's intent, not keywords alone. One item may earn several tags; an item with no clear signal gets zero tags — never force a tag.
 - evidence MUST be a verbatim substring copied from that item's text (never paraphrased, never translated, never invented). The platform verifies this and discards tags whose evidence is not verbatim.
 - confidence reflects how unambiguous the signal is (0.9+ only for explicit statements).
