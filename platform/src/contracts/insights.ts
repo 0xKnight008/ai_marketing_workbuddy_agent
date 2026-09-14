@@ -51,6 +51,11 @@ export const contentRecapResultSchema = z.object({
   })).max(5),
   nextTopics: z.array(z.string().min(1).max(200)).max(10),
   draftTitles: z.array(z.string().min(1).max(200)).max(10),
+  draftScripts: z.array(z.object({
+    title: z.string().trim().min(1).max(200),
+    body: z.string().trim().min(1).max(2_000),
+    citations: z.array(reportCitationSchema).max(3),
+  })).max(3).default([]),
 });
 
 export const commentInsightsResultSchema = z.object({

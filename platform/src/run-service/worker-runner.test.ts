@@ -390,9 +390,11 @@ test('insight.generate retries when the AI runtime result fails schema validatio
   assert.ok(statements.some((sql) => sql.startsWith('UPDATE job SET status')));
 });
 
-test('insight.generate daily_ops aggregates prior report summaries into the evidence pack', async () => {
+for (const taskCount of [1, 3]) test(`daily_ops enforces cardinality after grounding (${taskCount} tasks)`, async () => {
   let capturedPayload: Record<string, unknown> | null = null;
   let storedReport: Record<string, unknown> | undefined;
+  let failedError = '';
+  let succeededJob = false;
   const tx: TenantTransaction = {
     async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
       if (sql.includes("UPDATE insight_report SET status = 'generating'")) {
@@ -403,6 +405,8 @@ test('insight.generate daily_ops aggregates prior report summaries into the evid
         return { rows: [{ template: 'comment_insights', title: 'Weekly', summary: 'Fans want merch badly.' }] as unknown as Row[], rowCount: 1 };
       }
       void values;
+      if (sql.includes("SET status = 'failed', error = $3")) failedError = String(values?.[2]);
+      if (sql.includes("UPDATE job SET status = 'succeeded'")) succeededJob = true;
       if (sql.includes("SET status = 'generated', report")) storedReport = JSON.parse(String(values?.[2]));
       if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }] as unknown as Row[], rowCount: 1 };
       if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: 0, supplierSpendMicros: 0 }] as unknown as Row[], rowCount: 1 };
@@ -423,7 +427,7 @@ test('insight.generate daily_ops aggregates prior report summaries into the evid
       async classifyItems() { throw new Error('unexpected'); },
       async generateInsightReport(payload) {
         capturedPayload = payload;
-        return { summary: 'Today: follow up merch demand.', tasks: [{ title: 'Draft presale poll', reason: 'Comment insights showed strong merch demand', suggestedAction: 'Post poll to community', priority: 'high', dueHint: 'today 18:00', citations: [{ ref: 'p1', snippet: 'Fans want merch badly.' }] }] };
+        return { summary: 'Today: follow up merch demand.', tasks: ['Draft presale poll', 'Compare supplier quotes', 'Prepare a concept sketch'].slice(0, taskCount).map(title => ({ title, reason: 'Comment insights showed strong merch demand', suggestedAction: title, priority: 'high', dueHint: 'today 18:00', citations: [{ ref: 'p1', snippet: 'Fans want merch badly.' }] })) };
       },
     },
   });
@@ -433,8 +437,15 @@ test('insight.generate daily_ops aggregates prior report summaries into the evid
   const payload = capturedPayload! as { template: string; priorReports?: Array<{ summary: string }> };
   assert.equal(payload.template, 'daily_ops');
   assert.equal(payload.priorReports?.[0]?.summary, 'Fans want merch badly.');
-  assert.ok(storedReport, 'daily tasks must pass grounding and actually be stored');
-  assert.equal(storedReport._countBasis, 'distinct_cited_sources');
+  assert.equal(succeededJob, true, 'acceptance failures are terminal, not repeatedly billed retries');
+  if (taskCount === 3) {
+    assert.ok(storedReport, 'valid daily tasks must actually be stored');
+    assert.equal(storedReport._countBasis, 'distinct_cited_sources');
+    assert.equal(failedError, '');
+  } else {
+    assert.equal(storedReport, undefined);
+    assert.match(failedError, /^template_acceptance_failed: tasks:/);
+  }
 });
 
 // ---------- 迭代 4：报告外发（insight.deliver） ----------

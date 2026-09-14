@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { templateAcceptanceIssues } from '../insight-service/template-acceptance';
 
 import { z } from 'zod';
 
@@ -506,16 +507,20 @@ export class RunWorker {
     // Apply the same quotation gate to all six templates, including daily ops.
     const grounding: GroundingStats = { totalConclusions: 0, groundedConclusions: 0, droppedConclusions: 0 };
     const groundedReport = enforceGroundedConclusions(validated, grounding);
-    if (grounding.groundedConclusions === 0) {
+    const acceptanceIssues = templateAcceptanceIssues(prepared.template, groundedReport as Record<string, unknown>);
+    if (grounding.groundedConclusions === 0 || acceptanceIssues.length) {
+      const error = grounding.groundedConclusions === 0
+        ? 'insufficient_grounded_evidence: no conclusion is backed by verbatim evidence'
+        : `template_acceptance_failed: ${acceptanceIssues.join('; ')}. Add relevant sources or revise the brief; no filler was generated.`;
       await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
         await tx.query(
           `UPDATE insight_report SET status = 'failed', error = $3
              WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND status = 'generating'`,
-          [reportId, job.workspaceId, 'insufficient_grounded_evidence: no conclusion is backed by verbatim evidence'],
+          [reportId, job.workspaceId, error],
         );
         await tx.query(
           'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
-          [job.workspaceId, 'insight.insufficient_evidence', { reportId, template: prepared.template, droppedCitations: stats.dropped, droppedConclusions: grounding.droppedConclusions, totalConclusions: grounding.totalConclusions }],
+          [job.workspaceId, grounding.groundedConclusions === 0 ? 'insight.insufficient_evidence' : 'insight.acceptance_failed', { reportId, template: prepared.template, acceptanceIssues, droppedCitations: stats.dropped, droppedConclusions: grounding.droppedConclusions, totalConclusions: grounding.totalConclusions }],
         );
         await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
       });
