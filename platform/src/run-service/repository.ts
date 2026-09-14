@@ -55,7 +55,7 @@ export async function decideApproval(tx: TenantTransaction, actor: ActorContext,
       [row.insightReportId, actor.workspaceId, JSON.stringify(patch), approvalId],
     );
     if (decision === 'approved') {
-      await tx.query("INSERT INTO job (workspace_id, kind, payload) VALUES ($1, 'insight.deliver', $2)", [actor.workspaceId, JSON.stringify({ reportId: row.insightReportId })]);
+      await tx.query("INSERT INTO job (workspace_id, kind, payload) VALUES ($1, 'insight.deliver', $2)", [actor.workspaceId, JSON.stringify({ reportId: row.insightReportId, approvalId })]);
     }
     await tx.query('INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)', [actor.workspaceId, actor.actorId, `insight.delivery_${decision}`, { reportId: row.insightReportId, approvalId, reason: reason ?? null }]);
     return { runId: row.runId, status: decision };

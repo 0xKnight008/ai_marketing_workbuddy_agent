@@ -163,11 +163,12 @@ interface DeliveryMockOptions {
 function mockDeliveryDatabase(options: DeliveryMockOptions = {}) {
   const statements: string[] = [];
   const auditEvents: unknown[] = [];
+  const approvals: Array<{ parameters: { content: string; subject: string } }> = [];
   let storedDelivery: unknown = options.delivery ?? {};
   const reportView = () => ({
     id: '11111111-1111-4111-8111-111111111111', template: 'content_recap', title: 'T', status: 'generated', modelBand: 'eco',
     batchIds: ['batch-1'], itemCount: 12, droppedCitations: 0,
-    error: null, createdAt: new Date().toISOString(), generatedAt: new Date().toISOString(), report: { summary: 's' },
+    error: null, createdAt: new Date().toISOString(), generatedAt: new Date().toISOString(), report: { summary: 's', draftTitles: ['Saved title', 'x'.repeat(1901)] },
     delivery: storedDelivery,
   });
   const tx: TenantTransaction = {
@@ -175,7 +176,7 @@ function mockDeliveryDatabase(options: DeliveryMockOptions = {}) {
       statements.push(sql);
       if (sql.startsWith('INSERT INTO audit_event')) auditEvents.push(values?.[2]);
       if (sql.includes('FOR UPDATE')) {
-        return { rows: [{ title: 'T', status: options.reportStatus ?? 'generated', delivery: options.delivery ?? {} }] as unknown as Row[], rowCount: 1 };
+        return { rows: [{ ...reportView(), status: options.reportStatus ?? 'generated', delivery: options.delivery ?? {} }] as unknown as Row[], rowCount: 1 };
       }
       if (sql.includes('FROM workspace_membership')) {
         return { rows: (options.ownerEmail === null ? [] : [{ email: options.ownerEmail ?? 'owner@example.com' }]) as unknown as Row[], rowCount: 1 };
@@ -187,6 +188,7 @@ function mockDeliveryDatabase(options: DeliveryMockOptions = {}) {
         return { rows: (account ? [account] : []) as unknown as Row[], rowCount: account ? 1 : 0 };
       }
       if (sql.startsWith('INSERT INTO approval_request')) {
+        approvals.push(values?.[1] as { parameters: { content: string; subject: string } });
         return { rows: [{ id: '22222222-2222-4222-8222-222222222222' }] as unknown as Row[], rowCount: 1 };
       }
       if (sql.startsWith('UPDATE insight_report SET delivery')) {
@@ -200,7 +202,7 @@ function mockDeliveryDatabase(options: DeliveryMockOptions = {}) {
     },
   } as TenantTransaction;
   const database = { withWorkspace: async <T>(_id: string, op: (inner: TenantTransaction) => Promise<T>) => op(tx) } as Database;
-  return { database, statements, auditEvents };
+  return { database, statements, auditEvents, approvals };
 }
 
 test('requestDelivery defaults the email target to the workspace owner and creates a pending approval', async () => {
@@ -218,6 +220,19 @@ test('requestDelivery uses an explicit email when provided', async () => {
   const service = new InsightService(database);
   const view = await service.requestDelivery(actor, '11111111-1111-4111-8111-111111111111', { channel: 'email', email: 'Team@Example.com' });
   assert.equal(view.delivery?.target, 'team@example.com');
+});
+
+test('selected draft freezes exact text and rejects unknown or oversized Discord drafts', async () => {
+  const { database, approvals } = mockDeliveryDatabase();
+  const service = new InsightService(database);
+  const view = await service.requestDelivery(actor, '11111111-1111-4111-8111-111111111111', { channel: 'email', draftKey: 'draftTitles:0' });
+  assert.equal(view.delivery?.content, 'Saved title');
+  assert.equal(view.delivery?.subject, '[Piggybot] T');
+  assert.equal(view.delivery?.draftKey, 'draftTitles:0');
+  assert.equal(approvals[0]?.parameters.content, view.delivery?.content);
+  assert.equal(approvals[0]?.parameters.subject, view.delivery?.subject);
+  await assert.rejects(new InsightService(mockDeliveryDatabase().database).requestDelivery(actor, '11111111-1111-4111-8111-111111111111', { channel: 'email', draftKey: 'injected:0' }), { code: 'insight_draft_not_found' });
+  await assert.rejects(new InsightService(mockDeliveryDatabase().database).requestDelivery(actor, '11111111-1111-4111-8111-111111111111', { channel: 'discord', connectedAccountId: '33333333-3333-4333-8333-333333333333', draftKey: 'draftTitles:1' }), { code: 'insight_draft_too_long_for_discord' });
 });
 
 test('requestDelivery rejects reports that are not generated yet', async () => {

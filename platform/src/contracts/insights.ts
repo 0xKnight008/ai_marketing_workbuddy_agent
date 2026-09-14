@@ -213,6 +213,7 @@ export const DELIVERY_CHANNELS = ['email', 'discord'] as const;
 export type DeliveryChannel = (typeof DELIVERY_CHANNELS)[number];
 
 export const requestInsightDeliverySchema = z.object({
+  draftKey: z.string().min(1).max(80).optional(),
   channel: z.enum(DELIVERY_CHANNELS),
   email: z.string().trim().toLowerCase().email().max(254).optional(),
   connectedAccountId: z.string().uuid().optional(),
@@ -225,6 +226,9 @@ export type RequestInsightDeliveryInput = z.infer<typeof requestInsightDeliveryS
 
 /** insight_report.delivery jsonb 的状态机快照。 */
 export const reportDeliverySchema = z.object({
+  content: z.string().min(1).max(12000).optional(),
+  subject: z.string().min(1).max(200).optional(),
+  draftKey: z.string().min(1).max(80).optional(),
   status: z.enum(['awaiting_approval', 'approved', 'delivered', 'rejected', 'failed']),
   channel: z.enum(DELIVERY_CHANNELS),
   /** 实际投递目标：邮箱地址或 connected_account.id（审批通过时快照）。 */

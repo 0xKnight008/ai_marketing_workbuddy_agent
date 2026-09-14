@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { reportDrafts } from '../../../shared/report-drafts';
+import { renderReportDigest } from './delivery';
 
 import { usageSnapshot } from '../billing/guardrails';
 import type { ActorContext } from '../contracts/domain';
@@ -168,8 +170,8 @@ export class InsightService {
     const input = requestInsightDeliverySchema.parse(body);
 
     return this.database.withWorkspace(actor.workspaceId, async (tx) => {
-      const report = await tx.query<{ title: string; status: string; delivery: unknown }>(
-        `SELECT title, status, delivery FROM insight_report
+      const report = await tx.query<{ title: string; status: string; delivery: unknown; template: InsightTemplate; report: Record<string, unknown>; itemCount: number; droppedCitations: number }>(
+        `SELECT title, status, delivery, template, report, item_count AS "itemCount", dropped_citations AS "droppedCitations" FROM insight_report
           WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid
           FOR UPDATE`,
         [id],
@@ -220,10 +222,17 @@ export class InsightService {
         targetLabel = connected.displayName;
       }
 
+      const draft = input.draftKey ? reportDrafts(row.template, row.report).find(d => d.key === input.draftKey) : undefined;
+      if (input.draftKey && !draft) throw new HttpError(422, 'insight_draft_not_found');
+      const rawContent = draft?.text ?? renderReportDigest({ template: row.template, title: row.title, itemCount: row.itemCount, droppedCitations: row.droppedCitations, report: row.report });
+      if (draft && input.channel === 'discord' && rawContent.length > 1900) throw new HttpError(422, 'insight_draft_too_long_for_discord', 'Use email for this draft; it exceeds the 1900-character delivery limit.');
+      const content = input.channel === 'discord' ? rawContent.slice(0, 1900) : rawContent;
+      if (content.length > 12000) throw new HttpError(422, 'insight_delivery_too_long');
+      const subject = `[Piggybot] ${row.title}`.slice(0, 200);
       const requestedAction = {
         actionType: 'insight.deliver_report',
         summary: `Send report "${row.title}" via ${input.channel} to ${targetLabel}`,
-        parameters: { reportId: id, channel: input.channel, target, targetLabel },
+        parameters: { reportId: id, channel: input.channel, target, targetLabel, content, subject, ...(input.draftKey ? { draftKey: input.draftKey } : {}) },
       };
       const approval = await tx.query<{ id: string }>(
         `INSERT INTO approval_request (workspace_id, run_id, insight_report_id, status, requested_action)
@@ -235,6 +244,7 @@ export class InsightService {
       if (!approvalId) throw new Error('insight_delivery_approval_failed');
 
       const delivery: ReportDelivery = {
+        content, subject, ...(input.draftKey ? { draftKey: input.draftKey } : {}),
         status: 'awaiting_approval',
         channel: input.channel,
         target,

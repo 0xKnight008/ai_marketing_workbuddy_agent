@@ -8,7 +8,7 @@ import { actionPlanSchema, type ActionPlan, type AiRuntimeEvent } from '../contr
 import { classifyResultSchema, type TagAssignment } from '../contracts/tagging';
 import { insightResultSchemas, insightTemplateSchema, reportDeliverySchema, type InsightTemplate } from '../contracts/insights';
 import { buildEvidencePack, enforceGroundedConclusions, validateReportCitations, type EvidenceSourceRow, type GroundingStats } from '../insight-service/evidence-pack';
-import { renderReportDigest, sendReportEmail, type ReportEmailConfig } from '../insight-service/delivery';
+import { sendReportEmail, type ReportEmailConfig } from '../insight-service/delivery';
 import type { BrandContextSnapshot } from '../contracts/domain';
 import { MODEL_BAND_POLICIES, MODEL_BANDS, type ModelBand } from '../billing/plans';
 import { projectedActionUsage, recordSuccessfulAction, reserveAiRun, type AiReservation, type UsageSnapshot } from '../billing/guardrails';
@@ -583,6 +583,8 @@ export class RunWorker {
       const delivery = reportDeliverySchema.safeParse(row.delivery);
       if (!delivery.success) throw new Error('insight delivery snapshot is missing');
       if (delivery.data.status !== 'approved') return { skipped: true as const };
+      if (!delivery.data.content || !delivery.data.subject) throw new Error('insight_delivery_requires_new_approval: legacy approval has no message snapshot');
+      if (job.payload.approvalId !== delivery.data.approvalId) return { skipped: true as const };
       return {
         skipped: false as const,
         title: row.title,
@@ -599,14 +601,14 @@ export class RunWorker {
     }
 
     // 摘要是给人读的速览版，不引入报告之外的新事实；Discord 限 2000 字符。
-    const digest = renderReportDigest({ template: prepared.template, title: prepared.title, itemCount: prepared.itemCount, droppedCitations: prepared.droppedCitations, report: prepared.report });
+    const digest = prepared.delivery.content!;
     if (prepared.delivery.channel === 'email') {
       if (!this.options.email) throw new Error('Email delivery is not configured');
       await sendReportEmail(this.options.email, {
         to: prepared.delivery.target,
-        subject: `[Piggybot] ${prepared.title}`.slice(0, 200),
+        subject: prepared.delivery.subject!,
         text: digest,
-        idempotencyKey: `insight-delivery/${job.id}`,
+        idempotencyKey: `insight-delivery/${prepared.delivery.approvalId}`,
       });
     } else {
       const { zernio } = this.options;
@@ -626,10 +628,10 @@ export class RunWorker {
         type: 'social.create_post' as const,
         platform: 'discord',
         accountId: account.externalAccountId,
-        content: digest.slice(0, 1_900),
+        content: digest,
         hashtags: [] as string[],
         mode: 'publish_now' as const,
-        idempotencyKey: `insight-delivery:${job.id}`,
+        idempotencyKey: `insight-delivery:${prepared.delivery.approvalId}`,
         requiresApproval: false,
       };
       assertExecutableAction({
@@ -647,12 +649,12 @@ export class RunWorker {
     await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
       await tx.query(
         `UPDATE insight_report SET delivery = delivery || $3::jsonb
-          WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND delivery->>'status' = 'approved'`,
-        [reportId, job.workspaceId, JSON.stringify({ status: 'delivered', deliveredAt: new Date().toISOString() })],
+          WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND delivery->>'status' = 'approved' AND delivery->>'approvalId' = $4`,
+        [reportId, job.workspaceId, JSON.stringify({ status: 'delivered', deliveredAt: new Date().toISOString() }), prepared.delivery.approvalId],
       );
       await tx.query(
         'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
-        [job.workspaceId, 'insight.delivered', { reportId, channel: prepared.delivery.channel, targetLabel: prepared.delivery.targetLabel }],
+        [job.workspaceId, 'insight.delivered', { reportId, approvalId: prepared.delivery.approvalId, channel: prepared.delivery.channel, targetLabel: prepared.delivery.targetLabel }],
       );
       await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
     });
@@ -690,7 +692,7 @@ export class RunWorker {
       }
       // 报告外发死信：delivery 状态机置为 failed 供前端展示，可重新发起外发。
       if (result.rows[0]?.status === 'dead_lettered' && job.kind === 'insight.deliver' && typeof job.payload.reportId === 'string') {
-        await tx.query("UPDATE insight_report SET delivery = COALESCE(delivery, '{}'::jsonb) || $3::jsonb WHERE id = $1 AND workspace_id = $2", [job.payload.reportId, job.workspaceId, JSON.stringify({ status: 'failed', error: message.slice(0, 500) })]);
+        await tx.query("UPDATE insight_report SET delivery = COALESCE(delivery, '{}'::jsonb) || $3::jsonb WHERE id = $1 AND workspace_id = $2 AND (delivery->>'approvalId' = $4 OR ($4::text IS NULL AND NOT (delivery ? 'content')))", [job.payload.reportId, job.workspaceId, JSON.stringify({ status: 'failed', error: message.slice(0, 500) }), job.payload.approvalId ?? null]);
         await tx.query('INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)', [job.workspaceId, 'insight.delivery_failed', { reportId: job.payload.reportId, error: message.slice(0, 200) }]);
       }
     });

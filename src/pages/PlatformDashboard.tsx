@@ -6,6 +6,7 @@ import BillingDashboard from './BillingDashboard';
 import { ReportDatasetStats } from '../components/ReportDatasetStats';
 import { ReportActionFeedback } from '../components/ReportActionFeedback';
 import { WeeklyInsightReview } from '../components/WeeklyInsightReview';
+import { reportDrafts } from '../../shared/report-drafts';
 
 const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
 
@@ -47,7 +48,7 @@ interface ConnectedAccount { id: string; externalAccountId: string; displayName:
 interface PipelineCheck { id: string; label: string; passed: boolean; detail: string; }
 interface PipelineReadiness { ready: boolean; checks: PipelineCheck[]; }
 interface RunView { id: string; status: string; workflowId: string; createdAt: string; }
-interface ApprovalView { id: string; runId: string | null; requestedAction: { summary?: string }; requestedAt: string; }
+interface ApprovalView { id: string; runId: string | null; requestedAction: { summary?: string; parameters?: { content?: string; subject?: string } }; requestedAt: string; }
 interface TaskEventView { id: string; runId: string | null; actionType: string; billableUnits: string; aiCredits: string; status: string; createdAt: string; }
 interface AuditEventView { id: string; runId?: string; eventType: string; createdAt: string; }
 interface UsageView { status: string; taskUsed: number; taskQuota: number; aiCreditsUsed: number; aiCreditsAvailable: number; subscriptionStatus: string; plan: string; }
@@ -498,7 +499,7 @@ export default function PlatformDashboard() {
     }
   }
 
-  async function deliverInsight(reportId: string, input: { channel: 'email' | 'discord'; email?: string; connectedAccountId?: string }) {
+  async function deliverInsight(reportId: string, input: { channel: 'email' | 'discord'; email?: string; connectedAccountId?: string; draftKey?: string }) {
     setMessage('');
     const response = await fetch(`${gatewayUrl}/api/insights/${reportId}/deliver`, {
       method: 'POST',
@@ -511,6 +512,8 @@ export default function PlatformDashboard() {
         : result.error === 'insight_not_generated' ? 'Only a finished report can be sent.'
         : result.error === 'insight_delivery_target_invalid' ? 'Pick a connected Discord account with posting permission.'
         : result.error === 'insight_delivery_target_missing' ? 'No workspace owner email found — enter an email address.'
+        : result.error === 'insight_draft_too_long_for_discord' ? 'This draft exceeds the Discord delivery limit. Choose Email to send the complete text.'
+        : result.error === 'insight_draft_not_found' ? 'This draft is unavailable. Reopen the report and select a saved draft.'
         : result.error ?? 'The delivery request could not be created.');
       return;
     }
@@ -736,7 +739,7 @@ function InsightReportBody({ report }: { report: InsightReportView }) {
   </div>;
 }
 
-function InsightsSection({ reports, batches, template, setTemplate, band, setBand, selectedBatchIds, setSelectedBatchIds, busy, detail, accounts, onGenerate, onOpenDetail, onCloseDetail, onDeliver }: { reports: InsightReportView[]; batches: ImportBatchView[]; template: InsightTemplate; setTemplate: (template: InsightTemplate) => void; band: ModelBand; setBand: (band: ModelBand) => void; selectedBatchIds: string[]; setSelectedBatchIds: (ids: string[]) => void; busy: boolean; detail: InsightReportView | null; accounts: ConnectedAccount[]; onGenerate: () => void; onOpenDetail: (id: string) => void; onCloseDetail: () => void; onDeliver: (id: string, input: { channel: 'email' | 'discord'; email?: string; connectedAccountId?: string }) => void; }) {
+function InsightsSection({ reports, batches, template, setTemplate, band, setBand, selectedBatchIds, setSelectedBatchIds, busy, detail, accounts, onGenerate, onOpenDetail, onCloseDetail, onDeliver }: { reports: InsightReportView[]; batches: ImportBatchView[]; template: InsightTemplate; setTemplate: (template: InsightTemplate) => void; band: ModelBand; setBand: (band: ModelBand) => void; selectedBatchIds: string[]; setSelectedBatchIds: (ids: string[]) => void; busy: boolean; detail: InsightReportView | null; accounts: ConnectedAccount[]; onGenerate: () => void; onOpenDetail: (id: string) => void; onCloseDetail: () => void; onDeliver: (id: string, input: { channel: 'email' | 'discord'; email?: string; connectedAccountId?: string; draftKey?: string }) => void; }) {
   return <div className="space-y-8">
     <WeeklyInsightReview apiBase={gatewayUrl} onOpenReport={onOpenDetail} />
     <section className="sketch bg-paper-card p-6 shadow-paint-sm">
@@ -771,11 +774,13 @@ function InsightsSection({ reports, batches, template, setTemplate, band, setBan
 }
 
 /** 报告外发（迭代 4）：生成完毕的报告可申请推送到邮箱/Discord，经人工审批后发送。 */
-function DeliveryPanel({ report, accounts, onDeliver }: { report: InsightReportView; accounts: ConnectedAccount[]; onDeliver: (id: string, input: { channel: 'email' | 'discord'; email?: string; connectedAccountId?: string }) => void; }) {
+function DeliveryPanel({ report, accounts, onDeliver }: { report: InsightReportView; accounts: ConnectedAccount[]; onDeliver: (id: string, input: { channel: 'email' | 'discord'; email?: string; connectedAccountId?: string; draftKey?: string }) => void; }) {
   const [open, setOpen] = useState(false);
   const [channel, setChannel] = useState<'email' | 'discord'>('email');
   const [email, setEmail] = useState('');
   const [accountId, setAccountId] = useState('');
+  const [draftKey, setDraftKey] = useState('');
+  const drafts = reportDrafts(report.template, report.report ?? {});
   if (report.status !== 'generated') return null;
   const delivery = report.delivery;
   const discordAccounts = accounts.filter((account) => account.platform === 'discord' && account.status === 'connected' && account.capabilities.includes('publish'));
@@ -789,6 +794,8 @@ function DeliveryPanel({ report, accounts, onDeliver }: { report: InsightReportV
     {pending && <p className="text-xs text-ink-soft">Approve or reject this delivery in the Activity tab — nothing is sent automatically.</p>}
     {!open && !pending && <button onClick={() => setOpen(true)} className="rounded-md bg-sky-deep px-4 py-2 text-sm font-medium text-white hover:bg-sky">{delivery ? 'Send again…' : 'Send report…'}</button>}
     {open && !pending && <div className="space-y-3">
+      <label className="block text-sm">Content to send<select aria-label="Content to send" value={draftKey} onChange={e => setDraftKey(e.target.value)} className="ml-2 rounded border p-2"><option value="">Report digest</option>{drafts.map(draft => <option key={draft.key} value={draft.key}>{draft.label}</option>)}</select></label>
+      {draftKey && <pre className="whitespace-pre-wrap rounded border bg-paper p-3 text-sm">{drafts.find(draft => draft.key === draftKey)?.text}</pre>}
       <div className="flex gap-2">{(['email', 'discord'] as const).map((option) => <button key={option} onClick={() => setChannel(option)} className={`rounded-full px-3 py-1 text-xs font-medium ${channel === option ? 'bg-sky-deep text-white' : 'border border-ink/25'}`}>{option === 'email' ? 'Email' : 'Discord'}</button>)}</div>
       {channel === 'email'
         ? <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" className="w-full max-w-md rounded-md border border-ink/20 bg-paper p-2 text-sm" placeholder="Workspace owner's email (or type another address)" />
@@ -796,7 +803,7 @@ function DeliveryPanel({ report, accounts, onDeliver }: { report: InsightReportV
           ? <p className="text-xs text-ink-soft">No connected Discord account with posting permission — connect one in the Accounts tab.</p>
           : <select value={accountId} onChange={(event) => setAccountId(event.target.value)} className="w-full max-w-md rounded-md border border-ink/20 bg-paper p-2 text-sm"><option value="">Pick a Discord account…</option>{discordAccounts.map((account) => <option key={account.id} value={account.id}>{account.displayName}</option>)}</select>}
       <div className="flex gap-2">
-        <button disabled={channel === 'discord' && !accountId} onClick={() => { onDeliver(report.id, { channel, ...(channel === 'email' && email.trim() ? { email: email.trim() } : {}), ...(channel === 'discord' ? { connectedAccountId: accountId } : {}) }); setOpen(false); }} className="rounded-md bg-sunset px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40">Request approval</button>
+        <button disabled={channel === 'discord' && !accountId} onClick={() => { onDeliver(report.id, { channel, ...(draftKey ? { draftKey } : {}), ...(channel === 'email' && email.trim() ? { email: email.trim() } : {}), ...(channel === 'discord' ? { connectedAccountId: accountId } : {}) }); setOpen(false); }} className="rounded-md bg-sunset px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40">Request approval</button>
         <button onClick={() => setOpen(false)} className="rounded-md border border-ink/25 px-4 py-2 text-sm">Cancel</button>
       </div>
       <p className="text-xs text-ink-soft">Nothing is sent yet — a human approves every outbound delivery in the Activity tab.</p>
@@ -841,7 +848,7 @@ function AccountsSection({ accounts, connecting, onConnect, onRefresh }: { accou
 }
 
 function ActivitySection({ approvals, taskEvents, auditEvents, runId, setRunId, run, onLoadRun, onDecision }: { approvals: ApprovalView[]; taskEvents: TaskEventView[]; auditEvents: AuditEventView[]; runId: string; setRunId: (value: string) => void; run: RunView | null; onLoadRun: () => void; onDecision: (id: string, decision: 'approved' | 'rejected') => Promise<void>; }) {
-  return <div className="space-y-8"><section><p className="font-hand text-lg text-sky-deep">Human control</p><h2 className="font-display text-3xl">Approvals & Activity</h2><div className="mt-5 grid gap-6 lg:grid-cols-3"><Feed title="Approvals" empty="No actions are waiting for approval.">{approvals.map((approval) => <div key={approval.id} className="border-b border-ink/10 py-3 text-sm"><p>{approval.requestedAction.summary ?? 'Publishing action'}</p><p className="mt-1 text-xs text-ink-soft">{new Date(approval.requestedAt).toLocaleString()}</p><div className="mt-2 flex gap-2"><button className="rounded bg-sky-deep px-2 py-1 text-xs text-white" onClick={() => void onDecision(approval.id, 'approved')}>Approve</button><button className="rounded border border-ink/30 px-2 py-1 text-xs" onClick={() => void onDecision(approval.id, 'rejected')}>Reject</button></div></div>)}</Feed><Feed title="Successful actions" empty="No billable actions yet.">{taskEvents.map((event) => <div key={event.id} className="border-b border-ink/10 py-3 text-sm"><p>{event.actionType}: {event.actionType.startsWith('ai.') ? `${event.aiCredits} credit(s)` : `${event.billableUnits} unit(s)`}</p><p className="mt-1 text-xs text-ink-soft">{event.status} · {new Date(event.createdAt).toLocaleString()}</p></div>)}</Feed><Feed title="Audit trail" empty="No audit events yet.">{auditEvents.map((event) => <div key={event.id} className="border-b border-ink/10 py-3 text-sm"><p>{event.eventType}</p><p className="mt-1 text-xs text-ink-soft">{new Date(event.createdAt).toLocaleString()}</p></div>)}</Feed></div></section><section className="rounded-xl border border-ink/20 bg-paper-card p-5"><h3 className="text-lg font-semibold">Find a specific run</h3><div className="mt-4 flex flex-col gap-3 md:flex-row"><input value={runId} onChange={(event) => setRunId(event.target.value)} className="flex-1 rounded-md border border-ink/20 bg-paper p-3" placeholder="Workflow run UUID" /><button onClick={onLoadRun} className="rounded-md bg-sky-deep px-5 py-3 font-medium text-white">Load run</button></div>{run && <div className="mt-5 grid gap-3 rounded-lg bg-sky-pale p-4 text-sm md:grid-cols-3"><span>Status: <b>{run.status}</b></span><span>Workflow: {run.workflowId}</span><span>Created: {new Date(run.createdAt).toLocaleString()}</span></div>}</section></div>;
+  return <div className="space-y-8"><section><p className="font-hand text-lg text-sky-deep">Human control</p><h2 className="font-display text-3xl">Approvals & Activity</h2><div className="mt-5 grid gap-6 lg:grid-cols-3"><Feed title="Approvals" empty="No actions are waiting for approval.">{approvals.map((approval) => <div key={approval.id} className="border-b border-ink/10 py-3 text-sm"><p>{approval.requestedAction.summary ?? 'Publishing action'}</p>{approval.requestedAction.parameters?.content && <div className="mt-2 rounded border p-3"><p className="font-semibold">{approval.requestedAction.parameters.subject}</p><p className="text-xs">Exact message to be sent:</p><pre className="whitespace-pre-wrap text-sm">{approval.requestedAction.parameters.content}</pre></div>}<p className="mt-1 text-xs text-ink-soft">{new Date(approval.requestedAt).toLocaleString()}</p><div className="mt-2 flex gap-2"><button className="rounded bg-sky-deep px-2 py-1 text-xs text-white" onClick={() => void onDecision(approval.id, 'approved')}>Approve</button><button className="rounded border border-ink/30 px-2 py-1 text-xs" onClick={() => void onDecision(approval.id, 'rejected')}>Reject</button></div></div>)}</Feed><Feed title="Successful actions" empty="No billable actions yet.">{taskEvents.map((event) => <div key={event.id} className="border-b border-ink/10 py-3 text-sm"><p>{event.actionType}: {event.actionType.startsWith('ai.') ? `${event.aiCredits} credit(s)` : `${event.billableUnits} unit(s)`}</p><p className="mt-1 text-xs text-ink-soft">{event.status} · {new Date(event.createdAt).toLocaleString()}</p></div>)}</Feed><Feed title="Audit trail" empty="No audit events yet.">{auditEvents.map((event) => <div key={event.id} className="border-b border-ink/10 py-3 text-sm"><p>{event.eventType}</p><p className="mt-1 text-xs text-ink-soft">{new Date(event.createdAt).toLocaleString()}</p></div>)}</Feed></div></section><section className="rounded-xl border border-ink/20 bg-paper-card p-5"><h3 className="text-lg font-semibold">Find a specific run</h3><div className="mt-4 flex flex-col gap-3 md:flex-row"><input value={runId} onChange={(event) => setRunId(event.target.value)} className="flex-1 rounded-md border border-ink/20 bg-paper p-3" placeholder="Workflow run UUID" /><button onClick={onLoadRun} className="rounded-md bg-sky-deep px-5 py-3 font-medium text-white">Load run</button></div>{run && <div className="mt-5 grid gap-3 rounded-lg bg-sky-pale p-4 text-sm md:grid-cols-3"><span>Status: <b>{run.status}</b></span><span>Workflow: {run.workflowId}</span><span>Created: {new Date(run.createdAt).toLocaleString()}</span></div>}</section></div>;
 }
 
 function SettingsSection({ me, locked, newPassword, setNewPassword, passwordStatus, onSavePassword, onSignOut, feedbackCategory, setFeedbackCategory, feedbackMessage, setFeedbackMessage, feedbackStatus, onFeedback, referralUrl, referralStatus, onReferral }: { me: MeView | null; locked: boolean; newPassword: string; setNewPassword: (value: string) => void; passwordStatus: string; onSavePassword: () => void; onSignOut: () => void; feedbackCategory: string; setFeedbackCategory: (value: string) => void; feedbackMessage: string; setFeedbackMessage: (value: string) => void; feedbackStatus: string; onFeedback: () => void; referralUrl: string; referralStatus: string; onReferral: () => void; }) {
