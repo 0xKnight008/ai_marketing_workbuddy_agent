@@ -186,7 +186,16 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
         assert.equal((await usageSnapshot(tx)).aiCreditsAvailable, 499);
         await applyCreditRefund(tx, 'pi_topup_pg', 1000);
         assert.equal((await usageSnapshot(tx)).aiCreditsAvailable, 0);
-        assert.equal((await reserveAiRun(tx, ['eco'], run.rows[0]!.id)).guardrail.status, 'paused');
+        // Replaying an already-paid operation is different from buying a new
+        // operation. Assert both sides of the empty-balance contract.
+        const replay = await reserveAiRun(tx, ['eco'], run.rows[0]!.id);
+        assert.equal(replay.replayed, true);
+        assert.equal(replay.charged, false);
+        const unpaid = await reserveAiRun(tx, ['eco'], { runId: run.rows[0]!.id, attempt: 2 });
+        assert.equal(unpaid.replayed, false);
+        assert.equal(unpaid.charged, false);
+        assert.equal(unpaid.guardrail.status, 'paused');
+        assert.equal((await usageSnapshot(tx)).aiCreditsAvailable, 0);
         await applyCreditTopup(tx, { sessionId: 'cs_topup_pg2', paymentIntentId: 'pi_topup_pg2', amountCents: 1000 });
         assert.equal((await usageSnapshot(tx)).aiCreditsAvailable, 999, 'spent refund debt is settled before new credits are available');
       });
