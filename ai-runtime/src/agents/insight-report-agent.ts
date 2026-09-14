@@ -32,7 +32,7 @@ Given an evidence pack of a creator's recent content (with engagement metrics) a
 
 Given an evidence pack of audience comments with intent tags, produce:
 - frequentQuestions: the questions asked repeatedly, counting only the distinct sources cited for each question (not whole-dataset tag totals).
-- sentimentNotes: notable signals per sentiment bucket (excited / confused / complaining / urging / purchase_intent), each grounded in citations.
+- sentimentNotes: notable signals per sentiment bucket (excited / confused / complaining / urging / purchase_intent), each grounded in citations. Use only totals.sentiments for quantitative emotion counts. This is a single dominant label per classified source (also neutral/mixed); unknown sources have no verified sentiment. Percentages use totals.items including unknown, not just sampled evidence. Never derive emotion percentages from intent tags.
 - demandRanking: what fans want most, ranked — merchandise, content topics, features, restocks.
 - productOpportunities: demands that could become products or paid offerings (feed the product-opportunity template).
 - memeMaterial: quotable jokes, remixes, and meme-worthy moments worth turning into content.

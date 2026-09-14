@@ -50,6 +50,11 @@ export const insightReportRequestSchema = z.object({
     items: z.number().int().nonnegative(),
     taggedItems: z.number().int().nonnegative(),
     tagDistribution: z.record(z.string(), z.number().int().nonnegative()),
+    sentiments: z.object({
+      classified: z.number().int().nonnegative(),
+      unknown: z.number().int().nonnegative(),
+      distribution: z.record(z.string(), z.number().int().nonnegative()),
+    }).optional(),
     // 平台侧确定性计算的评分分布（差评归因模板用；rating ≤ 2 为差评）。
     ratings: z.object({ rated: z.number().int().nonnegative(), negative: z.number().int().nonnegative() }).optional(),
   }),

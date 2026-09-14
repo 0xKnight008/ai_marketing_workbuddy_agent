@@ -4,7 +4,7 @@ import { createInsightReportAgent } from '../agents/insight-report-agent';
 import { createItemClassifierAgent } from '../agents/item-classifier-agent';
 import { config } from '../config';
 import { modelForBand } from '../lib/model-routing';
-import { classifyRequestSchema, classifyResultSchema } from '../schemas/classify';
+import { classifyRequestSchema, classifyGenerationSchema } from '../schemas/classify';
 import { insightReportRequestSchema, insightResultSchemas } from '../schemas/insights';
 import { RunServiceEventEmitter, registerEmitter, removeEmitter } from '../events/emitter';
 import { prepareAnnouncementRequestSchema } from '../schemas/announcement';
@@ -163,7 +163,7 @@ export const internalApiRoutes = [
         const agent = createItemClassifierAgent(modelForBand(config, modelBand, provider));
         const { object } = await agent.generate(
           `Classify each of the following ${items.length} item(s)${language === 'auto' ? '' : ` (expected language: ${language})`}. Items as JSON:\n${JSON.stringify(items)}`,
-          { structuredOutput: { schema: classifyResultSchema } },
+          { structuredOutput: { schema: classifyGenerationSchema } },
         );
         return c.json(object, 200);
       } catch (error) {

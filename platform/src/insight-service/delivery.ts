@@ -82,10 +82,12 @@ export function renderReportDigest(input: DigestInput): string {
     items: z.number().int().nonnegative(), taggedItems: z.number().int().nonnegative(),
     sampledItems: z.number().int().nonnegative(),
     tagDistribution: z.record(z.number().int().nonnegative()),
+    sentiments: z.object({ classified: z.number().int().nonnegative(), unknown: z.number().int().nonnegative(), distribution: z.record(z.number().int().nonnegative()) }).optional(),
     ratings: z.object({ rated: z.number().int().positive(), negative: z.number().int().nonnegative() }).optional(),
   }).safeParse(input.report._dataset);
   if (dataset.success) {
     const stats = dataset.data;
+    if (stats.sentiments) evidence.push(`情绪分类（模型判断，每条一个主情绪，已核验原文）：${Object.entries(stats.sentiments.distribution).map(([label, count]) => `${label} ${count}/${stats.items}`).join('；')}；unknown ${stats.sentiments.unknown}/${stats.items}（缺少有效分类，非中性）。`);
     evidence.push(`全量统计：${stats.items} 条来源，${stats.taggedItems} 条有意图标签；引用采样 ${stats.sampledItems} 条。`);
     evidence.push(`意图标签（可重叠，非情绪或具体主题频次）：${Object.entries(stats.tagDistribution).sort((a, b) => b[1] - a[1]).map(([tag, count]) => `${tag} ${count}/${stats.items}`).join('；') || '无'}`);
     if (stats.ratings) evidence.push(`差评比例：${stats.ratings.negative}/${stats.ratings.rated}（${(100 * stats.ratings.negative / stats.ratings.rated).toFixed(1)}%）；仅统计 1–5 分有效评分，1–2 分计为差评，不含未评分内容。`);

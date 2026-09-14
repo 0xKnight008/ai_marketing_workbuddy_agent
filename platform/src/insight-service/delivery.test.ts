@@ -4,13 +4,16 @@ import test from 'node:test';
 test('digest distinguishes full-dataset totals, rated denominator and cited samples', () => {
   const digest = renderReportDigest({ template: 'review_attribution', title: 'T', itemCount: 5_000, droppedCitations: 0,
     report: { summary: 'Review report', _dataset: { items: 5_000, taggedItems: 3_000, sampledItems: 32,
-      tagDistribution: { complaint: 3_000 }, ratings: { rated: 4_000, negative: 3_000 } } },
+      tagDistribution: { complaint: 3_000 }, ratings: { rated: 4_000, negative: 3_000 }, sentiments: { classified: 3000, unknown: 2000, distribution: { complaining: 3000 } } } },
   });
   assert.ok(digest.includes('全量统计：5000 条来源'));
   assert.ok(digest.includes('引用采样 32 条'));
   assert.ok(digest.includes('complaint 3000/5000'));
   assert.ok(digest.includes('3000/4000（75.0%）'));
   assert.ok(digest.includes('非情绪或具体主题频次'));
+  assert.ok(digest.includes('complaining 3000/5000'));
+  assert.ok(digest.includes('unknown 2000/5000'));
+  assert.ok(digest.includes('缺少有效分类，非中性'));
 });
 
 import { renderReportDigest, sendReportEmail } from './delivery';
