@@ -103,6 +103,11 @@ export default class PlatformController extends Controller {
     this.ctx.body = await this.app.platform.service.insightActions(this.actor(), this.ctx.params.reportId);
   }
 
+  async weeklyInsightReview(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.weeklyInsightReview(this.actor());
+  }
+
   async saveInsightAction(): Promise<void> {
     this.ctx.set('Cache-Control', 'no-store');
     this.ctx.body = await this.app.platform.service.saveInsightAction(this.actor(), this.ctx.params.reportId, this.ctx.params.actionKey, this.ctx.request.body);
