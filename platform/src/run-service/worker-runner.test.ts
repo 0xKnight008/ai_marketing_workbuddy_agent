@@ -335,7 +335,7 @@ test('insight.generate stores citation-verified report and drops hallucinated re
   assert.ok(persistedReport);
   const body = persistedReport! as unknown as { demandRanking: Array<{ citations: unknown[] }>; highValueComments: unknown[]; _evidence: Record<string, string> };
   assert.equal(body.demandRanking[0]!.citations.length, 1);
-  assert.equal(body.highValueComments.length, 1);
+  assert.equal(body.highValueComments.length, 0);
   assert.equal(body._evidence.i1, 'aaaa-1');
   assert.equal(persistedDropped, 2);
   assert.ok(statements.some((sql) => sql.includes("UPDATE job SET status = 'succeeded'")));
@@ -384,6 +384,7 @@ test('insight.generate retries when the AI runtime result fails schema validatio
 
 test('insight.generate daily_ops aggregates prior report summaries into the evidence pack', async () => {
   let capturedPayload: Record<string, unknown> | null = null;
+  let storedReport: Record<string, unknown> | undefined;
   const tx: TenantTransaction = {
     async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
       if (sql.includes("UPDATE insight_report SET status = 'generating'")) {
@@ -394,6 +395,7 @@ test('insight.generate daily_ops aggregates prior report summaries into the evid
         return { rows: [{ template: 'comment_insights', title: 'Weekly', summary: 'Fans want merch badly.' }] as unknown as Row[], rowCount: 1 };
       }
       void values;
+      if (sql.includes("SET status = 'generated', report")) storedReport = JSON.parse(String(values?.[2]));
       if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }] as unknown as Row[], rowCount: 1 };
       if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: 0, supplierSpendMicros: 0 }] as unknown as Row[], rowCount: 1 };
       if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }] as unknown as Row[], rowCount: 1 };
@@ -413,7 +415,7 @@ test('insight.generate daily_ops aggregates prior report summaries into the evid
       async classifyItems() { throw new Error('unexpected'); },
       async generateInsightReport(payload) {
         capturedPayload = payload;
-        return { summary: 'Today: follow up merch demand.', tasks: [{ title: 'Draft presale poll', reason: 'Comment insights showed strong merch demand', suggestedAction: 'Post poll to community', priority: 'high', dueHint: 'today 18:00', citations: [] }] };
+        return { summary: 'Today: follow up merch demand.', tasks: [{ title: 'Draft presale poll', reason: 'Comment insights showed strong merch demand', suggestedAction: 'Post poll to community', priority: 'high', dueHint: 'today 18:00', citations: [{ ref: 'p1', snippet: 'Fans want merch badly.' }] }] };
       },
     },
   });
@@ -423,6 +425,8 @@ test('insight.generate daily_ops aggregates prior report summaries into the evid
   const payload = capturedPayload! as { template: string; priorReports?: Array<{ summary: string }> };
   assert.equal(payload.template, 'daily_ops');
   assert.equal(payload.priorReports?.[0]?.summary, 'Fans want merch badly.');
+  assert.ok(storedReport, 'daily tasks must pass grounding and actually be stored');
+  assert.equal(storedReport._countBasis, 'distinct_cited_sources');
 });
 
 // ---------- 迭代 4：报告外发（insight.deliver） ----------

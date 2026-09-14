@@ -237,7 +237,7 @@ const REMOVED = Symbol('removed');
 export interface GroundingStats {
   /** 结论总数：所有带 citations 字段的条目（无论最终是否保留）。 */
   totalConclusions: number;
-  /** 保留的结论：至少有 1 条逐字引用，或自身 ref 锚定证据包内的真实条目。 */
+  /** Conclusions retained with at least one verified quotation. */
   groundedConclusions: number;
   /** 被移除的结论：引用在硬校验后被清空且没有 ref 锚定。 */
   droppedConclusions: number;
@@ -245,10 +245,9 @@ export interface GroundingStats {
 
 /**
  * 结论证据门槛（V1 审核 #3）：在 validateReportCitations 清掉幻觉引用之后
- * 调用。任何带 citations 字段的条目若引用已空、且自身没有 ref 锚定真实
- * 条目，则整条移除 —— 无证据结论不得作为有依据的建议出现在报告里。
- * 模型自报的 approxCount/evidenceCount 同时被抬升到不少于其逐字引用数：
- * 引用数是可核验的下限，估计值不允许低于下限。
+ * Call only after validateReportCitations. A ref alone is not a quotation.
+ * Counts represent distinct cited sources, never model-estimated population
+ * frequencies. Repeated excerpts from the same source count once.
  */
 export function enforceGroundedConclusions(
   node: unknown,
@@ -268,13 +267,12 @@ export function enforceGroundedConclusions(
     if (Array.isArray(record.citations)) {
       stats.totalConclusions += 1;
       const citations = record.citations;
-      const hasRefAnchor = typeof record.ref === 'string' && record.ref.length > 0;
-      if (!citations.length && !hasRefAnchor) return REMOVED;
+      if (!citations.length) return REMOVED;
       stats.groundedConclusions += 1;
       const out: Record<string, unknown> = { ...record };
       for (const key of ['approxCount', 'evidenceCount'] as const) {
         const value = out[key];
-        if (typeof value === 'number' && Number.isFinite(value)) out[key] = Math.max(value, citations.length);
+        if (typeof value === 'number') out[key] = new Set(citations.map(c => (c as { ref: string }).ref)).size;
       }
       return out;
     }

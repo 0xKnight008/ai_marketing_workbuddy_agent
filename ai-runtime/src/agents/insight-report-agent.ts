@@ -11,7 +11,7 @@ import type { InsightTemplate } from '../schemas/insights';
 
 const SHARED_RULES = `
 Evidence discipline (non-negotiable):
-- Every claim must be grounded in the provided evidence pack. citations[].ref must be a ref from the pack; citations[].snippet must be a VERBATIM substring copied from that item's text (never paraphrased, translated, or invented). The platform verifies this and discards invalid citations.
+- Every conclusion must contain at least one quotation. citations[].ref must be a supplied evidence ref; citations[].snippet must be a VERBATIM substring of its text. A bare ref is not sufficient. Daily tasks may also quote a priorReports summary using its supplied ref; this is secondary evidence, not an original comment. Never invent refs or quotes. Counts are distinct cited sources, not estimated population frequencies.
 - If the evidence is thin, say so in the summary instead of inventing conclusions.
 - approxCount / evidenceCount must reflect the tag counts provided in totals/tagSamples — do not fabricate numbers beyond them.
 - Write all free-text fields in the language of the source items (default: match the majority language). Keep enum values and refs as-is.

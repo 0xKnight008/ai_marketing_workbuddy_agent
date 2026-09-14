@@ -146,7 +146,7 @@ test('buildEvidencePack passes publishedAt through for time attribution', () => 
   assert.equal(pack.topItems[0]!.publishedAt, '2026-09-01T12:00:00Z');
 });
 
-test('enforceGroundedConclusions drops evidence-free conclusions and floors model counts', () => {
+test('enforceGroundedConclusions requires quotes and replaces estimated counts with distinct sources', () => {
   const stats: GroundingStats = { totalConclusions: 0, groundedConclusions: 0, droppedConclusions: 0 };
   const report = {
     summary: 's',
@@ -160,11 +160,28 @@ test('enforceGroundedConclusions drops evidence-free conclusions and floors mode
   };
   const cleaned = enforceGroundedConclusions(report, stats) as typeof report;
   assert.equal(stats.totalConclusions, 3);
-  assert.equal(stats.groundedConclusions, 2);
-  assert.equal(stats.droppedConclusions, 1);
+  assert.equal(stats.groundedConclusions, 1);
+  assert.equal(stats.droppedConclusions, 2);
   assert.equal(cleaned.demandRanking.length, 1);
   // 模型自报计数不得低于可核验引用数。
   assert.equal(cleaned.demandRanking[0]!.approxCount, 3);
-  assert.equal(cleaned.highValueComments.length, 1);
+  assert.equal(cleaned.highValueComments.length, 0);
 });
 
+test('invented population counts and repeated excerpts cannot inflate evidence counts', () => {
+  const report = { opportunities: [{ evidenceCount: 999999, citations: [
+    { ref: 'i1', snippet: 'buy' }, { ref: 'i1', snippet: 'want to buy' }, { ref: 'i2', snippet: 'buy' },
+  ] }] };
+  const clean = enforceGroundedConclusions(report) as typeof report;
+  assert.equal(clean.opportunities[0]!.evidenceCount, 2);
+});
+
+test('a real anchor with a fabricated quote is not a grounded conclusion', () => {
+  const stats: GroundingStats = { totalConclusions: 0, groundedConclusions: 0, droppedConclusions: 0 };
+  const clean = enforceGroundedConclusions(validateReportCitations(
+    { topContent: [{ ref: 'i1', note: 'Unsupported', citations: [{ ref: 'i1', snippet: 'invented' }] }] },
+    new Map([['i1', 'actual source']]),
+  ), stats) as { topContent: unknown[] };
+  assert.deepEqual(clean.topContent, []);
+  assert.equal(stats.groundedConclusions, 0);
+});

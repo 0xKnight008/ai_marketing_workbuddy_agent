@@ -154,6 +154,7 @@ export const communityDigestResultSchema = z.object({
     author: z.string().min(1).max(120),
     reason: z.string().min(1).max(300),
     signals: z.array(z.string().max(120)).max(4),
+    citations: z.array(reportCitationSchema).max(3).default([]),
   })).max(10),
   conflictRisks: z.array(z.object({
     risk: z.string().min(1).max(200),
