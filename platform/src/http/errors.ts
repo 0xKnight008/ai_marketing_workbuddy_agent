@@ -11,9 +11,12 @@ export class HttpError extends Error {
 export function publicError(error: unknown): { statusCode: number; body: { error: string; message?: string } } {
   if (error instanceof SupplierBillingError) return { statusCode: 402, body: { error: error.reason === 'twitter_passthrough' ? 'zernio_x_billing_required' : 'zernio_billing_required' } };
   if (error instanceof SupplierUnavailableError) return { statusCode: 503, body: { error: 'zernio_unavailable' } };
-  // HttpError 的 message 由服务端构造（默认等于 code），可安全透出 —
-  // 导入超限等错误借此把条目序号/可操作提示带给前端。
-  if (error instanceof HttpError) return { statusCode: error.statusCode, body: { error: error.code, message: error.message } };
+  // Preserve the existing code-only contract unless an actionable public
+  // message was explicitly supplied. Never expose internal 5xx details.
+  if (error instanceof HttpError) return { statusCode: error.statusCode, body: {
+    error: error.code,
+    ...(error.statusCode < 500 && error.message !== error.code ? { message: error.message } : {}),
+  } };
   if (error instanceof ZodError) return { statusCode: 400, body: { error: 'invalid_request' } };
   if (error instanceof Error && error.message === 'Pipeline is not ready to activate') return { statusCode: 409, body: { error: 'pipeline_not_ready' } };
   if (error instanceof Error && error.message.startsWith('Forbidden:')) return { statusCode: 403, body: { error: 'forbidden' } };
