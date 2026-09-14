@@ -263,6 +263,7 @@ test('insight.generate stores citation-verified report and drops hallucinated re
   const items = [
     { id: 'aaaa-1', platform: 'youtube', author: 'FanA', text: 'I want a plushie so badly, take my money', metrics: { views: 100 }, tags: [{ tag: 'purchase_intent', evidence: 'take my money', confidence: 0.9 }] },
     { id: 'bbbb-2', platform: 'youtube', author: null, text: 'when is the next video', metrics: { views: 5 }, tags: [{ tag: 'urging_update', evidence: 'next video', confidence: 0.8 }] },
+    ...Array.from({ length: 2_998 }, (_, index) => ({ id: `tail-${index}`, platform: 'youtube', author: null, text: 'bad packaging', metrics: {}, tags: [{ tag: 'complaint', evidence: 'bad packaging', confidence: 0.7 }] })),
   ];
   const statements: string[] = [];
   let persistedReport: Record<string, unknown> | null = null;
@@ -274,7 +275,10 @@ test('insight.generate stores citation-verified report and drops hallucinated re
         return { rows: [{ template: 'comment_insights', modelBand: 'eco', batchIds: ['batch-1'] }] as unknown as Row[], rowCount: 1 };
       }
       if (sql.includes('FROM import_item')) {
-        return { rows: items as unknown as Row[], rowCount: 2 };
+        assert.doesNotMatch(sql, /LIMIT\s+\d+/i, 'statistics must include every selected batch row');
+        assert.ok(sql.includes('i.workspace_id = current_setting'));
+        assert.deepEqual(values, [['batch-1']]);
+        return { rows: items as unknown as Row[], rowCount: items.length };
       }
       if (sql.includes("UPDATE insight_report") && sql.includes("'generated'")) {
         persistedReport = JSON.parse(String(values?.[2])) as Record<string, unknown>;
@@ -316,7 +320,7 @@ test('insight.generate stores citation-verified report and drops hallucinated re
           memeMaterial: [],
           highValueComments: [
             { ref: 'i1', reason: 'Strong purchase intent', replyDraft: 'Soon! Thanks for the love.', citations: [] },
-            { ref: 'i9', reason: 'Ghost ref', replyDraft: 'x', citations: [] }, // 未知 ref → 整条移除
+            { ref: 'i999', reason: 'Ghost ref', replyDraft: 'x', citations: [] }, // 未知 ref → 整条移除
           ],
         };
       },
@@ -328,7 +332,7 @@ test('insight.generate stores citation-verified report and drops hallucinated re
   assert.ok(capturedPayload);
   const pack = capturedPayload! as { template: string; totals: { items: number }; topItems: Array<{ ref: string }> };
   assert.equal(pack.template, 'comment_insights');
-  assert.equal(pack.totals.items, 2);
+  assert.equal(pack.totals.items, 3_000);
   assert.ok(pack.topItems.every((item) => /^i\d+$/.test(item.ref)));
   assert.ok(!JSON.stringify(capturedPayload).includes('aaaa-1'));
 
@@ -337,6 +341,10 @@ test('insight.generate stores citation-verified report and drops hallucinated re
   assert.equal(body.demandRanking[0]!.citations.length, 1);
   assert.equal(body.highValueComments.length, 0);
   assert.equal(body._evidence.i1, 'aaaa-1');
+  const dataset = (persistedReport! as Record<string, unknown>)._dataset as { items: number; sampledItems: number; tagDistribution: Record<string, number> };
+  assert.equal(dataset.items, 3_000);
+  assert.equal(dataset.tagDistribution.complaint, 2_998);
+  assert.ok(dataset.sampledItems <= 64);
   assert.equal(persistedDropped, 2);
   assert.ok(statements.some((sql) => sql.includes("UPDATE job SET status = 'succeeded'")));
 });

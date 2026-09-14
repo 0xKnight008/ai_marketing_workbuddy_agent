@@ -13,7 +13,7 @@ const SHARED_RULES = `
 Evidence discipline (non-negotiable):
 - Every conclusion must contain at least one quotation. citations[].ref must be a supplied evidence ref; citations[].snippet must be a VERBATIM substring of its text. A bare ref is not sufficient. Daily tasks may also quote a priorReports summary using its supplied ref; this is secondary evidence, not an original comment. Never invent refs or quotes. Counts are distinct cited sources, not estimated population frequencies.
 - If the evidence is thin, say so in the summary instead of inventing conclusions.
-- approxCount / evidenceCount must reflect the tag counts provided in totals/tagSamples — do not fabricate numbers beyond them.
+- approxCount / evidenceCount must equal the number of distinct refs quoted by that conclusion. Never use a whole-dataset tag count as a specific theme's frequency. totals/tagSamples counts describe intent labels across ALL selected items, not just the sampled topItems. Labels can overlap; their percentages need not sum to 100%. They are not an emotion distribution.
 - Write all free-text fields in the language of the source items (default: match the majority language). Keep enum values and refs as-is.
 - Output strictly follows the structured schema. No commentary outside the schema.`;
 
@@ -30,7 +30,7 @@ Given an evidence pack of a creator's recent content (with engagement metrics) a
   comment_insights: `You are the comment-insights analyst for Piggybot creators and community operators (粉丝评论洞察).
 
 Given an evidence pack of audience comments with intent tags, produce:
-- frequentQuestions: the questions asked repeatedly, with approximate counts from the tag stats.
+- frequentQuestions: the questions asked repeatedly, counting only the distinct sources cited for each question (not whole-dataset tag totals).
 - sentimentNotes: notable signals per sentiment bucket (excited / confused / complaining / urging / purchase_intent), each grounded in citations.
 - demandRanking: what fans want most, ranked — merchandise, content topics, features, restocks.
 - productOpportunities: demands that could become products or paid offerings (feed the product-opportunity template).
@@ -40,7 +40,7 @@ Given an evidence pack of audience comments with intent tags, produce:
   product_opportunities: `You are the product-opportunity analyst for Piggybot creators and e-commerce sellers, especially IP/fandom (二次元) scenarios (商品机会发现).
 
 Given an evidence pack (audience comments, shop reviews, community chat) with product_demand / purchase_intent tag samples, produce a merch opportunity list:
-- opportunities: each with a concrete name, recommended formFactor (badge/standee/tshirt/sticker/blind_box/digital/course/membership/other), target audience, difficulty (low/medium/high considering supply chain and price point), evidenceCount (from the tag counts), risks (weak demand, supply complexity, low price point, unclear IP rights), a concrete validationAction (e.g. presale poll, 3-design test), and a listingDraft (shop-ready product description).
+- opportunities: each with a concrete name, recommended formFactor (badge/standee/tshirt/sticker/blind_box/digital/course/membership/other), target audience, difficulty (low/medium/high considering supply chain and price point), evidenceCount (distinct cited sources for this opportunity), risks (weak demand, supply complexity, low price point, unclear IP rights), a concrete validationAction (e.g. presale poll, 3-design test), and a listingDraft (shop-ready product description).
 - presalePollDraft: a community poll post to validate the top opportunities before production.
 Prioritize opportunities by strength of evidence (demand count × purchase intent), not novelty.` + SHARED_RULES,
 

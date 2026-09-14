@@ -74,8 +74,11 @@ export function buildEvidencePack(rows: EvidenceSourceRow[]): EvidencePack {
   const tagDistribution: Record<string, number> = {};
   const taggedItems = new Set<string>();
   for (const row of rows) {
+    const seenTags = new Set<string>();
     for (const tag of row.tags) {
       if (!(CONTENT_TAGS as readonly string[]).includes(tag.tag)) continue;
+      if (seenTags.has(tag.tag)) continue;
+      seenTags.add(tag.tag);
       tagDistribution[tag.tag] = (tagDistribution[tag.tag] ?? 0) + 1;
       taggedItems.add(row.id);
     }
@@ -97,7 +100,7 @@ export function buildEvidencePack(rows: EvidenceSourceRow[]): EvidencePack {
   }
   // 3) 低分差评（rating ≤ 2）：按严重度优先（分数低者在前），不看互动量。
   const negatives = indexed
-    .filter((entry) => { const rating = numericMetric(entry.row.metrics, 'rating'); return rating !== undefined && rating <= 2; })
+    .filter((entry) => { const rating = numericMetric(entry.row.metrics, 'rating'); return rating !== undefined && rating >= 1 && rating <= 2; })
     .sort((a, b) => (numericMetric(a.row.metrics, 'rating')! - numericMetric(b.row.metrics, 'rating')!) || byEngagement(a, b))
     .slice(0, NEGATIVE_REVIEW_COUNT);
   for (const entry of negatives) pickedIds.add(entry.row.id);
@@ -133,7 +136,7 @@ export function buildEvidencePack(rows: EvidenceSourceRow[]): EvidencePack {
   let negative = 0;
   for (const sourceRow of rows) {
     const rating = sourceRow.metrics.rating;
-    if (typeof rating === 'number' && Number.isFinite(rating)) {
+    if (typeof rating === 'number' && Number.isFinite(rating) && rating >= 1 && rating <= 5) {
       rated += 1;
       if (rating <= 2) negative += 1;
     }

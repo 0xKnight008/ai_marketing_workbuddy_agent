@@ -78,6 +78,18 @@ export function renderReportDigest(input: DigestInput): string {
   const summary = text(input.report.summary, 1_500) ?? '（无摘要）';
   const lines = highlights(input.template, input.report);
   const evidence = [`基于 ${input.itemCount} 条导入内容，所有引用均经过平台逐字校验`];
+  const dataset = z.object({
+    items: z.number().int().nonnegative(), taggedItems: z.number().int().nonnegative(),
+    sampledItems: z.number().int().nonnegative(),
+    tagDistribution: z.record(z.number().int().nonnegative()),
+    ratings: z.object({ rated: z.number().int().positive(), negative: z.number().int().nonnegative() }).optional(),
+  }).safeParse(input.report._dataset);
+  if (dataset.success) {
+    const stats = dataset.data;
+    evidence.push(`全量统计：${stats.items} 条来源，${stats.taggedItems} 条有意图标签；引用采样 ${stats.sampledItems} 条。`);
+    evidence.push(`意图标签（可重叠，非情绪或具体主题频次）：${Object.entries(stats.tagDistribution).sort((a, b) => b[1] - a[1]).map(([tag, count]) => `${tag} ${count}/${stats.items}`).join('；') || '无'}`);
+    if (stats.ratings) evidence.push(`差评比例：${stats.ratings.negative}/${stats.ratings.rated}（${(100 * stats.ratings.negative / stats.ratings.rated).toFixed(1)}%）；仅统计 1–5 分有效评分，1–2 分计为差评，不含未评分内容。`);
+  }
   evidence.push('计数为不同引用来源数，不代表全量提及次数；p 前缀引用来自历史报告摘要（二级证据）。');
   if (input.droppedCitations > 0) evidence.push(`${input.droppedCitations} 条不可验证的引用已被自动丢弃`);
   return [

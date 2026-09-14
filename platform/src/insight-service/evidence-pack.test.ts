@@ -7,6 +7,32 @@ function row(overrides: Partial<EvidenceSourceRow>): EvidenceSourceRow {
   return { id: crypto.randomUUID(), platform: 'instagram', author: null, text: 'sample text', metrics: {}, tags: [], ...overrides };
 }
 
+test('full 5,000-row statistics include the tail while quotation sampling stays bounded', () => {
+  const rows = Array.from({ length: 5_000 }, (_, i) => row({
+    id: `source-${i}`, text: i < 2_000 ? 'great video' : 'broken packaging',
+    metrics: i < 2_000 ? { views: 100, rating: 5 } : { rating: 1 },
+    tags: i < 2_000 ? [] : [
+      { tag: 'complaint', evidence: 'broken packaging', confidence: 0.9 },
+      { tag: 'complaint', evidence: 'packaging', confidence: 0.8 },
+      { tag: 'needs_reply', evidence: 'broken packaging', confidence: 0.8 },
+    ],
+  }));
+  const pack = buildEvidencePack(rows);
+  assert.equal(pack.totals.items, 5_000);
+  assert.equal(pack.totals.taggedItems, 3_000);
+  assert.deepEqual(pack.totals.tagDistribution, { complaint: 3_000, needs_reply: 3_000 });
+  assert.deepEqual(pack.totals.ratings, { rated: 5_000, negative: 3_000 });
+  assert.equal(pack.tagSamples.find(s => s.tag === 'complaint')?.count, 3_000);
+  assert.ok(pack.topItems.length <= 64);
+  assert.ok(pack.topItems.some(item => item.text === 'broken packaging'));
+});
+
+test('negative share excludes missing, nonnumeric and out-of-scale ratings', () => {
+  const pack = buildEvidencePack([undefined, null, '1', 0, -1, 6, NaN, Infinity, 1, 2, 3, 5].map(rating => row({ metrics: { rating } })));
+  assert.deepEqual(pack.totals.ratings, { rated: 4, negative: 2 });
+  assert.equal(buildEvidencePack([]).totals.ratings, undefined);
+});
+
 test('engagementScore weights interactions over raw views and ignores rating', () => {
   assert.equal(engagementScore({}), 0);
   assert.equal(engagementScore({ views: 100 }), 100);
