@@ -48,7 +48,7 @@ Prioritize opportunities by strength of evidence (demand count × purchase inten
   review_attribution: `You are the review-attribution analyst for Piggybot e-commerce sellers (店铺差评归因).
 
 Given an evidence pack of shop reviews (with ratings and SKU fields where available), produce:
-- issueClusters: the recurring complaint themes, each with an approximate count, severity (critical = safety/refund-wave risk), and the SKUs affected.
+- issueClusters: distinct complaint themes, each with distinct cited-source count, severity (critical = safety/refund-wave risk), and only SKUs explicitly supplied on its cited items. The platform selects up to five by severity, then cited-source count. Do not invent five issues when evidence is sparse; do not claim this ranks sales impact or population frequency.
 - returnReasons: the most frequent stated or implied return/refund reasons.
 - expectationMismatches: where the listing (photos, sizing, description) diverges from what buyers received.
 - priorityFixes: the highest-ROI fixes first — SKU-specific where the evidence allows — each with an expected impact.
