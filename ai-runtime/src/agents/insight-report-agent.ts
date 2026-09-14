@@ -12,7 +12,7 @@ import type { InsightTemplate } from '../schemas/insights';
 const SHARED_RULES = `
 Evidence discipline (non-negotiable):
 - Every conclusion must contain at least one quotation. citations[].ref must be a supplied evidence ref; citations[].snippet must be a VERBATIM substring of its text. A bare ref is not sufficient. Daily tasks may also quote a priorReports summary using its supplied ref; this is secondary evidence, not an original comment. Never invent refs or quotes. Counts are distinct cited sources, not estimated population frequencies.
-- If the evidence is thin, say so in the summary instead of inventing conclusions.
+- If the evidence is thin, say so in the summary instead of inventing conclusions. Never duplicate or invent entries to meet output counts; the platform will report an acceptance failure if verified output is insufficient.
 - approxCount / evidenceCount must equal the number of distinct refs quoted by that conclusion. Never use a whole-dataset tag count as a specific theme's frequency. totals/tagSamples counts describe intent labels across ALL selected items, not just the sampled topItems. Labels can overlap; their percentages need not sum to 100%. They are not an emotion distribution.
 - Write all free-text fields in the language of the source items (default: match the majority language). Keep enum values and refs as-is.
 - Output strictly follows the structured schema. No commentary outside the schema.`;
@@ -24,8 +24,9 @@ Given an evidence pack of a creator's recent content (with engagement metrics) a
 - topContent: rank the standout items using the metrics (views, likes, comments, shares, saves). For each, note why it performed and which success factors it demonstrates.
 - successFactors: the repeatable patterns behind what worked — topic choice, title/hook, cover/visual style, emotion, hashtag/topic, publish timing. Ground each in citations.
 - fanThemes: the 3-5 themes the audience cares most about right now (use tagSamples like purchase_intent, product_demand, urging_update, content_idea).
-- nextTopics: up to 10 concrete content topics for the next batch, each specific enough to film/write immediately.
-- draftTitles: ready-to-publish title options matching the creator's tone.` + SHARED_RULES,
+- nextTopics: exactly 10 distinct concrete content topics for the next batch, each specific enough to film/write immediately. These are creative proposals, not claims about observed popularity.
+- draftTitles: at least one distinct title draft matching the creator's tone.
+- draftScripts: 1-3 script drafts, each with a distinct title, a body containing hook/main beats/closing call-to-action, and citations quoting the source inspiration. Drafts require human review before publishing.` + SHARED_RULES,
 
   comment_insights: `You are the comment-insights analyst for Piggybot creators and community operators (粉丝评论洞察).
 
