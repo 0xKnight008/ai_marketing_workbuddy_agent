@@ -18,6 +18,7 @@ import { AdminEmailLogin, adminPrincipal } from '../src/admin/email-login';
 import { AdminService } from '../src/admin/service';
 import { createHash } from 'node:crypto';
 import { ImportService } from '../src/import-service/service';
+import { RunWorker } from '../src/run-service/worker-runner';
 
 test('migration 0013 upgrades missing auth columns and enables register/login/me on PostgreSQL', async (t) => {
   const url = process.env.TEST_DATABASE_URL;
@@ -104,6 +105,45 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
       assert.equal(batch.itemCount, 500);
       assert.equal((await client.query('SELECT count(*)::int AS n FROM import_item WHERE batch_id=$1', [batch.id])).rows[0].n, 500);
       assert.equal((await client.query("SELECT count(*)::int AS n FROM job WHERE kind='import.classify' AND payload->>'batchId'=$1", [batch.id])).rows[0].n, 1);
+      // Real database + deterministic model fixture: partial response commits
+      // no progress, retries the full paid chunk, then completes all 500 items.
+      let modelCalls = 0;
+      const worker = new RunWorker({
+        workerName: 'import-integrity-regression',
+        database: {
+          withWorkspace: database.withWorkspace.bind(database),
+          claimNextJob: async () => {
+            const job = await client.query(`UPDATE job SET status='running', attempt=attempt+1
+              WHERE kind='import.classify' AND payload->>'batchId'=$1 AND status='queued'
+              RETURNING id, attempt`, [batch.id]);
+            return job.rows[0] && { ...job.rows[0], workspaceId: owner.workspaceId, runId: null, kind: 'import.classify', payload: { batchId: batch.id } };
+          },
+        },
+        aiRuntime: {
+          async prepareAnnouncement() { throw new Error('unexpected'); },
+          async getAnnouncementRun() { throw new Error('unexpected'); },
+          async generateInsightReport() { throw new Error('unexpected'); },
+          async classifyItems(payload) {
+            modelCalls += 1;
+            const items = payload.items as Array<{ index: number; text: string }>;
+            return { assignments: (modelCalls === 1 ? items.slice(1) : items).map(item => ({ itemIndex: item.index, tags: [
+              { tag: 'content_idea', confidence: 1, evidence: item.text },
+              { tag: 'suggestion', confidence: 1, evidence: item.text },
+            ] })) };
+          },
+        },
+      });
+      await worker.runOne();
+      assert.equal((await client.query('SELECT count(*)::int AS n FROM import_item WHERE batch_id=$1 AND classified_at IS NOT NULL', [batch.id])).rows[0].n, 0);
+      await worker.runOne();
+      assert.equal(modelCalls, 11, 'one incomplete call, then ten complete chunks');
+      assert.equal((await client.query('SELECT status FROM import_batch WHERE id=$1', [batch.id])).rows[0].status, 'classified');
+      assert.equal((await client.query('SELECT count(*)::int AS n FROM import_item WHERE batch_id=$1 AND classified_at IS NOT NULL', [batch.id])).rows[0].n, 500);
+      const charges = await client.query('SELECT count(*)::int AS n, sum(ai_credits)::int AS credits FROM task_event WHERE subject_id=$1', [batch.id]);
+      assert.deepEqual(charges.rows[0], { n: 10, credits: 10 });
+      const coverage = await client.query("SELECT payload FROM audit_event WHERE event_type='import.classified' AND payload->>'batchId'=$1", [batch.id]);
+      assert.equal(coverage.rows[0].payload.items, 500);
+      assert.equal(coverage.rows[0].payload.tagCoverageRate, 1, 'two tags per item must not inflate the denominator');
       const before = (await client.query('SELECT count(*)::int AS n FROM import_batch')).rows[0].n;
       await client.query("ALTER TABLE import_item ADD CONSTRAINT import_test_failure CHECK (text <> 'force transaction rollback')");
       try {
