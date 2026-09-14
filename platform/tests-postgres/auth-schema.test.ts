@@ -19,6 +19,7 @@ import { AdminService } from '../src/admin/service';
 import { createHash } from 'node:crypto';
 import { ImportService } from '../src/import-service/service';
 import { RunWorker } from '../src/run-service/worker-runner';
+import { InsightFeedbackService } from '../src/insight-service/feedback';
 
 test('migration 0013 upgrades missing auth columns and enables register/login/me on PostgreSQL', async (t) => {
   const url = process.env.TEST_DATABASE_URL;
@@ -153,6 +154,26 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
       } finally { await client.query('ALTER TABLE import_item DROP CONSTRAINT import_test_failure'); }
       assert.equal((await client.query('SELECT count(*)::int AS n FROM import_batch')).rows[0].n, before);
       assert.equal((await client.query("SELECT count(*)::int AS n FROM import_item WHERE text='valid'")).rows[0].n, 0);
+    });
+    await t.test('manual action feedback persists concurrent updates, deduplicates retries and isolates tenants', async () => {
+      const feedbackOwner = verifyAccessToken((await auth.register({ email: 'feedback-regression@example.invalid', password: 'test-only-password' }, 'feedback-test')).accessToken, secret);
+      const feedbackService = new InsightFeedbackService(database);
+      const reportResult = await client.query(`INSERT INTO insight_report (workspace_id, template, title, status, created_by, report)
+        VALUES ($1, 'daily_ops', 'Feedback regression', 'generated', $2, $3::jsonb) RETURNING id`,
+        [feedbackOwner.workspaceId, feedbackOwner.actorId, JSON.stringify({ tasks: [{ title: 'Reply to fans' }, { title: 'Prepare poll' }] })]);
+      const reportId = reportResult.rows[0].id;
+      assert.equal((await feedbackService.list(feedbackOwner, reportId)).actions[0]?.feedback, null);
+      await Promise.all([
+        feedbackService.save(feedbackOwner, reportId, 'tasks:0', { status: 'completed', effect: 'improved', note: 'Observed replies' }),
+        feedbackService.save(feedbackOwner, reportId, 'tasks:1', { status: 'adopted' }),
+      ]);
+      await feedbackService.save(feedbackOwner, reportId, 'tasks:1', { status: 'adopted' });
+      const feedbackActions = await feedbackService.list(feedbackOwner, reportId);
+      assert.equal((feedbackActions.actions[0]?.feedback as { status: string }).status, 'completed');
+      assert.equal((feedbackActions.actions[1]?.feedback as { status: string }).status, 'adopted');
+      assert.equal((await client.query("SELECT count(*)::int AS n FROM audit_event WHERE event_type='insight.action_feedback' AND payload->>'reportId'=$1", [reportId])).rows[0].n, 2);
+      await assert.rejects(feedbackService.list({ ...feedbackOwner, workspaceId: '11111111-1111-4111-8111-111111111111' }, reportId), { statusCode: 404 });
+      await assert.rejects(feedbackService.save({ ...feedbackOwner, role: 'viewer' }, reportId, 'tasks:0', { status: 'dismissed' }), { statusCode: 403 });
     });
     await t.test('unlinked historical trial recovers by verified subscription ID with exactly thirty credits', async recovery => {
       const owner = verifyAccessToken((await auth.register({ email: 'trial-recovery@example.invalid', password: 'test-only-password' }, 'recovery-test')).accessToken, secret);

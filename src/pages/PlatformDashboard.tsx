@@ -4,6 +4,7 @@ import { clearSessionAccessToken, readSessionAccessToken, storeSessionAccessToke
 import { safeNextPath } from '../lib/auth-navigation';
 import BillingDashboard from './BillingDashboard';
 import { ReportDatasetStats } from '../components/ReportDatasetStats';
+import { ReportActionFeedback } from '../components/ReportActionFeedback';
 
 const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
 
@@ -680,6 +681,7 @@ function InsightReportBody({ report }: { report: InsightReportView }) {
   }
   const body = report.report;
   return <div className="space-y-6 p-6 md:p-8">
+    <ReportActionFeedback reportId={report.id} apiBase={gatewayUrl} />
     <ReportDatasetStats value={body._dataset} />
     <p className="text-xs text-ink-soft">Conclusion counts below show distinct cited sources, not total mentions across the dataset. References starting with p quote prior report summaries (secondary evidence), not original comments.</p>
     {'summary' in body && <p className="rounded-xl bg-sky-pale p-4 text-sm">{(body as { summary: string }).summary}</p>}
