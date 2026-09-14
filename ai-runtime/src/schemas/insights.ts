@@ -64,6 +64,7 @@ export const insightReportRequestSchema = z.object({
   })).max(20).optional(),
   // 每日运营任务模板：近期已生成报告的摘要（洞察聚合调度器的输入）。
   priorReports: z.array(z.object({
+    ref: z.string().min(1).max(12).optional(),
     template: z.string(),
     title: z.string().max(120),
     summary: z.string().max(2_000),
@@ -207,6 +208,7 @@ export const communityDigestResultSchema = z.object({
     author: z.string().min(1).max(120),
     reason: z.string().min(1).max(300),
     signals: z.array(z.string().max(120)).max(4),
+    citations: z.array(reportCitationSchema).max(3).default([]),
   })).max(10),
   conflictRisks: z.array(z.object({
     risk: z.string().min(1).max(200),

@@ -5,6 +5,17 @@ import { renderReportDigest, sendReportEmail } from './delivery';
 
 type FetchCall = { url: string; init: RequestInit };
 
+test('delivery counts distinct cited sources rather than trusting historical model estimates', () => {
+  const digest = renderReportDigest({ template: 'comment_insights', title: 'T', itemCount: 500, droppedCitations: 0, report: {
+    summary: 's', frequentQuestions: [{ question: 'When?', approxCount: 999999, citations: [
+      { ref: 'i1', snippet: 'when' }, { ref: 'i1', snippet: 'when available' },
+    ] }],
+  } });
+  assert.ok(!digest.includes('999999'));
+  assert.ok(digest.includes('引用来源 1 条'));
+  assert.ok(digest.includes('不代表全量提及次数'));
+});
+
 function stubFetch(impl: (url: string, init?: RequestInit) => Promise<Response>): { calls: FetchCall[]; restore: () => void } {
   const calls: FetchCall[] = [];
   const original = globalThis.fetch;

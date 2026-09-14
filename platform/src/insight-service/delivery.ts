@@ -32,6 +32,11 @@ const bullet = (label: unknown, detail?: unknown): string | null => {
 };
 
 /** 按模板抽取 3-5 条「要点」，字段名与 insightResultSchemas 对齐。 */
+function citedSources(item: Record<string, unknown>): number {
+  const citations = Array.isArray(item.citations) ? item.citations : [];
+  return new Set(citations.filter(c => c && typeof c === 'object' && typeof c.ref === 'string').map(c => c.ref)).size;
+}
+
 function highlights(template: InsightTemplate, report: Record<string, unknown>): string[] {
   const pick = (key: string) => (Array.isArray(report[key]) ? report[key] as Record<string, unknown>[] : []);
   switch (template) {
@@ -42,7 +47,7 @@ function highlights(template: InsightTemplate, report: Record<string, unknown>):
       ].filter((line): line is string => Boolean(line));
     case 'comment_insights':
       return [
-        ...pick('frequentQuestions').slice(0, 3).map((item) => bullet(text(item.question), `约 ${Number(item.approxCount ?? 0)} 次提及`)),
+        ...pick('frequentQuestions').slice(0, 3).map((item) => bullet(text(item.question), `引用来源 ${citedSources(item)} 条`)),
         ...pick('demandRanking').slice(0, 2).map((item) => bullet(`需求: ${text(item.demand) ?? ''}`)),
       ].filter((line): line is string => Boolean(line));
     case 'product_opportunities':
@@ -52,7 +57,7 @@ function highlights(template: InsightTemplate, report: Record<string, unknown>):
       ].filter((line): line is string => Boolean(line));
     case 'review_attribution':
       return [
-        ...pick('issueClusters').slice(0, 3).map((item) => bullet(text(item.theme), `约 ${Number(item.approxCount ?? 0)} 条 · 严重度 ${text(item.severity) ?? '-'}`)),
+        ...pick('issueClusters').slice(0, 3).map((item) => bullet(text(item.theme), `引用来源 ${citedSources(item)} 条 · 严重度 ${text(item.severity) ?? '-'}`)),
         ...pick('priorityFixes').slice(0, 2).map((item) => bullet(`优先修复: ${text(item.fix) ?? ''}`, item.expectedImpact)),
       ].filter((line): line is string => Boolean(line));
     case 'community_digest':
@@ -73,6 +78,7 @@ export function renderReportDigest(input: DigestInput): string {
   const summary = text(input.report.summary, 1_500) ?? '（无摘要）';
   const lines = highlights(input.template, input.report);
   const evidence = [`基于 ${input.itemCount} 条导入内容，所有引用均经过平台逐字校验`];
+  evidence.push('计数为不同引用来源数，不代表全量提及次数；p 前缀引用来自历史报告摘要（二级证据）。');
   if (input.droppedCitations > 0) evidence.push(`${input.droppedCitations} 条不可验证的引用已被自动丢弃`);
   return [
     input.title,

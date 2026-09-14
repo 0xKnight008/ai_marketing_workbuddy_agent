@@ -460,7 +460,7 @@ export class RunWorker {
         [reportRow.batchIds],
       );
       // 每日运营任务是洞察聚合调度器：附带近期已生成报告的摘要作为决策输入。
-      let priorReports: Array<{ template: string; title: string; summary: string }> | undefined;
+      let priorReports: Array<{ ref: string; template: string; title: string; summary: string }> | undefined;
       if (template === 'daily_ops') {
         const prior = await tx.query<{ template: string; title: string; summary: string | null }>(
           `SELECT template, title, report->>'summary' AS summary
@@ -470,7 +470,7 @@ export class RunWorker {
             ORDER BY created_at DESC LIMIT 4`,
           [reportId],
         );
-        priorReports = prior.rows.filter((row) => row.summary).map((row) => ({ template: row.template, title: row.title, summary: row.summary! }));
+        priorReports = prior.rows.filter((row) => row.summary).map((row, index) => ({ ref: `p${index + 1}`, template: row.template, title: row.title, summary: row.summary! }));
       }
       return { deferred: false as const, template, modelBand: reservation.band, provider: reservation.provider, pack: buildEvidencePack(items.rows), priorReports, fullTextById: new Map(items.rows.map((row) => [row.id, row.text])) };
     });
@@ -482,6 +482,9 @@ export class RunWorker {
       const fullText = prepared.fullTextById.get(itemId);
       if (fullText !== undefined) textByRef.set(ref, fullText);
     }
+    // Daily tasks may cite a supplied prior summary explicitly. This is a
+    // secondary source, preserved separately from original comment evidence.
+    for (const prior of prepared.priorReports ?? []) textByRef.set(prior.ref, prior.summary);
 
     // 2. LLM 生成；schema 非法 → 抛错走 job 重试（与 import.classify 同一语义）。
     const result = await this.options.aiRuntime.generateInsightReport({
@@ -501,14 +504,10 @@ export class RunWorker {
     // 3. 引用硬校验：幻觉引用（ref 未知 / snippet 非逐字）一律丢弃并计数。
     const stats = { dropped: 0 };
     const validated = validateReportCitations(parsed.data, textByRef, stats);
-    // 4. 结论证据门槛（V1 审核 #3）：证据被清空的结论整条移除，模型自报的
-    // approxCount/evidenceCount 抬升到不少于其逐字引用数。全部结论都无证据
-    // 时不发布空壳报告 —— 报告置为 failed（可操作错误），不再无意义重试。
-    // daily_ops 例外：其结论基于历史报告摘要（priorReports）而非条目引用，
-    // 引用硬校验仍然生效，但不做逐条证据门槛。
+    // Apply the same quotation gate to all six templates, including daily ops.
     const grounding: GroundingStats = { totalConclusions: 0, groundedConclusions: 0, droppedConclusions: 0 };
-    const groundedReport = prepared.template === 'daily_ops' ? validated : enforceGroundedConclusions(validated, grounding);
-    if (prepared.template !== 'daily_ops' && grounding.groundedConclusions === 0) {
+    const groundedReport = enforceGroundedConclusions(validated, grounding);
+    if (grounding.groundedConclusions === 0) {
       await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
         await tx.query(
           `UPDATE insight_report SET status = 'failed', error = $3
@@ -534,6 +533,8 @@ export class RunWorker {
         [reportId, job.workspaceId, JSON.stringify({
           ...cleaned,
           _evidence: prepared.pack.refMap,
+          _priorEvidence: prepared.priorReports ?? [],
+          _countBasis: 'distinct_cited_sources',
           _metrics: { droppedCitations: stats.dropped, droppedConclusions: grounding.droppedConclusions, groundedConclusions: grounding.groundedConclusions, totalConclusions: grounding.totalConclusions, groundedRate },
         }), stats.dropped],
       );
