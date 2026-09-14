@@ -3,7 +3,21 @@ import test from 'node:test';
 import type { QueryResultRow } from 'pg';
 
 import type { TenantTransaction } from '../foundation/database';
-import { RunWorker, type ClaimedJob, type RunWorkerDatabase } from './worker-runner';
+import { RunWorker, validatedClassifications, type ClaimedJob, type RunWorkerDatabase } from './worker-runner';
+
+test('500 known-answer classifications require complete indexes and verbatim evidence', () => {
+  const items = Array.from({ length: 500 }, (_, i) => ({ text: `Comment ${i}: I want to buy it` }));
+  for (let offset = 0; offset < 500; offset += 50) {
+    const chunk = items.slice(offset, offset + 50);
+    const assignments = chunk.map((_, itemIndex) => ({ itemIndex, tags: [{ tag: 'purchase_intent', confidence: 1, evidence: 'want to buy' }] }));
+    assert.equal(validatedClassifications({ assignments }, chunk).length, 50);
+    assert.throws(() => validatedClassifications({ assignments: assignments.slice(1) }, chunk), /classification_incomplete/);
+    assert.throws(() => validatedClassifications({ assignments: [...assignments, assignments[0]] }, chunk), /invalid_item_index/);
+    assert.throws(() => validatedClassifications({ assignments: [{ itemIndex: 50, tags: [] }] }, chunk), /invalid_item_index/);
+    assert.throws(() => validatedClassifications({ assignments: assignments.map(a => ({ ...a, tags: [{ tag: 'purchase_intent', confidence: 1, evidence: 'invented' }] })) }, chunk), /invalid_evidence/);
+  }
+  assert.equal(validatedClassifications({ assignments: [{ itemIndex: 0, tags: [] }] }, [{ text: 'No signal' }]).length, 1);
+});
 
 for (const kind of ['prepare_ai_run', 'execute_approved_actions']) {
   test(`worker does not call suppliers for inactive subscriptions (${kind})`, async () => {
@@ -137,7 +151,7 @@ test('RunWorker reconciles a completed AI run when its callback was lost', async
   assert.ok(statements.some((sql) => sql.includes("UPDATE job SET status = 'succeeded'")));
 });
 
-test('import.classify writes evidence-verified tags and drops hallucinated citations', async () => {
+test('import.classify rejects hallucinated evidence without committing partial progress', async () => {
   const items = [
     { id: 'item-1', text: 'Love this serum, where can I buy it?', author: 'Ann', platform: 'instagram' },
     { id: 'item-2', text: 'The new packaging leaks everywhere', author: null, platform: 'rednote' },
@@ -197,13 +211,10 @@ test('import.classify writes evidence-verified tags and drops hallucinated citat
   });
 
   assert.equal(await worker.runOne(), true);
-  assert.equal(insertedTags.length, 1);
-  assert.equal(insertedTags[0]?.[0], 'item-1');
-  assert.equal(insertedTags[0]?.[1], 'purchase_intent');
-  assert.ok(auditEvents.includes('import.classify_evidence_dropped'));
-  assert.ok(statements.some((sql) => sql.includes('UPDATE import_item SET classified_at')));
-  assert.ok(statements.some((sql) => sql.includes("UPDATE import_batch SET status = 'classified'")));
-  assert.ok(statements.some((sql) => sql.includes("UPDATE job SET status = 'succeeded'")));
+  assert.equal(insertedTags.length, 0);
+  assert.equal(statements.some((sql) => sql.includes('UPDATE import_item SET classified_at')), false);
+  assert.equal(statements.some((sql) => sql.includes("UPDATE import_batch SET status = 'classified'")), false);
+  assert.ok(statements.some((sql) => sql.includes('UPDATE job SET status = CASE')));
 });
 
 test('import.classify retries when the AI runtime returns a schema-invalid result', async () => {
@@ -794,7 +805,7 @@ test('insight.generate reserves credits once per report and defers when exhauste
   assert.equal(statements.some((sql) => sql.startsWith('INSERT INTO task_event')), false);
 });
 
-test('import.classify retries items the model skipped instead of marking them processed', async () => {
+test('import.classify requeues an incomplete chunk without shrinking the paid item set', async () => {
   const usage = usageHandlers({});
   const items = [
     { id: 'item-1', text: 'where can I buy it', author: null, platform: 'instagram' },
@@ -802,17 +813,18 @@ test('import.classify retries items the model skipped instead of marking them pr
   ];
   const auditPayloads: Array<{ event: unknown; payload: unknown }> = [];
   const classifyCalls: number[] = [];
-  let pendingCalls = 0;
+  let processed = false;
+  const reservationKeys: unknown[] = [];
   const tx: TenantTransaction = {
     async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
+      if (sql.startsWith('INSERT INTO task_event')) reservationKeys.push(values?.[5]);
+      if (sql.includes('UPDATE import_item SET classified_at')) processed = true;
       const usageRow = usage.match(sql);
       if (usageRow) return usageRow as { rows: Row[]; rowCount: number };
       if (sql.startsWith('INSERT INTO audit_event')) auditPayloads.push({ event: values?.[1], payload: values?.[2] });
       if (sql.includes("UPDATE import_batch SET status = 'classifying'")) return { rows: [{ status: 'classifying', modelBand: 'eco' }] as unknown as Row[], rowCount: 1 };
       if (sql.includes('classified_at IS NULL')) {
-        pendingCalls += 1;
-        // 第一轮返回两条；第二轮只剩被漏掉的 item-2；第三轮为空结束。
-        const rows = pendingCalls === 1 ? items : pendingCalls === 2 ? [items[1]] : [];
+        const rows = processed ? [] : items;
         return { rows: rows as unknown as Row[], rowCount: 0 };
       }
       return { rows: [] as Row[], rowCount: 1 };
@@ -829,20 +841,26 @@ test('import.classify retries items the model skipped instead of marking them pr
         const payloadItems = (payload as { items: unknown[] }).items;
         classifyCalls.push(payloadItems.length);
         // 第一轮模型漏掉第 2 条（只返回 itemIndex 0）；第二轮补上了。
-        return { assignments: [{ itemIndex: 0, tags: [] }] };
+        return { assignments: classifyCalls.length === 1 ? [{ itemIndex: 0, tags: [] }] : [{ itemIndex: 0, tags: [] }, { itemIndex: 1, tags: [] }] };
       },
       async generateInsightReport() { throw new Error('unexpected'); },
     },
   });
 
   assert.equal(await worker.runOne(), true);
-  assert.deepEqual(classifyCalls, [2, 1]); // 漏处理的 item-2 被重试
-  assert.ok(auditPayloads.some((entry) => entry.event === 'import.classify_coverage_gap' && (entry.payload as { retrying: boolean }).retrying === true));
+  assert.deepEqual(classifyCalls, [2]); // Next bounded job attempt retries the full chunk.
+  assert.equal(processed, false);
   assert.ok(!auditPayloads.some((entry) => entry.event === 'import.classify_incomplete'));
-  assert.ok(auditPayloads.some((entry) => entry.event === 'import.classified'));
+  assert.ok(!auditPayloads.some((entry) => entry.event === 'import.classified'));
+  jobs.push({ id: 'job-c3', workspaceId: 'workspace-1', runId: null, kind: 'import.classify', payload: { batchId: 'batch-1' }, attempt: 2 });
+  await worker.runOne();
+  assert.deepEqual(classifyCalls, [2, 2]);
+  assert.equal(processed, true);
+  assert.equal(reservationKeys.length, 2);
+  assert.equal(reservationKeys[0], reservationKeys[1], 'partial responses must not change the idempotency key');
 });
 
-test('import.classify gives up after two zero-progress rounds and audits the gap', async () => {
+test('import.classify does not falsely complete a zero-progress result', async () => {
   const usage = usageHandlers({});
   const auditPayloads: Array<{ event: unknown; payload: unknown }> = [];
   let classifyCalls = 0;
@@ -875,10 +893,8 @@ test('import.classify gives up after two zero-progress rounds and audits the gap
   });
 
   assert.equal(await worker.runOne(), true);
-  assert.equal(classifyCalls, 2); // 两轮零进展即放弃（重试同 chunk 幂等不重复扣费），不无限循环
-  const incomplete = auditPayloads.find((entry) => entry.event === 'import.classify_incomplete');
-  assert.ok(incomplete);
-  assert.equal((incomplete!.payload as { gaveUp: number }).gaveUp, 1);
+  assert.equal(classifyCalls, 1);
+  assert.ok(!auditPayloads.some(entry => entry.event === 'import.classified'));
 });
 
 test('insight.generate fails the report when no conclusion is grounded in verbatim evidence', async () => {
@@ -931,4 +947,3 @@ test('insight.generate fails the report when no conclusion is grounded in verbat
   // 失败是终态：job 正常结束而不是重试烧额度。
   assert.ok(auditPayloads.every((entry) => entry.event !== 'insight.generate_deferred'));
 });
-

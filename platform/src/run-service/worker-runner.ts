@@ -326,9 +326,8 @@ export class RunWorker {
     // Chunked synchronous classification; each chunk writes tags transactionally
     // so a mid-batch failure can be retried without duplicating rows (UNIQUE item+tag).
     const CLASSIFY_CHUNK = 50;
-    // 模型漏处理（itemIndex 未覆盖）会触发整 chunk 重试；连续两轮零进展
-    // 才放弃并标记剩余条目（留审计），避免 job 无限循环。
-    let stagnantRounds = 0;
+    // Commit only complete chunks. Partial results leave the same item IDs
+    // pending, so bounded job retries reuse the original paid reservation.
     for (;;) {
       const items = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
         const batch = await tx.query<{ status: string; modelBand: string }>(
@@ -375,7 +374,7 @@ export class RunWorker {
           );
           // 批次级覆盖率指标：打标条目占比（区分"有信号"与"无信号/放弃"的规模）。
           const statsRow = await tx.query<{ items: string | number; tagged: string | number }>(
-            `SELECT COUNT(*) AS items, COUNT(DISTINCT t.item_id) AS tagged
+            `SELECT COUNT(DISTINCT i.id) AS items, COUNT(DISTINCT t.item_id) AS tagged
                FROM import_item i LEFT JOIN item_tag t ON t.item_id = i.id
               WHERE i.batch_id = $1 AND i.workspace_id = current_setting('app.workspace_id')::uuid`,
             [batchId],
@@ -399,71 +398,26 @@ export class RunWorker {
         items: items.rows.map((row, index) => ({ index, text: row.text, author: row.author ?? undefined, platform: row.platform })),
       });
 
-      const coverage = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
-        let written = 0;
-        let dropped = 0;
-        // 覆盖判定（V1 审核 #3）：条目出现在 assignments 里即算被模型处理 ——
-        // 空 tags 是"明确无信号"的合法结论；未出现的条目是"漏处理"，必须重试。
-        // 同一 itemIndex 重复返回以第一条为准，越界 index 计为丢弃。
-        const seenIndexes = new Set<number>();
-        const coveredIds: string[] = [];
-        for (const assignment of parsedAssignments(result)) {
-          const item = items.rows[assignment.itemIndex];
-          if (!item) { dropped += 1; continue; }
-          if (seenIndexes.has(assignment.itemIndex)) continue;
-          seenIndexes.add(assignment.itemIndex);
-          coveredIds.push(item.id);
+      const assignments = validatedClassifications(result, items.rows);
+      await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+        // Index completeness and all quotes have already been checked.
+        // Empty tags mean explicitly no signal, never a missing assignment.
+        for (const assignment of assignments) {
+          const item = items.rows[assignment.itemIndex]!;
           for (const tag of assignment.tags) {
-            // 证据引用硬校验：LLM 必须给出原文逐字摘录，否则该标签作废。
-            if (!item.text.includes(tag.evidence)) { dropped += 1; continue; }
-            const inserted = await tx.query(
+            await tx.query(
               `INSERT INTO item_tag (workspace_id, item_id, tag, confidence, evidence, model_band)
                VALUES (current_setting('app.workspace_id')::uuid, $1, $2, $3, $4, $5)
                ON CONFLICT (item_id, tag) DO NOTHING`,
               [item.id, tag.tag, tag.confidence, tag.evidence, items.modelBand],
             );
-            written += inserted.rowCount;
           }
         }
-        if (coveredIds.length) {
-          await tx.query(
-            `UPDATE import_item SET classified_at = now()
-              WHERE batch_id = $1 AND id = ANY($2::uuid[])`,
-            [batchId, coveredIds],
-          );
-        }
-        if (dropped > 0) {
-          await tx.query(
-            'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
-            [job.workspaceId, 'import.classify_evidence_dropped', { batchId, dropped, written }],
-          );
-        }
-        const coveredSet = new Set(coveredIds);
-        return { covered: coveredIds.length, missedIds: items.rows.map((row) => row.id).filter((id) => !coveredSet.has(id)) };
-      });
-
-      if (!coverage.missedIds.length) { stagnantRounds = 0; continue; }
-      stagnantRounds = coverage.covered === 0 ? stagnantRounds + 1 : 0;
-      const giveUp = stagnantRounds >= 2;
-      await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
         await tx.query(
-          'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
-          [job.workspaceId, 'import.classify_coverage_gap', { batchId, covered: coverage.covered, missed: coverage.missedIds.length, retrying: !giveUp }],
+          `UPDATE import_item SET classified_at = now()
+            WHERE batch_id = $1 AND id = ANY($2::uuid[])`,
+          [batchId, items.rows.map(item => item.id)],
         );
-        if (giveUp) {
-          // 模型连续两轮完全不覆盖剩余条目：放弃重试并标记，防止无限循环。
-          // 放弃不额外扣费（chunk 内容哈希幂等，重试同 chunk 不重复计费）。
-          await tx.query(
-            `UPDATE import_item SET classified_at = now()
-              WHERE batch_id = $1 AND id = ANY($2::uuid[])`,
-            [batchId, coverage.missedIds],
-          );
-          await tx.query(
-            'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
-            [job.workspaceId, 'import.classify_incomplete', { batchId, gaveUp: coverage.missedIds.length }],
-          );
-          stagnantRounds = 0;
-        }
       });
     }
   }
@@ -773,8 +727,20 @@ function toAiExecutionContext(context: BrandContextSnapshot, reservation: AiRese
  * durable job retries (and dead-letters for admin replay) instead of silently
  * marking the chunk classified without tags.
  */
-function parsedAssignments(result: Record<string, unknown>): TagAssignment[] {
+export function validatedClassifications(result: Record<string, unknown>, items: Array<{ text: string }>): TagAssignment[] {
   const parsed = classifyResultSchema.safeParse(result);
   if (!parsed.success) throw new Error(`classify result failed schema validation: ${parsed.error.issues.length} issue(s)`);
+  const seen = new Set<number>();
+  for (const assignment of parsed.data.assignments) {
+    const item = items[assignment.itemIndex];
+    if (!item || seen.has(assignment.itemIndex)) throw new Error('classification_invalid_item_index');
+    seen.add(assignment.itemIndex);
+    const tags = new Set<string>();
+    for (const tag of assignment.tags) {
+      if (!item.text.includes(tag.evidence) || tags.has(tag.tag)) throw new Error('classification_invalid_evidence');
+      tags.add(tag.tag);
+    }
+  }
+  if (seen.size !== items.length) throw new Error('classification_incomplete: retry the complete paid chunk');
   return parsed.data.assignments;
 }
