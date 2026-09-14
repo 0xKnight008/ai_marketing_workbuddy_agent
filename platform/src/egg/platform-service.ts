@@ -32,6 +32,7 @@ import { EmailAuthService } from '../identity/email-auth';
 import { ImportService } from '../import-service/service';
 import { InsightService } from '../insight-service/service';
 import { InsightFeedbackService } from '../insight-service/feedback';
+import { WeeklyReviewService } from '../insight-service/weekly-review';
 import { createDurableRun, decideApproval, ingestAiRuntimeEvent } from '../run-service/repository';
 import {
   ZERNIO_PLATFORMS,
@@ -142,6 +143,10 @@ export class PlatformService {
 
   async insightActions(actor: ActorContext, reportId: unknown): Promise<unknown> {
     return new InsightFeedbackService(this.database).list(actor, reportId);
+  }
+
+  async weeklyInsightReview(actor: ActorContext): Promise<unknown> {
+    return new WeeklyReviewService(this.database).review(actor);
   }
 
   async saveInsightAction(actor: ActorContext, reportId: unknown, actionKey: unknown, body: unknown): Promise<unknown> {

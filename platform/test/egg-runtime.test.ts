@@ -28,6 +28,13 @@ describe('Egg production gateway', () => {
   after(async () => { await app.close(); });
   afterEach(() => { mm.restore(); });
 
+  it('routes weekly review before report-ID matching and requires workspace auth', async () => {
+    await app.httpRequest().get('/api/insights/weekly-review').expect(401);
+    mm(app.platform.service, 'weeklyInsightReview', async () => ({ templates: [], basis: 'reports_generated_in_window_current_feedback' }));
+    await app.httpRequest().get('/api/insights/weekly-review').set('authorization', `Bearer ${ownerToken}`)
+      .expect('Cache-Control', 'no-store').expect(200).expect({ templates: [], basis: 'reports_generated_in_window_current_feedback' });
+  });
+
   it('requires workspace authentication for execution feedback reads and writes', async () => {
     await app.httpRequest().get('/api/insights/11111111-1111-4111-8111-111111111111/actions').expect(401);
     await app.httpRequest().put('/api/insights/11111111-1111-4111-8111-111111111111/actions/tasks%3A0').send({ status: 'completed' }).expect(401);

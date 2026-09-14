@@ -20,6 +20,7 @@ import { createHash } from 'node:crypto';
 import { ImportService } from '../src/import-service/service';
 import { RunWorker } from '../src/run-service/worker-runner';
 import { InsightFeedbackService } from '../src/insight-service/feedback';
+import { WeeklyReviewService } from '../src/insight-service/weekly-review';
 
 test('migration 0013 upgrades missing auth columns and enables register/login/me on PostgreSQL', async (t) => {
   const url = process.env.TEST_DATABASE_URL;
@@ -174,6 +175,20 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
       assert.equal((await client.query("SELECT count(*)::int AS n FROM audit_event WHERE event_type='insight.action_feedback' AND payload->>'reportId'=$1", [reportId])).rows[0].n, 2);
       await assert.rejects(feedbackService.list({ ...feedbackOwner, workspaceId: '11111111-1111-4111-8111-111111111111' }, reportId), { statusCode: 404 });
       await assert.rejects(feedbackService.save({ ...feedbackOwner, role: 'viewer' }, reportId, 'tasks:0', { status: 'dismissed' }), { statusCode: 403 });
+      const reviewEnd = new Date('2026-09-14T12:00:00Z');
+      await client.query('UPDATE insight_report SET generated_at=$2::timestamptz WHERE id=$1', [reportId, '2026-09-07T12:00:00Z']);
+      // Upper boundary is excluded even when the report is generated.
+      await client.query(`INSERT INTO insight_report (workspace_id, template, title, status, created_by, report, generated_at)
+        SELECT workspace_id, template, title, status, created_by, report, $2::timestamptz FROM insight_report WHERE id=$1`, [reportId, reviewEnd.toISOString()]);
+      const weekly = await new WeeklyReviewService(database).review(feedbackOwner, reviewEnd);
+      const daily = weekly.templates.find(group => group.template === 'daily_ops')!;
+      assert.equal(daily.reports.length, 1);
+      assert.equal(daily.counts.actions, 2);
+      assert.equal(daily.counts.adopted, 2);
+      assert.equal(daily.counts.completed, 1);
+      assert.equal(daily.improvementRate, 1);
+      const isolated = await new WeeklyReviewService(database).review({ ...feedbackOwner, workspaceId: '11111111-1111-4111-8111-111111111111' }, reviewEnd);
+      assert.ok(isolated.templates.every(group => group.reports.length === 0));
     });
     await t.test('unlinked historical trial recovers by verified subscription ID with exactly thirty credits', async recovery => {
       const owner = verifyAccessToken((await auth.register({ email: 'trial-recovery@example.invalid', password: 'test-only-password' }, 'recovery-test')).accessToken, secret);

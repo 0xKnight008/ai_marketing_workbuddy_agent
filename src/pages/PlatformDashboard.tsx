@@ -5,6 +5,7 @@ import { safeNextPath } from '../lib/auth-navigation';
 import BillingDashboard from './BillingDashboard';
 import { ReportDatasetStats } from '../components/ReportDatasetStats';
 import { ReportActionFeedback } from '../components/ReportActionFeedback';
+import { WeeklyInsightReview } from '../components/WeeklyInsightReview';
 
 const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
 
@@ -737,6 +738,7 @@ function InsightReportBody({ report }: { report: InsightReportView }) {
 
 function InsightsSection({ reports, batches, template, setTemplate, band, setBand, selectedBatchIds, setSelectedBatchIds, busy, detail, accounts, onGenerate, onOpenDetail, onCloseDetail, onDeliver }: { reports: InsightReportView[]; batches: ImportBatchView[]; template: InsightTemplate; setTemplate: (template: InsightTemplate) => void; band: ModelBand; setBand: (band: ModelBand) => void; selectedBatchIds: string[]; setSelectedBatchIds: (ids: string[]) => void; busy: boolean; detail: InsightReportView | null; accounts: ConnectedAccount[]; onGenerate: () => void; onOpenDetail: (id: string) => void; onCloseDetail: () => void; onDeliver: (id: string, input: { channel: 'email' | 'discord'; email?: string; connectedAccountId?: string }) => void; }) {
   return <div className="space-y-8">
+    <WeeklyInsightReview apiBase={gatewayUrl} onOpenReport={onOpenDetail} />
     <section className="sketch bg-paper-card p-6 shadow-paint-sm">
       <p className="font-hand text-lg text-sky-deep">Result templates</p>
       <h2 className="font-display text-3xl">Insight reports</h2>
