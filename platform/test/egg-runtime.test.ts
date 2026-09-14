@@ -28,6 +28,24 @@ describe('Egg production gateway', () => {
   after(async () => { await app.close(); });
   afterEach(() => { mm.restore(); });
 
+  it('requires workspace authentication for execution feedback reads and writes', async () => {
+    await app.httpRequest().get('/api/insights/11111111-1111-4111-8111-111111111111/actions').expect(401);
+    await app.httpRequest().put('/api/insights/11111111-1111-4111-8111-111111111111/actions/tasks%3A0').send({ status: 'completed' }).expect(401);
+  });
+
+  it('routes authenticated feedback with decoded action key and no-store response', async () => {
+    mm(app.platform.service, 'saveInsightAction', async (actor: { role: string }, reportId: string, key: string, body: unknown) => {
+      assert.equal(actor.role, 'owner');
+      assert.equal(reportId, '11111111-1111-4111-8111-111111111111');
+      assert.equal(key, 'tasks:0');
+      assert.deepEqual(body, { status: 'completed' });
+      return { status: 'completed', effect: 'unknown', note: '' };
+    });
+    await app.httpRequest().put('/api/insights/11111111-1111-4111-8111-111111111111/actions/tasks%3A0')
+      .set('authorization', `Bearer ${ownerToken}`).send({ status: 'completed' })
+      .expect('Cache-Control', 'no-store').expect(200).expect({ status: 'completed', effect: 'unknown', note: '' });
+  });
+
   it('serves health through Egg routing', () => app.httpRequest()
     .get('/internal/health')
     .expect(200)

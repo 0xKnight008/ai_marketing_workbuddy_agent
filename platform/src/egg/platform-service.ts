@@ -31,6 +31,7 @@ import { ActivationDeliveryService } from '../identity/activation';
 import { EmailAuthService } from '../identity/email-auth';
 import { ImportService } from '../import-service/service';
 import { InsightService } from '../insight-service/service';
+import { InsightFeedbackService } from '../insight-service/feedback';
 import { createDurableRun, decideApproval, ingestAiRuntimeEvent } from '../run-service/repository';
 import {
   ZERNIO_PLATFORMS,
@@ -137,6 +138,14 @@ export class PlatformService {
 
   async listInsights(actor: ActorContext): Promise<unknown> {
     return this.insights.listInsights(actor);
+  }
+
+  async insightActions(actor: ActorContext, reportId: unknown): Promise<unknown> {
+    return new InsightFeedbackService(this.database).list(actor, reportId);
+  }
+
+  async saveInsightAction(actor: ActorContext, reportId: unknown, actionKey: unknown, body: unknown): Promise<unknown> {
+    return new InsightFeedbackService(this.database).save(actor, reportId, actionKey, body);
   }
 
   async insightDetail(actor: ActorContext, reportId: unknown): Promise<unknown> {
