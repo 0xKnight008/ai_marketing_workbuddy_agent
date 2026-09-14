@@ -455,8 +455,7 @@ export class RunWorker {
                             FROM item_tag t WHERE t.item_id = i.id), '[]'::jsonb) AS tags
            FROM import_item i
           WHERE i.batch_id = ANY($1::uuid[]) AND i.workspace_id = current_setting('app.workspace_id')::uuid
-          ORDER BY i.created_at, i.id
-          LIMIT 2000`,
+          ORDER BY i.created_at, i.id`,
         [reportRow.batchIds],
       );
       // 每日运营任务是洞察聚合调度器：附带近期已生成报告的摘要作为决策输入。
@@ -535,6 +534,9 @@ export class RunWorker {
           _evidence: prepared.pack.refMap,
           _priorEvidence: prepared.priorReports ?? [],
           _countBasis: 'distinct_cited_sources',
+          // Calculated over ALL selected source rows before evidence sampling.
+          // Never accept population statistics supplied by the model.
+          _dataset: { ...prepared.pack.totals, sampledItems: prepared.pack.topItems.length },
           _metrics: { droppedCitations: stats.dropped, droppedConclusions: grounding.droppedConclusions, groundedConclusions: grounding.groundedConclusions, totalConclusions: grounding.totalConclusions, groundedRate },
         }), stats.dropped],
       );
