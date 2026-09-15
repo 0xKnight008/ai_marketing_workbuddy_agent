@@ -28,6 +28,14 @@ describe('Egg production gateway', () => {
   after(async () => { await app.close(); });
   afterEach(() => { mm.restore(); });
 
+  it('loads saved-draft selection through the production CommonJS loader', () => {
+    // Deliberately require: tsx tests alone do not exercise Egg's ts-node loader.
+    const { reportDrafts } = require('../src/contracts/report-drafts');
+    assert.deepEqual(reportDrafts('product_opportunities', { presalePollDraft: 'Saved poll' }), [
+      { key: 'presalePollDraft', label: 'presalePollDraft', text: 'Saved poll' },
+    ]);
+  });
+
   it('routes weekly review before report-ID matching and requires workspace auth', async () => {
     await app.httpRequest().get('/api/insights/weekly-review').expect(401);
     mm(app.platform.service, 'weeklyInsightReview', async () => ({ templates: [], basis: 'reports_generated_in_window_current_feedback' }));

@@ -451,6 +451,7 @@ for (const taskCount of [1, 3]) test(`daily_ops enforces cardinality after groun
 // ---------- 迭代 4：报告外发（insight.deliver） ----------
 
 const DELIVERY_SNAPSHOT = {
+  content: '[urgent] 回复差评\n基于 42 条导入内容', subject: '[Piggybot] 每周复盘',
   status: 'approved', channel: 'email', target: 'owner@example.com', targetLabel: 'owner@example.com',
   approvalId: '22222222-2222-4222-8222-222222222222', requestedBy: 'user-1', requestedAt: new Date().toISOString(),
   decidedBy: 'user-1', decidedAt: new Date().toISOString(),
@@ -513,7 +514,7 @@ function insightDeliveryWorker(options: {
 }
 
 function deliveryJob(overrides: Partial<ClaimedJob> = {}): ClaimedJob {
-  return { id: 'job-d1', workspaceId: 'workspace-1', runId: null, kind: 'insight.deliver', payload: { reportId: '11111111-1111-4111-8111-111111111111' }, attempt: 1, ...overrides };
+  return { id: 'job-d1', workspaceId: 'workspace-1', runId: null, kind: 'insight.deliver', payload: { reportId: '11111111-1111-4111-8111-111111111111', approvalId: DELIVERY_SNAPSHOT.approvalId }, attempt: 1, ...overrides };
 }
 
 test('insight.deliver sends the digest email and marks the delivery delivered', async () => {
@@ -538,6 +539,8 @@ test('insight.deliver sends the digest email and marks the delivery delivered', 
   const body = sent[0] as unknown as { to: string[]; subject: string; text: string };
   assert.deepEqual(body.to, ['owner@example.com']);
   assert.ok(body.subject.includes('每周复盘'));
+  assert.equal(body.subject, DELIVERY_SNAPSHOT.subject);
+  assert.equal(body.text, DELIVERY_SNAPSHOT.content);
   assert.ok(body.text.includes('[urgent] 回复差评'));
   assert.ok(body.text.includes('基于 42 条导入内容'));
   const patch = deliveryPatches.at(-1) as { status?: string; deliveredAt?: string } | undefined;
@@ -545,6 +548,17 @@ test('insight.deliver sends the digest email and marks the delivery delivered', 
   assert.equal(typeof patch?.deliveredAt, 'string');
   assert.ok(auditEvents.includes('insight.delivered'));
   assert.ok(statements.some((sql) => sql.includes("UPDATE job SET status = 'succeeded'")));
+});
+
+test('insight.deliver skips a stale approval job and rejects legacy approvals without text', async () => {
+  const statements: string[] = [];
+  const worker = insightDeliveryWorker({ statements, auditEvents: [], deliveryPatches: [] });
+  const invoke = (job: ClaimedJob) => (worker as unknown as { deliverInsight: (job: ClaimedJob) => Promise<void> }).deliverInsight(job);
+  // No email provider configured: any attempt to send would throw.
+  await invoke(deliveryJob({ payload: { reportId: '11111111-1111-4111-8111-111111111111', approvalId: 'old-approval' } }));
+  assert.ok(statements.some(sql => sql.includes("UPDATE job SET status = 'succeeded'")));
+  const legacy = insightDeliveryWorker({ statements: [], auditEvents: [], deliveryPatches: [], delivery: { ...DELIVERY_SNAPSHOT, content: undefined, subject: undefined } });
+  await assert.rejects((legacy as unknown as { deliverInsight: (job: ClaimedJob) => Promise<void> }).deliverInsight(deliveryJob()), /requires_new_approval/);
 });
 
 test('insight.deliver skips safely when the snapshot is not approved', async () => {
@@ -577,11 +591,12 @@ test('insight.deliver posts to Discord through the connected Zernio account', as
   });
   await (worker as unknown as { deliverInsight: (job: ClaimedJob) => Promise<void> }).deliverInsight(deliveryJob());
   assert.equal(executed.length, 1);
-  assert.equal(executed[0]?.key, 'insight-delivery:job-d1');
+  assert.equal(executed[0]?.key, `insight-delivery:${DELIVERY_SNAPSHOT.approvalId}`);
   const action = executed[0]?.action as { type: string; platform: string; accountId: string; content: string };
   assert.equal(action.type, 'social.create_post');
   assert.equal(action.platform, 'discord');
   assert.equal(action.accountId, 'ext-discord-1');
+  assert.equal(action.content, DELIVERY_SNAPSHOT.content);
   assert.ok(action.content.length <= 1_900);
   assert.ok(auditEvents.includes('insight.delivered'));
 });

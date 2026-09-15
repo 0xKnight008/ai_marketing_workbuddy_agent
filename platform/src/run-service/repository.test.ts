@@ -82,6 +82,7 @@ test('decideApproval on a report-delivery approval enqueues insight.deliver with
   assert.deepEqual(deliveryPatches[0] ? { ...(deliveryPatches[0] as Record<string, unknown>), decidedAt: 'x' } : null, { status: 'approved', decidedBy: 'user-1', decidedAt: 'x' });
   assert.ok(statements.some((sql) => sql.startsWith('INSERT INTO job') && sql.includes("'insight.deliver'")));
   assert.ok(auditEvents.includes('insight.delivery_approved'));
+  assert.deepEqual(JSON.parse(String(jobs[0]?.[1])), { reportId: 'report-1', approvalId: 'approval-1' });
 });
 
 test('decideApproval rejection on a report-delivery approval marks the delivery rejected without a job', async () => {
