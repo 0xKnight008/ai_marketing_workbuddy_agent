@@ -27,6 +27,7 @@ export interface EvidencePackItem {
   /** 发布时刻（导入时从 CSV published_at 列捕获），时间归因依赖该字段。 */
   publishedAt?: string;
   tags: string[];
+  sentiment?: { label: (typeof SENTIMENTS)[number]; confidence: number; evidence: string };
 }
 
 export interface EvidencePack {
@@ -46,15 +47,16 @@ export interface EvidencePack {
   refMap: Record<string, string>;
 }
 
-// 分层采样配额（V1 审核 #4）：头部高互动 + 每标签代表 + 低分差评。
+// 分层采样配额：头部高互动 + 每标签代表 + 低分差评 + 每情绪代表。
 // 旧实现只取互动分前 40 条且 rating 参与加分，长尾需求与高评分偏好会
 // 同时发生（低互动购买意向、低分差评都进不了证据包）。
 const HEAD_COUNT = 24;
 const PER_TAG_REPS = 2;
 const NEGATIVE_REVIEW_COUNT = 8;
+const PER_SENTIMENT_REPS = 1;
 const MAX_SAMPLES_PER_TAG = 8;
 const MAX_TEXT_CHARS = 600;
-/** 证据包条目硬上限：24 头部 + 11 标签 × 2 + 8 差评 ≈ 54，封顶 64。 */
+/** 24 head + 11 tags × 2 + 8 reviews + 7 sentiments × 1 = 61, below 64. */
 export const MAX_EVIDENCE_ITEMS = 64;
 
 /** 互动分：跨平台粗略可比，仅用于排序取头部内容。评分不参与互动分 ——
@@ -73,11 +75,25 @@ function numericMetric(metrics: Record<string, unknown>, key: string): number | 
 }
 
 export function buildEvidencePack(rows: EvidenceSourceRow[]): EvidencePack {
+  // Validate historical rows as well as new classifier output. Use one canonical
+  // tag set for totals, representative selection, excerpts and member stats.
+  rows = rows.map(row => {
+    const tags = new Map<string, EvidenceSourceRow['tags'][number]>();
+    for (const tag of row.tags) {
+      if (!(CONTENT_TAGS as readonly string[]).includes(tag.tag)
+        || !tag.evidence.trim() || tag.evidence.length > 500 || !row.text.includes(tag.evidence)
+        || !Number.isFinite(tag.confidence) || tag.confidence < 0 || tag.confidence > 1) continue;
+      if (!tags.has(tag.tag) || tags.get(tag.tag)!.confidence < tag.confidence) tags.set(tag.tag, tag);
+    }
+    return { ...row, tags: [...tags.values()] };
+  });
+  const sentiments = new Map<EvidenceSourceRow, NonNullable<EvidencePackItem['sentiment']>>();
   const distribution: Record<string, number> = Object.fromEntries(SENTIMENTS.map(label => [label, 0]));
   let classified = 0;
   for (const row of rows) {
     const parsed = sentimentSchema.safeParse(row.sentiment);
     if (!parsed.success || !row.text.includes(parsed.data.evidence)) continue;
+    sentiments.set(row, parsed.data);
     distribution[parsed.data.label] = (distribution[parsed.data.label] ?? 0) + 1;
     classified += 1;
   }
@@ -94,7 +110,7 @@ export function buildEvidencePack(rows: EvidenceSourceRow[]): EvidencePack {
     }
   }
 
-  // 分层采样：三类来源取并集，保证长尾标签与低分差评一定可被引用。
+  // 分层采样：四类来源取并集，给长尾标签、差评与情绪预留引用位置。
   const indexed = rows.map((row, index) => ({ row, index, score: engagementScore(row.metrics) }));
   const byEngagement = (a: (typeof indexed)[number], b: (typeof indexed)[number]) => b.score - a.score || a.index - b.index;
   const pickedIds = new Set<string>();
@@ -114,15 +130,27 @@ export function buildEvidencePack(rows: EvidenceSourceRow[]): EvidencePack {
     .sort((a, b) => (numericMetric(a.row.metrics, 'rating')! - numericMetric(b.row.metrics, 'rating')!) || byEngagement(a, b))
     .slice(0, NEGATIVE_REVIEW_COUNT);
   for (const entry of negatives) pickedIds.add(entry.row.id);
+  // Unrated and untagged comments can still carry a rare verified emotion.
+  // Reserve space before sorting so high engagement cannot evict these rows.
+  for (const label of SENTIMENTS) {
+    const reps = indexed.filter(entry => sentiments.get(entry.row)?.label === label)
+      .sort((a, b) => sentiments.get(b.row)!.confidence - sentiments.get(a.row)!.confidence || byEngagement(a, b))
+      .slice(0, PER_SENTIMENT_REPS);
+    for (const entry of reps) pickedIds.add(entry.row.id);
+  }
   // ref 按互动分顺序分配（头部内容仍排最前），总量封顶。
   const picked = indexed.filter((entry) => pickedIds.has(entry.row.id)).sort(byEngagement).slice(0, MAX_EVIDENCE_ITEMS).map((entry) => entry.row);
   const refMap: Record<string, string> = {};
-  const textByRef = new Map<string, string>();
   const topItems: EvidencePackItem[] = picked.map((row, index) => {
     const ref = `i${index + 1}`;
     refMap[ref] = row.id;
-    const text = row.text.slice(0, MAX_TEXT_CHARS);
-    textByRef.set(ref, text);
+    const sentiment = sentiments.get(row);
+    // Keep the sentiment quotation visible even when it occurs after character
+    // 600. This remains a contiguous verbatim excerpt, never stitched text.
+    const quoteAt = sentiment ? row.text.indexOf(sentiment.evidence) : 0;
+    const quoteEnd = quoteAt + (sentiment?.evidence.length ?? 0);
+    const start = quoteEnd > MAX_TEXT_CHARS ? Math.max(0, quoteEnd - MAX_TEXT_CHARS) : 0;
+    const text = row.text.slice(start, start + MAX_TEXT_CHARS);
     const metrics: Record<string, number> = {};
     for (const [key, value] of Object.entries(row.metrics)) {
       if (typeof value === 'number' && Number.isFinite(value)) metrics[key] = value;
@@ -134,6 +162,7 @@ export function buildEvidencePack(rows: EvidenceSourceRow[]): EvidencePack {
       platform: row.platform,
       ...(row.author ? { author: row.author } : {}),
       text,
+      ...(sentiment ? { sentiment } : {}),
       ...(Object.keys(metrics).length ? { metrics } : {}),
       ...(sku ? { sku } : {}),
       ...(publishedAt ? { publishedAt } : {}),
