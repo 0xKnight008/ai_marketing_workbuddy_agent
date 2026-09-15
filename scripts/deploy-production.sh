@@ -20,6 +20,67 @@ restart_platform_on_error() {
 
 trap restart_platform_on_error ERR
 
+url_decode() {
+  local value="${1//+/ }"
+  printf '%b' "${value//%/\\x}"
+}
+
+# DATABASE_URL = postgres://user[:password]@host[:port]/name[?params]
+database_url_userinfo() {
+  local without_scheme="${DATABASE_URL#*://}"
+  local userinfo="${without_scheme%%@*}"
+  if [[ "$userinfo" == "$without_scheme" ]]; then
+    userinfo=''
+  fi
+  printf '%s' "$userinfo"
+}
+
+database_url_user() {
+  local userinfo
+  userinfo="$(database_url_userinfo)"
+  url_decode "${userinfo%%:*}"
+}
+
+database_url_password() {
+  local userinfo
+  userinfo="$(database_url_userinfo)"
+  if [[ "$userinfo" == *:* ]]; then
+    url_decode "${userinfo#*:}"
+  fi
+}
+
+database_url_host() {
+  local without_scheme="${DATABASE_URL#*://}"
+  local host="${without_scheme#*@}"
+  host="${host%%/*}"
+  host="${host%%\?*}"
+  host="${host%:*}"
+  printf '%s' "$host"
+}
+
+database_url_name() {
+  local without_scheme="${DATABASE_URL#*://}"
+  local name="${without_scheme#*/}"
+  name="${name%%\?*}"
+  printf '%s' "$name"
+}
+
+# The production database runs as a Docker container while the deploy host has
+# no PostgreSQL client installed. Locate the running container so its own
+# (version-matched) pg_dump can produce the pre-deploy backup.
+find_postgres_container() {
+  local id image names
+  while read -r id image names; do
+    case "${image,,} ${names,,}" in
+      *postgres*)
+        printf '%s' "$id"
+        return 0
+        ;;
+    esac
+  done < <(sudo -n docker ps --format '{{.ID}} {{.Image}} {{.Names}}' 2>/dev/null)
+  return 1
+}
+
 for required_file in "$platform_env" "$runtime_env" "$public_api_env"; do
   # systemd/Docker read these as root. The SSH account need not have direct
   # access to secret files, but deployment requires an existing sudo grant.
@@ -30,6 +91,12 @@ for required_file in "$platform_env" "$runtime_env" "$public_api_env"; do
 done
 
 if [[ "${1:-}" == '--check' ]]; then
+  # Fail here — before any live file is replaced — when no pg_dump source
+  # (host client or Postgres container) is available for the backup step.
+  if ! command -v pg_dump >/dev/null 2>&1 && ! find_postgres_container >/dev/null; then
+    echo "Neither pg_dump nor a running Postgres container is available for the pre-deploy backup; install postgresql-client on the deploy host." >&2
+    exit 1
+  fi
   echo "Production environment files are accessible."
   exit 0
 fi
@@ -89,8 +156,33 @@ sudo docker compose build newsletter-api
 
 sudo install -d -m 0750 -o "$(id -un)" "$backup_dir"
 backup_file="$backup_dir/predeploy-$(date -u +%Y%m%dT%H%M%SZ).dump"
-pg_dump --format=custom --file="$backup_file" "$DATABASE_URL"
+if command -v pg_dump >/dev/null 2>&1; then
+  pg_dump --format=custom --file="$backup_file" "$DATABASE_URL"
+else
+  # No PostgreSQL client on the deploy host: run the version-matched client
+  # inside the Postgres container. Restricted to loopback DATABASE_URLs so a
+  # remote database is never confused with a local container.
+  db_host="$(database_url_host)"
+  if [[ "$db_host" != 'localhost' && "$db_host" != '127.0.0.1' && "$db_host" != '::1' ]]; then
+    echo "pg_dump is missing on the deploy host and DATABASE_URL points at non-local host '$db_host'; install postgresql-client on the deploy host." >&2
+    exit 1
+  fi
+  db_container="$(find_postgres_container || true)"
+  if [[ -z "$db_container" ]]; then
+    echo "pg_dump is missing on the deploy host and no running Postgres container was found; install postgresql-client on the deploy host." >&2
+    exit 1
+  fi
+  echo "pg_dump not found on host; backing up through Postgres container $db_container."
+  sudo -n docker exec \
+    -e PGPASSWORD="$(database_url_password)" \
+    "$db_container" \
+    pg_dump --format=custom -h 127.0.0.1 -U "$(database_url_user)" -d "$(database_url_name)" \
+    > "$backup_file"
+fi
 test -s "$backup_file"
+# Custom-format dumps carry a PGDMP magic header; catch truncated or
+# wrong-target backups before they are trusted.
+[[ "$(head -c 5 "$backup_file")" == 'PGDMP' ]]
 
 sudo systemctl stop piggybot-platform
 platform_stopped=true
