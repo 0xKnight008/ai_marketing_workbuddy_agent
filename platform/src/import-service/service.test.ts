@@ -9,6 +9,23 @@ import { ImportService } from './service';
 
 const actor: ActorContext = { actorId: 'user-1', workspaceId: 'workspace-1', role: 'owner' };
 
+test('Discord billing and role gates precede network and provider failures never enqueue jobs', async () => {
+  const owner = { ...actor, workspaceId: '11111111-1111-4111-8111-111111111111' };
+  const channelId = '123456789012345678';
+  const config = { DISCORD_IMPORT_BOT_TOKEN: 'test-only', DISCORD_IMPORT_CHANNELS: JSON.stringify({ [owner.workspaceId]: [channelId] }) };
+  const input = { label: 'Discord', sourceType: 'discord', channelId };
+  for (const options of [{ subscriptionStatus: 'inactive' }, { subscriptionStatus: 'active', creditsExhausted: true }]) {
+    const { database, statements } = mockDatabase(options);
+    const service = new ImportService(database, config, async () => assert.fail('must not fetch'));
+    await assert.rejects(service.createImport(owner, input), error => error instanceof HttpError && error.statusCode === 402);
+    assert.equal(statements.some(sql => sql.startsWith('INSERT')), false);
+    await assert.rejects(service.createImport({ ...owner, role: 'viewer' }, input), /Forbidden/);
+  }
+  const { database, statements } = mockDatabase({ subscriptionStatus: 'active' });
+  await assert.rejects(new ImportService(database, config, async () => new Response('', { status: 429 })).createImport(owner, input), /rate_limited/);
+  assert.equal(statements.some(sql => sql.startsWith('INSERT INTO job') || sql.startsWith('INSERT INTO import_')), false);
+});
+
 test('invalid import fields and UTF-8 byte overflow are rejected before database access', async () => {
   const database = { withWorkspace: () => assert.fail('validation must precede storage and billing') } as unknown as Database;
   const service = new ImportService(database);

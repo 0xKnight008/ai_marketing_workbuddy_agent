@@ -29,4 +29,17 @@ test('first CSV upload submits filename immediately, preserves custom labels and
   await file.setInputFiles({ name: 'large.csv', mimeType: 'text/csv', buffer: Buffer.alloc(2 * 1024 * 1024 + 1, 'x') });
   await expect(page.getByText(/CSV files are limited/)).toBeVisible();
   expect(submissions).toHaveLength(2);
+  await page.getByPlaceholder('October comment export').fill('Community snapshot');
+  await page.getByLabel('Discord channel ID').fill('123456789012345678');
+  await page.getByRole('button', { name: 'Import Discord messages', exact: true }).click();
+  await expect.poll(() => submissions.length).toBe(3);
+  expect(submissions[2]).toMatchObject({ label: 'Community snapshot', sourceType: 'discord', channelId: '123456789012345678' });
+  expect(submissions[2]).not.toHaveProperty('content');
+  await expect(page.getByText(/Import queued/)).toBeVisible();
+  await page.route('**/api/imports', async route => route.request().method() === 'POST'
+    ? route.fulfill({ status: 409, json: { error: 'discord_import_no_new_messages' } }) : route.fulfill({ json: [] }));
+  await page.getByPlaceholder('October comment export').fill('Repeat snapshot');
+  await page.getByRole('button', { name: 'Import Discord messages', exact: true }).click();
+  await expect(page.getByText(/No new Discord messages in the latest/)).toBeVisible();
+  await expect(page.getByPlaceholder('October comment export')).toHaveValue('Repeat snapshot');
 });

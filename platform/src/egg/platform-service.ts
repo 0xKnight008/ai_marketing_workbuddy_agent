@@ -67,7 +67,7 @@ export class PlatformService {
     this.adminEmailLogin = new AdminEmailLogin(config, database);
     this.emailAuth = new EmailAuthService(config, database);
     this.customerBilling = new CustomerBillingService(config, database);
-    this.imports = new ImportService(database);
+    this.imports = new ImportService(database, config);
     this.insights = new InsightService(database);
   }
 
