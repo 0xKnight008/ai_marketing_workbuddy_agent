@@ -101,6 +101,22 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
         assert.equal(usage.status, 'normal');
       });
       const imports = new ImportService(database);
+      const channelId = '123456789012345678';
+      const discord = new ImportService(database, {
+        DISCORD_IMPORT_BOT_TOKEN: 'test-only', DISCORD_IMPORT_CHANNELS: JSON.stringify({ [owner.workspaceId]: [channelId] }),
+      }, async () => Response.json([{ id: '222222222222222222', channel_id: channelId,
+        author: { id: '333333333333333333' }, content: 'Discord original', type: 0, timestamp: '2026-09-15T00:00:00Z' }]));
+      const input = { label: 'Discord snapshot', sourceType: 'discord', channelId };
+      const snapshots = await Promise.allSettled([discord.createImport(owner, input), discord.createImport(owner, input)]);
+      assert.equal(snapshots.filter(result => result.status === 'fulfilled').length, 1);
+      const rejected = snapshots.find(result => result.status === 'rejected') as PromiseRejectedResult;
+      assert.match(String(rejected.reason), /discord_import_no_new_messages/);
+      const saved = (snapshots.find(result => result.status === 'fulfilled') as PromiseFulfilledResult<{ id: string }>).value;
+      assert.equal((await client.query('SELECT source_type FROM import_batch WHERE id=$1', [saved.id])).rows[0].source_type, 'discord');
+      assert.equal((await client.query("SELECT count(*)::int AS n FROM job WHERE kind='import.classify' AND payload->>'batchId'=$1", [saved.id])).rows[0].n, 1);
+      assert.equal((await client.query("SELECT count(*)::int AS n FROM import_item WHERE workspace_id=$1 AND external_id='222222222222222222'", [owner.workspaceId])).rows[0].n, 1);
+      await assert.rejects(discord.createImport({ ...owner, role: 'viewer' }, input), /Forbidden/);
+      await assert.rejects(discord.createImport({ ...owner, workspaceId: registered.workspaceId }, input), /channel_not_allowed/);
       const single = await imports.createImport(owner, { label: 'Single', sourceType: 'paste', content: 'hello' });
       assert.equal(single.itemCount, 1);
       const batch = await imports.createImport(owner, { label: '500 comments', sourceType: 'csv', content: 'text,author\n' + Array.from({ length: 500 }, (_, i) => `comment ${i},reader ${i}`).join('\n') });

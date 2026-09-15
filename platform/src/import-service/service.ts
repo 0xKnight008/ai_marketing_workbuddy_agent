@@ -7,6 +7,7 @@ import { Database, type TenantTransaction } from '../foundation/database';
 import { requirePermission } from '../foundation/rbac';
 import { HttpError } from '../http/errors';
 import { csvRecordToItem, parseCsv, pasteToItems, type ParsedItem } from './csv';
+import { authorizeDiscordImport, discordId, readDiscordMessages, type DiscordImportConfig } from './discord';
 
 const MAX_ITEMS_PER_BATCH = 5_000;
 const MAX_CONTENT_BYTES = 2 * 1024 * 1024;
@@ -16,6 +17,10 @@ const createImportSchema = z.object({
   sourceType: z.enum(['csv', 'paste']),
   content: z.string().min(1).max(MAX_CONTENT_BYTES),
   modelBand: modelBandSchema.default('eco'),
+}).strict();
+const discordImportSchema = z.object({
+  label: z.string().trim().min(1).max(120), sourceType: z.literal('discord'),
+  channelId: discordId, modelBand: modelBandSchema.default('eco'),
 }).strict();
 
 export interface ImportBatchView {
@@ -41,16 +46,17 @@ export interface ImportItemView {
 
 /** Data import entry point: parse → persist → enqueue LLM classification. */
 export class ImportService {
-  constructor(private readonly database: Database) {}
+  constructor(private readonly database: Database, private readonly discordConfig: DiscordImportConfig = {}, private readonly discordFetch: typeof fetch = fetch) {}
 
   async createImport(actor: ActorContext, body: unknown): Promise<ImportBatchView> {
     requirePermission(actor.role, 'workflow:run');
-    const input = createImportSchema.parse(body);
-    if (Buffer.byteLength(input.content, 'utf8') > MAX_CONTENT_BYTES) throw new HttpError(413, 'import_content_exceeds_2_mib');
-    const items = input.sourceType === 'csv'
+    const input = z.union([createImportSchema, discordImportSchema]).parse(body);
+    if (input.sourceType === 'discord') authorizeDiscordImport(this.discordConfig, actor.workspaceId, input.channelId);
+    else if (Buffer.byteLength(input.content, 'utf8') > MAX_CONTENT_BYTES) throw new HttpError(413, 'import_content_exceeds_2_mib');
+    let items = input.sourceType === 'discord' ? [] : input.sourceType === 'csv'
       ? parseCsv(input.content).map(csvRecordToItem).filter((item): item is ParsedItem => Boolean(item))
       : pasteToItems(input.content);
-    if (!items.length) throw new HttpError(422, 'import_no_items');
+    if (!items.length && input.sourceType !== 'discord') throw new HttpError(422, 'import_no_items');
     if (items.length > MAX_ITEMS_PER_BATCH) throw new HttpError(422, 'import_too_large');
     // Reject invalid runtime inputs before storing jobs or reserving credits.
     for (const [index, item] of items.entries()) {
@@ -75,6 +81,21 @@ export class ImportService {
       const usage = await usageSnapshot(tx);
       if (usage.aiCreditsAvailable <= 0) {
         throw new HttpError(402, 'ai_credits_exhausted');
+      }
+
+      if (input.sourceType === 'discord') {
+        // Serialize this workspace/channel so overlapping snapshots cannot enqueue
+        // duplicate classification. RLS and explicit workspace predicates apply.
+        await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`discord-import:${actor.workspaceId}:${input.channelId}`]);
+        items = await readDiscordMessages(this.discordConfig, actor.workspaceId, input.channelId, this.discordFetch);
+        const existing = await tx.query<{ externalId: string }>(
+          `SELECT external_id AS "externalId" FROM import_item
+           WHERE workspace_id = current_setting('app.workspace_id')::uuid
+             AND platform = 'discord' AND external_id = ANY($1::text[])`, [items.map(item => item.externalId)],
+        );
+        const seen = new Set(existing.rows.map(row => row.externalId));
+        items = items.filter(item => !seen.has(item.externalId!));
+        if (!items.length) throw new HttpError(409, 'discord_import_no_new_messages');
       }
 
       const batch = await tx.query<{ id: string; createdAt: string }>(
@@ -109,7 +130,8 @@ export class ImportService {
       );
       await tx.query(
         'INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)',
-        [actor.workspaceId, actor.actorId, 'import.created', { batchId, sourceType: input.sourceType, itemCount: items.length, modelBand: input.modelBand }],
+        [actor.workspaceId, actor.actorId, 'import.created', { batchId, sourceType: input.sourceType, itemCount: items.length, modelBand: input.modelBand,
+          ...(input.sourceType === 'discord' ? { channelId: input.channelId, scanLimit: 500 } : {}) }],
       );
       return this.batchView(tx, batchId);
     });

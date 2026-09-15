@@ -422,7 +422,7 @@ export default function PlatformDashboard() {
     await loadMe(token);
   }
 
-  async function createImport(sourceType: 'paste' | 'csv', content: string, label = importLabel) {
+  async function createImport(sourceType: 'paste' | 'csv' | 'discord', content: string, label = importLabel) {
     if (new TextEncoder().encode(content).byteLength > 2 * 1024 * 1024) { setMessage('Import content exceeds 2 MiB. Split it into smaller batches.'); return; }
     setMessage('');
     // 后端 label 必填：粘贴导入没有文件名兜底，空标题直接在本地拦下并提示。
@@ -433,7 +433,7 @@ export default function PlatformDashboard() {
       const response = await fetch(`${gatewayUrl}/api/imports`, {
         method: 'POST',
         headers: headers(true),
-        body: JSON.stringify({ label: trimmedLabel, sourceType, content, modelBand: importBand }),
+        body: JSON.stringify({ label: trimmedLabel, sourceType, ...(sourceType === 'discord' ? { channelId: content.trim() } : { content }), modelBand: importBand }),
       });
       const result = await response.json().catch(() => ({})) as { id?: string; status?: string; error?: string; message?: string };
       if (response.status === 402 || result.error === 'subscription_required') {
@@ -443,7 +443,20 @@ export default function PlatformDashboard() {
         return;
       }
       // 服务端 HttpError 的 message 带可操作细节（如超限条目序号），优先展示。
-      if (!response.ok || !result.id) { setMessage(result.message ?? result.error ?? 'The import could not be created.'); return; }
+      if (!response.ok || !result.id) {
+        const discordErrors: Record<string, string> = {
+          discord_import_not_configured: 'Ask your administrator to configure the Discord import bot and workspace channel allowlist.',
+          discord_import_configuration_invalid: 'The Discord import configuration is invalid. Contact your administrator.',
+          discord_import_channel_not_allowed: 'This Discord channel is not authorized for your workspace. Contact your administrator.',
+          discord_import_check_bot_channel_permissions: 'Ask your administrator to check the Discord bot token, View Channel and Read Message History permissions.',
+          discord_import_no_text_check_message_content_intent: 'No readable human text was found. Check Message Content intent and channel history permissions, or try a channel with recent text.',
+          discord_import_no_new_messages: 'No new Discord messages in the latest 500-message window. Existing imports will not be billed again.',
+          discord_import_rate_limited_retry_later: 'Discord is rate limiting imports. Wait before trying again.',
+          discord_import_message_exceeds_2000_characters: 'A Discord message exceeds the 2,000-character import limit. Nothing was imported; use a curated CSV export instead.',
+          discord_import_provider_unavailable: 'Discord could not be reached. Nothing was imported; retry later.',
+        };
+        setMessage(discordErrors[result.error ?? ''] ?? result.message ?? result.error ?? 'The import could not be created.'); return;
+      }
       setImportContent(''); setImportLabel('');
       setMessage(`Import queued (${result.status ?? 'pending'}) — classification is running in the background.`);
       await loadWorkspace();
@@ -589,7 +602,7 @@ export default function PlatformDashboard() {
         {section === 'dashboard' && <BillingDashboard token={token} gatewayUrl={gatewayUrl} onUsage={applyBillingUsage} />}
         {message && <div className="mb-6 rounded-xl border border-sky-deep/20 bg-sky-pale p-4 text-sm text-sky-deep" role="status">{message}</div>}
         {section === 'pipelines' && <PipelinesSection templates={templates} pipelines={pipelines} usage={usage} loading={loading} onNew={() => { setDraft(freshDraft()); setSavedPipeline(null); setReadiness(null); setWizardStep('start'); }} onTemplate={startTemplate} onContinue={continuePipeline} onActivity={() => setSection('activity')} />}
-        {section === 'imports' && <ImportsSection batches={importBatches} label={importLabel} setLabel={setImportLabel} band={importBand} setBand={setImportBand} content={importContent} setContent={setImportContent} busy={importBusy} detail={importDetail} onPasteImport={() => void createImport('paste', importContent)} onCsvFile={(file) => void importCsvFile(file)} onOpenDetail={(id) => void loadImportDetail(id)} onCloseDetail={() => setImportDetail(null)} />}
+        {section === 'imports' && <ImportsSection batches={importBatches} label={importLabel} setLabel={setImportLabel} band={importBand} setBand={setImportBand} content={importContent} setContent={setImportContent} busy={importBusy} detail={importDetail} onPasteImport={() => void createImport('paste', importContent)} onDiscordImport={(id) => void createImport('discord', id)} onCsvFile={(file) => void importCsvFile(file)} onOpenDetail={(id) => void loadImportDetail(id)} onCloseDetail={() => setImportDetail(null)} />}
         {section === 'insights' && <InsightsSection reports={insights} batches={importBatches.filter((batch) => batch.status === 'classified')} template={insightTemplate} setTemplate={setInsightTemplate} band={insightBand} setBand={setInsightBand} selectedBatchIds={insightBatchIds} setSelectedBatchIds={setInsightBatchIds} busy={insightBusy} detail={insightDetail} accounts={accounts} onGenerate={() => void createInsight()} onOpenDetail={(id) => void loadInsightDetail(id)} onCloseDetail={() => setInsightDetail(null)} onDeliver={(id, input) => void deliverInsight(id, input)} />}
         {section === 'accounts' && <><AccountsSection accounts={accounts.filter(account => !['snapchat', 'whatsapp'].includes(account.platform))} connecting={connecting} onConnect={connectSocial} onRefresh={() => void refreshAccounts(true)} />{telegram && <section className="mt-6 rounded-xl border border-ink/20 p-6"><h3 className="text-lg font-semibold">Connect Telegram</h3><p className="my-3">Code: <strong>{telegram.code}</strong> · Expires: {new Date(telegram.expiresAt).toLocaleString()}</p><ol className="space-y-2">{telegram.instructions.map((instruction, index) => <li key={index}>{instruction}</li>)}</ol><p className="mt-4">After the bot confirms, select Sync account health above to verify the connection.</p><button onClick={() => setTelegram(null)} className="mt-3 underline">Dismiss code</button></section>}</>}
         {section === 'activity' && <ActivitySection approvals={approvals} taskEvents={taskEvents} auditEvents={auditEvents} runId={runId} setRunId={setRunId} run={run} onLoadRun={() => void loadRun()} onDecision={decideApproval} />}
@@ -811,7 +824,8 @@ function DeliveryPanel({ report, accounts, onDeliver }: { report: InsightReportV
   </div>;
 }
 
-function ImportsSection({ batches, label, setLabel, band, setBand, content, setContent, busy, detail, onPasteImport, onCsvFile, onOpenDetail, onCloseDetail }: { batches: ImportBatchView[]; label: string; setLabel: (value: string) => void; band: ModelBand; setBand: (band: ModelBand) => void; content: string; setContent: (value: string) => void; busy: boolean; detail: ImportDetailView | null; onPasteImport: () => void; onCsvFile: (file: File) => void; onOpenDetail: (id: string) => void; onCloseDetail: () => void; }) {
+function ImportsSection({ batches, label, setLabel, band, setBand, content, setContent, busy, detail, onPasteImport, onDiscordImport, onCsvFile, onOpenDetail, onCloseDetail }: { batches: ImportBatchView[]; label: string; setLabel: (value: string) => void; band: ModelBand; setBand: (band: ModelBand) => void; content: string; setContent: (value: string) => void; busy: boolean; detail: ImportDetailView | null; onPasteImport: () => void; onDiscordImport: (id: string) => void; onCsvFile: (file: File) => void; onOpenDetail: (id: string) => void; onCloseDetail: () => void; }) {
+  const [discordChannel, setDiscordChannel] = useState('');
   return <div className="space-y-8">
     <section className="sketch bg-paper-card p-6 shadow-paint-sm">
       <p className="font-hand text-lg text-sky-deep">Bring your own data</p>
@@ -828,6 +842,11 @@ function ImportsSection({ batches, label, setLabel, band, setBand, content, setC
         <button disabled={busy || content.trim().length === 0} onClick={onPasteImport} className="rounded-md bg-sky-deep px-5 py-3 font-medium text-white disabled:cursor-not-allowed disabled:opacity-40">{busy ? 'Importing…' : 'Import pasted items'}</button>
         <label className={`rounded-md border border-ink/25 px-5 py-3 font-medium ${busy ? 'pointer-events-none opacity-40' : 'cursor-pointer hover:bg-sky-pale'}`}>Upload CSV<input type="file" accept=".csv,text/csv" className="hidden" disabled={busy} onChange={(event) => { const file = event.target.files?.[0]; if (file) onCsvFile(file); event.target.value = ''; }} /></label>
         <span className="text-xs text-ink-soft">Up to 5,000 items or 2 MB per batch. Classification runs in the background.</span>
+      </div>
+      <div className="mt-6 border-t border-ink/15 pt-4">
+        <Field label="Discord channel ID"><input value={discordChannel} onChange={event => setDiscordChannel(event.target.value)} inputMode="numeric" maxLength={20} className="w-full rounded-md border border-ink/20 bg-paper p-3" /></Field>
+        <p className="my-2 text-xs text-ink-soft">Admin-authorized channels only. Scans the latest 500 messages, imports new human text and queues paid AI classification. Bots, attachments and thread history are excluded; this is not continuous sync.</p>
+        <button disabled={busy || !/^\d{17,20}$/.test(discordChannel.trim()) || !label.trim()} onClick={() => onDiscordImport(discordChannel)} className="rounded-md border border-ink/25 px-5 py-3 disabled:opacity-40">Import Discord messages</button>
       </div>
     </section>
 
