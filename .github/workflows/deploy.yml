@@ -195,6 +195,9 @@ jobs:
             # 解压部署包
             echo "📦 Extracting deployment package..."
             sudo tar -xzf /tmp/deploy.tar.gz
+            # tar runs as root and applies the archive's numeric owner (the CI
+            # runner uid); hand the tree to the deploy user so npm ci can write.
+            sudo chown -R "$USER:$USER" "$DEPLOY_DIR"
             #rm /tmp/deploy.tar.gz
             
             # 执行部署脚本

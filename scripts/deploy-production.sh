@@ -34,6 +34,30 @@ if [[ "${1:-}" == '--check' ]]; then
   exit 0
 fi
 
+# CI reaches this script through a non-interactive SSH shell that never sources
+# the user's profile, so Node.js installed via nvm is missing from PATH.
+# Load nvm (or fall back to common install locations) before any npm call.
+if ! command -v npm >/dev/null 2>&1; then
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+    # shellcheck disable=SC1091
+    . "$NVM_DIR/nvm.sh"
+  fi
+fi
+if ! command -v npm >/dev/null 2>&1; then
+  for candidate in /usr/local/bin /usr/bin "$HOME"/.nvm/versions/node/*/bin; do
+    if [[ -x "$candidate/npm" ]]; then
+      PATH="$candidate:$PATH"
+      break
+    fi
+  done
+  export PATH
+fi
+if ! command -v npm >/dev/null 2>&1; then
+  echo "npm is not available in PATH for this non-interactive shell; install Node.js or expose it system-wide (e.g. symlink node/npm/npx into /usr/local/bin)." >&2
+  exit 127
+fi
+
 set -a
 # shellcheck disable=SC1090
 if [[ -r "$platform_env" ]]; then
