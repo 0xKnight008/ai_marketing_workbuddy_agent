@@ -5,6 +5,10 @@ import { issueAccessToken } from '../src/identity/token';
 import type { TenantTransaction } from '../src/foundation/database';
 
 describe('Egg production gateway', () => {
+  // Pin every ambient variable this suite depends on: deploy.sh sources the
+  // production env file before npm test, so anything unpinned leaks in from
+  // /etc/piggybot/platform.env (CORS_ORIGINS pointed at production origins and
+  // broke the localhost preflight expectations there).
   Object.assign(process.env, {
     DATABASE_URL: 'postgres://piggybot:piggybot@127.0.0.1:5432/piggybot',
     AUTH_TOKEN_SECRET: 'test-auth-token-secret-must-be-at-least-32-bytes',
@@ -14,6 +18,8 @@ describe('Egg production gateway', () => {
     STRIPE_WEBHOOK_SECRET: 'whsec_test_secret',
     PUBLIC_SITE_URL: 'https://www.piggybot.me',
     PLATFORM_ADMIN_EMAILS: 'admin@example.invalid',
+    CORS_ORIGINS: 'http://localhost:5173',
+    TRUST_PROXY: 'false',
   });
   const app = mm.app({ baseDir: process.cwd(), cache: false });
   const ownerToken = issueAccessToken({
