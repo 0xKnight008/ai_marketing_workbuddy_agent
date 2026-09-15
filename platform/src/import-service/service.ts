@@ -5,9 +5,15 @@ import type { ActorContext } from '../contracts/domain';
 import { CONTENT_TAGS, modelBandSchema, type ContentTag } from '../contracts/tagging';
 import { Database, type TenantTransaction } from '../foundation/database';
 import { requirePermission } from '../foundation/rbac';
+import { decryptSecret, encryptSecret } from '../foundation/secrets';
 import { HttpError } from '../http/errors';
 import { csvRecordToItem, parseCsv, pasteToItems, type ParsedItem } from './csv';
 import { authorizeDiscordImport, discordId, readDiscordMessages, type DiscordImportConfig } from './discord';
+import {
+  assertGoogleSheetsConfigured, createGoogleOAuthState, exchangeGoogleCode, googleAuthorizeUrl,
+  googleSheetName, googleSpreadsheetId, readGoogleSheetValues, refreshGoogleAccessToken,
+  sheetRowsToItems, verifyGoogleOAuthState, type GoogleSheetsConfig,
+} from './google-sheets';
 
 const MAX_ITEMS_PER_BATCH = 5_000;
 const MAX_CONTENT_BYTES = 2 * 1024 * 1024;
@@ -22,6 +28,16 @@ const discordImportSchema = z.object({
   label: z.string().trim().min(1).max(120), sourceType: z.literal('discord'),
   channelId: discordId, modelBand: modelBandSchema.default('eco'),
 }).strict();
+const googleSheetsImportSchema = z.object({
+  label: z.string().trim().min(1).max(120), sourceType: z.literal('google_sheets'),
+  spreadsheetId: googleSpreadsheetId, sheetName: googleSheetName.optional(),
+  modelBand: modelBandSchema.default('eco'),
+}).strict();
+
+export interface ImportServiceConfig extends DiscordImportConfig, GoogleSheetsConfig {
+  AUTH_TOKEN_SECRET?: string;
+  GOOGLE_OAUTH_STATE_SECRET?: string;
+}
 
 export interface ImportBatchView {
   id: string;
@@ -46,17 +62,18 @@ export interface ImportItemView {
 
 /** Data import entry point: parse → persist → enqueue LLM classification. */
 export class ImportService {
-  constructor(private readonly database: Database, private readonly discordConfig: DiscordImportConfig = {}, private readonly discordFetch: typeof fetch = fetch) {}
+  constructor(private readonly database: Database, private readonly config: ImportServiceConfig = {}, private readonly providerFetch: typeof fetch = fetch) {}
 
   async createImport(actor: ActorContext, body: unknown): Promise<ImportBatchView> {
     requirePermission(actor.role, 'workflow:run');
-    const input = z.union([createImportSchema, discordImportSchema]).parse(body);
-    if (input.sourceType === 'discord') authorizeDiscordImport(this.discordConfig, actor.workspaceId, input.channelId);
+    const input = z.union([createImportSchema, discordImportSchema, googleSheetsImportSchema]).parse(body);
+    if (input.sourceType === 'discord') authorizeDiscordImport(this.config, actor.workspaceId, input.channelId);
+    else if (input.sourceType === 'google_sheets') assertGoogleSheetsConfigured(this.config);
     else if (Buffer.byteLength(input.content, 'utf8') > MAX_CONTENT_BYTES) throw new HttpError(413, 'import_content_exceeds_2_mib');
-    let items = input.sourceType === 'discord' ? [] : input.sourceType === 'csv'
+    let items = input.sourceType === 'discord' || input.sourceType === 'google_sheets' ? [] : input.sourceType === 'csv'
       ? parseCsv(input.content).map(csvRecordToItem).filter((item): item is ParsedItem => Boolean(item))
       : pasteToItems(input.content);
-    if (!items.length && input.sourceType !== 'discord') throw new HttpError(422, 'import_no_items');
+    if (!items.length && input.sourceType !== 'discord' && input.sourceType !== 'google_sheets') throw new HttpError(422, 'import_no_items');
     if (items.length > MAX_ITEMS_PER_BATCH) throw new HttpError(422, 'import_too_large');
     // Reject invalid runtime inputs before storing jobs or reserving credits.
     for (const [index, item] of items.entries()) {
@@ -87,7 +104,7 @@ export class ImportService {
         // Serialize this workspace/channel so overlapping snapshots cannot enqueue
         // duplicate classification. RLS and explicit workspace predicates apply.
         await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`discord-import:${actor.workspaceId}:${input.channelId}`]);
-        items = await readDiscordMessages(this.discordConfig, actor.workspaceId, input.channelId, this.discordFetch);
+        items = await readDiscordMessages(this.config, actor.workspaceId, input.channelId, this.providerFetch);
         const existing = await tx.query<{ externalId: string }>(
           `SELECT external_id AS "externalId" FROM import_item
            WHERE workspace_id = current_setting('app.workspace_id')::uuid
@@ -96,6 +113,30 @@ export class ImportService {
         const seen = new Set(existing.rows.map(row => row.externalId));
         items = items.filter(item => !seen.has(item.externalId!));
         if (!items.length) throw new HttpError(409, 'discord_import_no_new_messages');
+      }
+
+      if (input.sourceType === 'google_sheets') {
+        // Same serialization posture as Discord: one snapshot per workspace/sheet
+        // at a time so overlapping imports cannot double-bill classification.
+        await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`google-sheets-import:${actor.workspaceId}:${input.spreadsheetId}`]);
+        const accessToken = await this.googleAccessToken(tx);
+        const rows = await readGoogleSheetValues(accessToken, input.spreadsheetId, input.sheetName, this.providerFetch);
+        items = sheetRowsToItems(rows, input.spreadsheetId);
+        // Provider rows bypass the pre-validation loop above (content inputs),
+        // so enforce the same per-item limits after mapping, before any insert.
+        for (const [index, item] of items.entries()) {
+          if (item.text.length > 2_000) throw new HttpError(422, `import_item_${index + 1}_text_exceeds_2000_characters`);
+          if ((item.author?.length ?? 0) > 120) throw new HttpError(422, `import_item_${index + 1}_author_exceeds_120_characters`);
+        }
+        if (!items.length) throw new HttpError(422, 'google_sheets_no_items_check_headers');
+        const existing = await tx.query<{ externalId: string }>(
+          `SELECT external_id AS "externalId" FROM import_item
+           WHERE workspace_id = current_setting('app.workspace_id')::uuid
+             AND external_id = ANY($1::text[])`, [items.map(item => item.externalId)],
+        );
+        const seen = new Set(existing.rows.map(row => row.externalId));
+        items = items.filter(item => !seen.has(item.externalId!));
+        if (!items.length) throw new HttpError(409, 'google_sheets_no_new_rows');
       }
 
       const batch = await tx.query<{ id: string; createdAt: string }>(
@@ -131,10 +172,113 @@ export class ImportService {
       await tx.query(
         'INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)',
         [actor.workspaceId, actor.actorId, 'import.created', { batchId, sourceType: input.sourceType, itemCount: items.length, modelBand: input.modelBand,
-          ...(input.sourceType === 'discord' ? { channelId: input.channelId, scanLimit: 500 } : {}) }],
+          ...(input.sourceType === 'discord' ? { channelId: input.channelId, scanLimit: 500 } : {}),
+          ...(input.sourceType === 'google_sheets' ? { spreadsheetId: input.spreadsheetId, sheetName: input.sheetName ?? null } : {}) }],
       );
       return this.batchView(tx, batchId);
     });
+  }
+
+  async startGoogleSheetsConnection(actor: ActorContext): Promise<{ url: string }> {
+    requirePermission(actor.role, 'workflow:run');
+    assertGoogleSheetsConfigured(this.config);
+    const state = createGoogleOAuthState(this.googleStateSecret(), actor.workspaceId, actor.actorId);
+    return { url: googleAuthorizeUrl(this.config, state) };
+  }
+
+  async completeGoogleSheetsOAuth(query: unknown): Promise<{ email: string }> {
+    assertGoogleSheetsConfigured(this.config);
+    const { code, state } = z.object({
+      code: z.string().min(1).max(2_048), state: z.string().min(1).max(4_096),
+    }).strict().parse(query);
+    const { workspaceId, actorId } = verifyGoogleOAuthState(this.googleStateSecret(), state);
+    const tokens = await exchangeGoogleCode(this.config, code, this.providerFetch);
+    const encrypted = encryptSecret(tokens.refreshToken, this.config.SECRET_ENCRYPTION_KEY_BASE64!);
+    await this.database.withWorkspace(workspaceId, async (tx) => {
+      await tx.query(
+        `INSERT INTO google_sheets_connection
+           (workspace_id, google_email, refresh_token_ciphertext, refresh_token_iv, refresh_token_auth_tag, scopes, connected_by)
+         VALUES (current_setting('app.workspace_id')::uuid, $1, $2, $3, $4, $5, $6)
+         ON CONFLICT (workspace_id) DO UPDATE
+           SET google_email = EXCLUDED.google_email,
+               refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
+               refresh_token_iv = EXCLUDED.refresh_token_iv,
+               refresh_token_auth_tag = EXCLUDED.refresh_token_auth_tag,
+               scopes = EXCLUDED.scopes,
+               connected_by = EXCLUDED.connected_by,
+               updated_at = now()`,
+        [tokens.email, encrypted.ciphertext, encrypted.iv, encrypted.authTag, tokens.scopes, actorId],
+      );
+      await tx.query(
+        'INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)',
+        [workspaceId, actorId, 'import.google_sheets.connected', { googleEmail: tokens.email }],
+      );
+    });
+    return { email: tokens.email };
+  }
+
+  async googleSheetsConnection(actor: ActorContext): Promise<{ connected: boolean; email?: string; connectedAt?: string }> {
+    const connection = await this.database.withWorkspace(actor.workspaceId, (tx) => tx.query<{ email: string; connectedAt: string }>(
+      `SELECT google_email AS "email", connected_at::text AS "connectedAt"
+         FROM google_sheets_connection
+        WHERE workspace_id = current_setting('app.workspace_id')::uuid`,
+      [],
+    ));
+    const row = connection.rows[0];
+    return row ? { connected: true, email: row.email, connectedAt: row.connectedAt } : { connected: false };
+  }
+
+  async disconnectGoogleSheets(actor: ActorContext): Promise<{ connected: false }> {
+    requirePermission(actor.role, 'workflow:run');
+    await this.database.withWorkspace(actor.workspaceId, async (tx) => {
+      // Best-effort remote revocation; the row is deleted either way so no
+      // usable credential remains on our side.
+      const connection = await tx.query<{ ciphertext: string; iv: string; authTag: string }>(
+        `SELECT refresh_token_ciphertext AS "ciphertext", refresh_token_iv AS "iv", refresh_token_auth_tag AS "authTag"
+           FROM google_sheets_connection WHERE workspace_id = current_setting('app.workspace_id')::uuid`,
+        [],
+      );
+      const row = connection.rows[0];
+      if (row && this.config.SECRET_ENCRYPTION_KEY_BASE64) {
+        try {
+          const refreshToken = decryptSecret({ ciphertext: row.ciphertext, iv: row.iv, authTag: row.authTag }, this.config.SECRET_ENCRYPTION_KEY_BASE64);
+          await this.providerFetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(refreshToken)}`, {
+            method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10_000),
+          });
+        } catch { /* revocation is best-effort; local deletion is authoritative */ }
+      }
+      await tx.query("DELETE FROM google_sheets_connection WHERE workspace_id = current_setting('app.workspace_id')::uuid", []);
+      await tx.query(
+        'INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)',
+        [actor.workspaceId, actor.actorId, 'import.google_sheets.disconnected', {}],
+      );
+    });
+    return { connected: false };
+  }
+
+  private async googleAccessToken(tx: TenantTransaction): Promise<string> {
+    const connection = await tx.query<{ ciphertext: string; iv: string; authTag: string }>(
+      `SELECT refresh_token_ciphertext AS "ciphertext", refresh_token_iv AS "iv", refresh_token_auth_tag AS "authTag"
+         FROM google_sheets_connection
+        WHERE workspace_id = current_setting('app.workspace_id')::uuid`,
+      [],
+    );
+    const row = connection.rows[0];
+    if (!row) throw new HttpError(409, 'google_sheets_not_connected');
+    let refreshToken: string;
+    try {
+      refreshToken = decryptSecret({ ciphertext: row.ciphertext, iv: row.iv, authTag: row.authTag }, this.config.SECRET_ENCRYPTION_KEY_BASE64!);
+    } catch {
+      // The encryption key rotated or the row is corrupt; only re-consent repairs it.
+      throw new HttpError(409, 'google_sheets_reconnect_required');
+    }
+    return refreshGoogleAccessToken(this.config, refreshToken, this.providerFetch);
+  }
+
+  private googleStateSecret(): string {
+    const secret = this.config.GOOGLE_OAUTH_STATE_SECRET ?? this.config.AUTH_TOKEN_SECRET;
+    if (!secret) throw new HttpError(503, 'google_sheets_not_configured');
+    return secret;
   }
 
   async listImports(actor: ActorContext): Promise<ImportBatchView[]> {

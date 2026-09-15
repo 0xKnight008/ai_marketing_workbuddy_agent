@@ -125,6 +125,22 @@ export class PlatformService {
     return this.imports.createImport(actor, body);
   }
 
+  async startGoogleSheetsConnection(actor: ActorContext): Promise<unknown> {
+    return this.imports.startGoogleSheetsConnection(actor);
+  }
+
+  async completeGoogleSheetsOAuth(query: unknown): Promise<unknown> {
+    return this.imports.completeGoogleSheetsOAuth(query);
+  }
+
+  async googleSheetsConnection(actor: ActorContext): Promise<unknown> {
+    return this.imports.googleSheetsConnection(actor);
+  }
+
+  async disconnectGoogleSheets(actor: ActorContext): Promise<unknown> {
+    return this.imports.disconnectGoogleSheets(actor);
+  }
+
   async listImports(actor: ActorContext): Promise<unknown> {
     return this.imports.listImports(actor);
   }

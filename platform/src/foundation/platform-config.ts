@@ -43,6 +43,12 @@ export const gatewayConfigSchema = databaseConfigSchema.extend({
   DISCORD_IMPORT_BOT_TOKEN: z.string().min(1).optional(),
   DISCORD_IMPORT_CHANNELS: z.string().min(1).optional(),
   DISCORD_FEEDBACK_CHANNEL_ID: z.string().min(1).optional(),
+  // Google Sheets import (OAuth). Requires SECRET_ENCRYPTION_KEY_BASE64 so the
+  // stored refresh token is never persisted in plaintext.
+  GOOGLE_SHEETS_CLIENT_ID: z.string().min(1).optional(),
+  GOOGLE_SHEETS_CLIENT_SECRET: z.string().min(1).optional(),
+  GOOGLE_SHEETS_OAUTH_REDIRECT_URI: z.string().url().optional(),
+  GOOGLE_OAUTH_STATE_SECRET: z.string().min(32).optional(),
   RESEND_API_KEY: z.string().min(1).optional(),
   RESEND_FROM_EMAIL: z.string().min(3).optional(),
   FEEDBACK_FROM_EMAIL: z.string().min(3).optional(),
