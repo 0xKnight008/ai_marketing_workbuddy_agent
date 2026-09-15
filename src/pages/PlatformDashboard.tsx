@@ -170,6 +170,9 @@ export default function PlatformDashboard() {
   const [importContent, setImportContent] = useState('');
   const [importDetail, setImportDetail] = useState<ImportDetailView | null>(null);
   const [importBusy, setImportBusy] = useState(false);
+  const [googleConnection, setGoogleConnection] = useState<{ connected: boolean; email?: string; connectedAt?: string } | null>(null);
+  const [googleSheetId, setGoogleSheetId] = useState('');
+  const [googleSheetName, setGoogleSheetName] = useState('');
   const [insights, setInsights] = useState<InsightReportView[]>([]);
   const [insightTemplate, setInsightTemplate] = useState<InsightTemplate>('content_recap');
   const [insightBand, setInsightBand] = useState<ModelBand>('standard');
@@ -227,9 +230,10 @@ export default function PlatformDashboard() {
       fetch(`${gatewayUrl}/api/billing/task-events`, { headers: headers() }),
       fetch(`${gatewayUrl}/api/audit-events`, { headers: headers() }),
       fetch(`${gatewayUrl}/api/imports`, { headers: headers() }),
+      fetch(`${gatewayUrl}/api/imports/google/connection`, { headers: headers() }),
       fetch(`${gatewayUrl}/api/insights`, { headers: headers() }),
     ]);
-      const [templatesResponse, pipelinesResponse, accountsResponse, approvalsResponse, usageResponse, tasksResponse, auditResponse, importsResponse, insightsResponse] = requests;
+      const [templatesResponse, pipelinesResponse, accountsResponse, approvalsResponse, usageResponse, tasksResponse, auditResponse, importsResponse, googleConnectionResponse, insightsResponse] = requests;
       if (templatesResponse.ok) setTemplates(await templatesResponse.json() as PipelineTemplate[]);
       if (pipelinesResponse.ok) setPipelines(await pipelinesResponse.json() as PipelineView[]);
       if (accountsResponse.ok) setAccounts(await accountsResponse.json() as ConnectedAccount[]);
@@ -242,6 +246,7 @@ export default function PlatformDashboard() {
       if (tasksResponse.ok) setTaskEvents(await tasksResponse.json() as TaskEventView[]);
       if (auditResponse.ok) setAuditEvents(await auditResponse.json() as AuditEventView[]);
       if (importsResponse.ok) setImportBatches(await importsResponse.json() as ImportBatchView[]);
+      if (googleConnectionResponse.ok) setGoogleConnection(await googleConnectionResponse.json() as { connected: boolean; email?: string; connectedAt?: string });
       if (insightsResponse.ok) setInsights(await insightsResponse.json() as InsightReportView[]);
       if (requests.every((response) => !response.ok)) setMessage('The workspace could not be loaded. Check your session permissions.');
     } catch {
@@ -282,13 +287,20 @@ export default function PlatformDashboard() {
   useEffect(() => {
     const gatewayOrigin = new URL(gatewayUrl, window.location.origin).origin;
     const listener = (event: MessageEvent) => {
-      if (event.origin !== gatewayOrigin || (event.data as { type?: string } | null)?.type !== 'piggybot:zernio-connected') return;
-      setMessage('Account connected. Refreshing your destinations…');
-      void refreshAccounts(true);
+      if (event.origin !== gatewayOrigin) return;
+      const type = (event.data as { type?: string } | null)?.type;
+      if (type === 'piggybot:zernio-connected') {
+        setMessage('Account connected. Refreshing your destinations…');
+        void refreshAccounts(true);
+      }
+      if (type === 'piggybot:google-sheets-connected') {
+        setMessage('Google account connected — paste a spreadsheet link below to import its rows.');
+        void loadWorkspace();
+      }
     };
     window.addEventListener('message', listener);
     return () => window.removeEventListener('message', listener);
-  }, [refreshAccounts]);
+  }, [refreshAccounts, loadWorkspace]);
 
   async function connectSocial(platform: typeof socialPlatforms[number][0]) {
     // Reserve the popup while the click still has browser user activation.
@@ -467,6 +479,81 @@ export default function PlatformDashboard() {
     }
   }
 
+  async function connectGoogleSheets() {
+    // Reserve the popup while the click still has browser user activation.
+    const popup = window.open('about:blank', 'piggybot-google-connect', 'popup,width=720,height=820');
+    if (!popup) { setMessage('Allow pop-ups for Piggybot, then click Connect again.'); return; }
+    setMessage('');
+    try {
+      const response = await fetch(`${gatewayUrl}/api/imports/google/connect`, { headers: headers(), cache: 'no-store' });
+      const result = await response.json().catch(() => ({})) as { url?: string; error?: string };
+      if (!response.ok || !result.url) {
+        throw new Error(result.error === 'google_sheets_not_configured' || result.error === 'google_sheets_encryption_not_configured'
+          ? 'Google Sheets import is not configured on this deployment. Contact your administrator.'
+          : 'The connection could not be started. Check your session, then retry.');
+      }
+      if (new URL(result.url).protocol !== 'https:') throw new Error('Invalid connector redirect. Contact support.');
+      if (popup.closed) throw new Error('The connection window was closed. Click Connect to try again.');
+      popup.location.replace(result.url);
+    } catch (error) {
+      popup.close();
+      setMessage(error instanceof Error ? error.message : 'Connection failed. Please retry.');
+    }
+  }
+
+  async function disconnectGoogleSheets() {
+    const response = await fetch(`${gatewayUrl}/api/imports/google/disconnect`, { method: 'POST', headers: headers() });
+    if (!response.ok) { setMessage('The Google account could not be disconnected. Retry or contact support.'); return; }
+    setGoogleConnection({ connected: false });
+    setMessage('Google account disconnected. Stored credentials were deleted.');
+  }
+
+  async function importGoogleSheet() {
+    // Accept both bare spreadsheet IDs and full share links.
+    const spreadsheetId = googleSheetId.match(/\/d\/([A-Za-z0-9_-]{20,120})/)?.[1] ?? googleSheetId.trim();
+    const trimmedLabel = importLabel.trim();
+    if (!trimmedLabel) { setMessage('Give this import a title first — it is how you will recognize the batch later.'); return; }
+    setMessage('');
+    setImportBusy(true);
+    try {
+      const response = await fetch(`${gatewayUrl}/api/imports`, {
+        method: 'POST',
+        headers: headers(true),
+        body: JSON.stringify({ label: trimmedLabel, sourceType: 'google_sheets', spreadsheetId, sheetName: googleSheetName.trim() || undefined, modelBand: importBand }),
+      });
+      const result = await response.json().catch(() => ({})) as { id?: string; status?: string; error?: string; message?: string };
+      if (response.status === 402 || result.error === 'subscription_required') {
+        setMessage(result.error === 'ai_credits_exhausted'
+          ? 'AI credits are exhausted for this period — top up or wait for the next billing cycle.'
+          : 'Imports require an active subscription. Pick a plan to unlock AI classification.');
+        return;
+      }
+      if (!response.ok || !result.id) {
+        const sheetErrors: Record<string, string> = {
+          google_sheets_not_configured: 'Google Sheets import is not configured on this deployment. Contact your administrator.',
+          google_sheets_encryption_not_configured: 'Google Sheets token storage is missing its encryption key. Contact your administrator.',
+          google_sheets_not_connected: 'Connect your Google account first, then import the sheet.',
+          google_sheets_connection_revoked: 'Google access was revoked or expired. Reconnect your Google account and retry.',
+          google_sheets_reconnect_required: 'The stored Google credential can no longer be read. Reconnect your Google account.',
+          google_sheets_check_spreadsheet_sharing: 'The spreadsheet is not readable. Share it with the connected Google account and check the spreadsheet link.',
+          google_sheets_no_items_check_headers: 'No importable rows found. The first row must be headers like text, author, platform, views, likes, rating.',
+          google_sheets_no_new_rows: 'Every row in that sheet is already imported. New or edited rows will import next time.',
+          google_sheets_rate_limited_retry_later: 'Google is rate limiting sheet reads. Wait before trying again.',
+          google_sheets_invalid_response: 'Google returned an unexpected response. Nothing was imported; retry later.',
+          google_sheets_provider_unavailable: 'Google Sheets could not be reached. Nothing was imported; retry later.',
+        };
+        setMessage(sheetErrors[result.error ?? ''] ?? result.message ?? result.error ?? 'The import could not be created.'); return;
+      }
+      setGoogleSheetId(''); setGoogleSheetName(''); setImportLabel('');
+      setMessage(`Import queued (${result.status ?? 'pending'}) — classification is running in the background.`);
+      await loadWorkspace();
+    } catch {
+      setMessage('The import could not reach the workspace service. Please retry.');
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
   async function importCsvFile(file: File) {
     if (file.size > 2 * 1024 * 1024) { setMessage('CSV files are limited to 2 MB. Split larger exports into batches.'); return; }
     const content = await file.text();
@@ -602,7 +689,7 @@ export default function PlatformDashboard() {
         {section === 'dashboard' && <BillingDashboard token={token} gatewayUrl={gatewayUrl} onUsage={applyBillingUsage} />}
         {message && <div className="mb-6 rounded-xl border border-sky-deep/20 bg-sky-pale p-4 text-sm text-sky-deep" role="status">{message}</div>}
         {section === 'pipelines' && <PipelinesSection templates={templates} pipelines={pipelines} usage={usage} loading={loading} onNew={() => { setDraft(freshDraft()); setSavedPipeline(null); setReadiness(null); setWizardStep('start'); }} onTemplate={startTemplate} onContinue={continuePipeline} onActivity={() => setSection('activity')} />}
-        {section === 'imports' && <ImportsSection batches={importBatches} label={importLabel} setLabel={setImportLabel} band={importBand} setBand={setImportBand} content={importContent} setContent={setImportContent} busy={importBusy} detail={importDetail} onPasteImport={() => void createImport('paste', importContent)} onDiscordImport={(id) => void createImport('discord', id)} onCsvFile={(file) => void importCsvFile(file)} onOpenDetail={(id) => void loadImportDetail(id)} onCloseDetail={() => setImportDetail(null)} />}
+        {section === 'imports' && <ImportsSection batches={importBatches} label={importLabel} setLabel={setImportLabel} band={importBand} setBand={setImportBand} content={importContent} setContent={setImportContent} busy={importBusy} detail={importDetail} onPasteImport={() => void createImport('paste', importContent)} onDiscordImport={(id) => void createImport('discord', id)} onCsvFile={(file) => void importCsvFile(file)} onOpenDetail={(id) => void loadImportDetail(id)} onCloseDetail={() => setImportDetail(null)} googleConnection={googleConnection} sheetId={googleSheetId} setSheetId={setGoogleSheetId} sheetName={googleSheetName} setSheetName={setGoogleSheetName} onConnectGoogle={() => void connectGoogleSheets()} onDisconnectGoogle={() => void disconnectGoogleSheets()} onGoogleImport={() => void importGoogleSheet()} />}
         {section === 'insights' && <InsightsSection reports={insights} batches={importBatches.filter((batch) => batch.status === 'classified')} template={insightTemplate} setTemplate={setInsightTemplate} band={insightBand} setBand={setInsightBand} selectedBatchIds={insightBatchIds} setSelectedBatchIds={setInsightBatchIds} busy={insightBusy} detail={insightDetail} accounts={accounts} onGenerate={() => void createInsight()} onOpenDetail={(id) => void loadInsightDetail(id)} onCloseDetail={() => setInsightDetail(null)} onDeliver={(id, input) => void deliverInsight(id, input)} />}
         {section === 'accounts' && <><AccountsSection accounts={accounts.filter(account => !['snapchat', 'whatsapp'].includes(account.platform))} connecting={connecting} onConnect={connectSocial} onRefresh={() => void refreshAccounts(true)} />{telegram && <section className="mt-6 rounded-xl border border-ink/20 p-6"><h3 className="text-lg font-semibold">Connect Telegram</h3><p className="my-3">Code: <strong>{telegram.code}</strong> · Expires: {new Date(telegram.expiresAt).toLocaleString()}</p><ol className="space-y-2">{telegram.instructions.map((instruction, index) => <li key={index}>{instruction}</li>)}</ol><p className="mt-4">After the bot confirms, select Sync account health above to verify the connection.</p><button onClick={() => setTelegram(null)} className="mt-3 underline">Dismiss code</button></section>}</>}
         {section === 'activity' && <ActivitySection approvals={approvals} taskEvents={taskEvents} auditEvents={auditEvents} runId={runId} setRunId={setRunId} run={run} onLoadRun={() => void loadRun()} onDecision={decideApproval} />}
@@ -824,7 +911,7 @@ function DeliveryPanel({ report, accounts, onDeliver }: { report: InsightReportV
   </div>;
 }
 
-function ImportsSection({ batches, label, setLabel, band, setBand, content, setContent, busy, detail, onPasteImport, onDiscordImport, onCsvFile, onOpenDetail, onCloseDetail }: { batches: ImportBatchView[]; label: string; setLabel: (value: string) => void; band: ModelBand; setBand: (band: ModelBand) => void; content: string; setContent: (value: string) => void; busy: boolean; detail: ImportDetailView | null; onPasteImport: () => void; onDiscordImport: (id: string) => void; onCsvFile: (file: File) => void; onOpenDetail: (id: string) => void; onCloseDetail: () => void; }) {
+function ImportsSection({ batches, label, setLabel, band, setBand, content, setContent, busy, detail, onPasteImport, onDiscordImport, onCsvFile, onOpenDetail, onCloseDetail, googleConnection, sheetId, setSheetId, sheetName, setSheetName, onConnectGoogle, onDisconnectGoogle, onGoogleImport }: { batches: ImportBatchView[]; label: string; setLabel: (value: string) => void; band: ModelBand; setBand: (band: ModelBand) => void; content: string; setContent: (value: string) => void; busy: boolean; detail: ImportDetailView | null; onPasteImport: () => void; onDiscordImport: (id: string) => void; onCsvFile: (file: File) => void; onOpenDetail: (id: string) => void; onCloseDetail: () => void; googleConnection: { connected: boolean; email?: string; connectedAt?: string } | null; sheetId: string; setSheetId: (value: string) => void; sheetName: string; setSheetName: (value: string) => void; onConnectGoogle: () => void; onDisconnectGoogle: () => void; onGoogleImport: () => void; }) {
   const [discordChannel, setDiscordChannel] = useState('');
   return <div className="space-y-8">
     <section className="sketch bg-paper-card p-6 shadow-paint-sm">
@@ -847,6 +934,23 @@ function ImportsSection({ batches, label, setLabel, band, setBand, content, setC
         <Field label="Discord channel ID"><input value={discordChannel} onChange={event => setDiscordChannel(event.target.value)} inputMode="numeric" maxLength={20} className="w-full rounded-md border border-ink/20 bg-paper p-3" /></Field>
         <p className="my-2 text-xs text-ink-soft">Admin-authorized channels only. Scans the latest 500 messages, imports new human text and queues paid AI classification. Bots, attachments and thread history are excluded; this is not continuous sync.</p>
         <button disabled={busy || !/^\d{17,20}$/.test(discordChannel.trim()) || !label.trim()} onClick={() => onDiscordImport(discordChannel)} className="rounded-md border border-ink/25 px-5 py-3 disabled:opacity-40">Import Discord messages</button>
+      </div>
+      <div className="mt-6 border-t border-ink/15 pt-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm font-semibold">Google Sheets</p>
+          {googleConnection?.connected
+            ? <p className="text-xs text-ink-soft">Connected as {googleConnection.email} · <button onClick={onDisconnectGoogle} className="underline hover:text-ink">Disconnect</button></p>
+            : <button onClick={onConnectGoogle} className="rounded-md border border-ink/25 px-4 py-2 text-sm font-medium hover:bg-sky-pale">Connect Google account</button>}
+        </div>
+        {googleConnection?.connected && <div className="mt-3 space-y-3">
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Spreadsheet link or ID"><input value={sheetId} onChange={event => setSheetId(event.target.value)} maxLength={300} className="w-full rounded-md border border-ink/20 bg-paper p-3" placeholder="https://docs.google.com/spreadsheets/d/…" /></Field>
+            <Field label="Tab name (optional)"><input value={sheetName} onChange={event => setSheetName(event.target.value)} maxLength={120} className="w-full rounded-md border border-ink/20 bg-paper p-3" placeholder="Sheet1" /></Field>
+          </div>
+          <p className="text-xs text-ink-soft">First row must be headers (text, author, platform, views, likes, rating…). Reads up to 5,000 rows once — already-imported rows are skipped, and this is not continuous sync.</p>
+          <button disabled={busy || !/^[A-Za-z0-9_-]{20,120}$/.test(sheetId.match(/\/d\/([A-Za-z0-9_-]{20,120})/)?.[1] ?? sheetId.trim()) || !label.trim()} onClick={onGoogleImport} className="rounded-md border border-ink/25 px-5 py-3 disabled:opacity-40">Import sheet rows</button>
+        </div>}
+        {!googleConnection?.connected && <p className="mt-2 text-xs text-ink-soft">Authorize read-only access with your Google account, then import rows from any spreadsheet shared with it. The token is stored encrypted and can be revoked at any time.</p>}
       </div>
     </section>
 

@@ -14,6 +14,10 @@ export default (app: Application) => {
   router.post('/api/auth/password', controller.platform.setPassword);
   router.post('/api/imports', controller.platform.createImport);
   router.get('/api/imports', controller.platform.listImports);
+  router.get('/api/imports/google/connect', controller.platform.connectGoogleSheets);
+  router.get('/api/imports/google/callback', controller.platform.googleSheetsCallback);
+  router.get('/api/imports/google/connection', controller.platform.googleSheetsConnection);
+  router.post('/api/imports/google/disconnect', controller.platform.disconnectGoogleSheets);
   router.get('/api/imports/:batchId', controller.platform.importDetail);
   router.post('/api/insights', controller.platform.createInsight);
   router.get('/api/insights', controller.platform.listInsights);
