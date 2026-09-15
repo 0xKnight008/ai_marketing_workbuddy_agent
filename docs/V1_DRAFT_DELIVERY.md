@@ -27,6 +27,13 @@ Verification covers selected text, unknown keys, length bounds, exact snapshots,
 stale/legacy jobs, all-six draft extraction and UI selection/approval preview.
 No real email/Discord messages or production test calls are made.
 
+The pure shared selector lives in `platform/src/contracts/report-drafts.ts`.
+The UI imports that same file, while Egg loads it inside the platform's CommonJS
+package scope. Keep it within the deployed platform directory: a root-level
+helper inherits the website's ESM scope and is omitted from the backend archive.
+Run `npm test --prefix platform` (including Egg boot), not just the tsx unit tests,
+and `npm run build` when changing this cross-runtime contract.
+
 Remaining V1 gates include full-data topic counts, Discord/Sheets import
 connectors, historical/activity-based scheduled weekly reports and staging/live
 model acceptance. This patch completes a bounded selected-draft delivery path,

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { reportDrafts } from '../../../shared/report-drafts';
+import { reportDrafts } from '../contracts/report-drafts';
 import { requestInsightDeliverySchema } from '../contracts/insights';
 
 test('all six templates expose saved drafts and ignore unrelated or blank fields', () => {

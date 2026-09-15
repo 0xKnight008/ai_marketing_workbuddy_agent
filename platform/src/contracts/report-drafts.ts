@@ -1,4 +1,4 @@
-/** Same whitelist on server and UI. Text always comes from a saved report. */
+/** Pure shared whitelist for server and UI; kept in the deployed CommonJS platform package. */
 export function reportDrafts(template: string, report: Record<string, unknown>) {
   const fields: Record<string, Array<[string, string | null]>> = {
     content_recap: [['draftTitles', null], ['draftScripts', 'body']],

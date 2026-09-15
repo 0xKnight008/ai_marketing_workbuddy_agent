@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { reportDrafts } from '../../../shared/report-drafts';
+import { reportDrafts } from '../contracts/report-drafts';
 import { renderReportDigest } from './delivery';
 
 import { usageSnapshot } from '../billing/guardrails';

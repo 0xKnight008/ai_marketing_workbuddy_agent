@@ -6,7 +6,7 @@ import BillingDashboard from './BillingDashboard';
 import { ReportDatasetStats } from '../components/ReportDatasetStats';
 import { ReportActionFeedback } from '../components/ReportActionFeedback';
 import { WeeklyInsightReview } from '../components/WeeklyInsightReview';
-import { reportDrafts } from '../../shared/report-drafts';
+import { reportDrafts } from '../../platform/src/contracts/report-drafts';
 
 const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
 
