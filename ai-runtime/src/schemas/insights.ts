@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { modelBandSchema } from './announcement';
+import { sentimentSchema } from './classify';
 
 /**
  * 迭代 2（P0 三模板）洞察报告契约。
@@ -22,6 +23,7 @@ export const evidenceItemSchema = z.object({
   platform: z.string().max(40),
   author: z.string().max(120).optional(),
   text: z.string().min(1).max(600),
+  sentiment: sentimentSchema.optional(),
   metrics: z.record(z.string(), z.number()).optional(),
   sku: z.string().max(80).optional(),
   // 发布时刻：时间归因依赖字段（平台侧从 CSV published_at 列透传）。
@@ -58,7 +60,7 @@ export const insightReportRequestSchema = z.object({
     // 平台侧确定性计算的评分分布（差评归因模板用；rating ≤ 2 为差评）。
     ratings: z.object({ rated: z.number().int().nonnegative(), negative: z.number().int().nonnegative() }).optional(),
   }),
-  // 平台侧分层采样（头部 24 + 每标签 2 + 低分差评 8）的并集上限。
+  // 24 head + 11 tags × 2 + 8 low-rating reviews + 7 sentiment representatives.
   topItems: z.array(evidenceItemSchema).max(64),
   tagSamples: z.array(tagSampleSchema).max(11),
   // 社群摘要模板的成员活跃统计（平台侧聚合，至多 20 人）。
