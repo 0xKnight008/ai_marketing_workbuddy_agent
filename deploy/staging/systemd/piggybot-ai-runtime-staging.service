@@ -1,0 +1,20 @@
+[Unit]
+Description=Piggybot STAGING AI runtime (isolated stack, loopback :4211)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=piggybot
+Group=piggybot
+WorkingDirectory=/opt/ai-marketing-agent-staging/ai-runtime
+EnvironmentFile=/etc/piggybot-staging/ai-runtime.env
+ExecStart=/usr/bin/env npm run start
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/opt/ai-marketing-agent-staging
+
+[Install]
+WantedBy=multi-user.target

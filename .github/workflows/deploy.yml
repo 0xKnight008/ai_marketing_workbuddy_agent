@@ -52,6 +52,12 @@ jobs:
       - name: Test deployment preflight
         run: node --test scripts/deploy-production.test.mjs
 
+      - name: Test staging deployment guards and acceptance helpers
+        run: |
+          node --test scripts/deploy-staging.test.mjs
+          node --test scripts/provision-staging.test.mjs
+          node --test platform/scripts/lib/acceptance-lib.test.mjs
+
       - name: Install public API dependencies
         working-directory: server
         run: npm ci

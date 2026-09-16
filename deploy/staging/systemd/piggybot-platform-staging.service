@@ -1,0 +1,21 @@
+[Unit]
+Description=Piggybot STAGING Egg platform (isolated stack, loopback :4200)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=piggybot
+Group=piggybot
+WorkingDirectory=/opt/ai-marketing-agent-staging/platform
+EnvironmentFile=/etc/piggybot-staging/platform.env
+ExecStart=/usr/bin/env npm run start
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+# Staging shares the host with production; keep it from reading production secrets.
+ProtectSystem=full
+ReadWritePaths=/opt/ai-marketing-agent-staging
+
+[Install]
+WantedBy=multi-user.target
