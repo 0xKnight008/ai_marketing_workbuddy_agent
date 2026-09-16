@@ -258,7 +258,11 @@ export default function PlatformDashboard() {
       if (importsResponse.ok) setImportBatches(await importsResponse.json() as ImportBatchView[]);
       if (googleConnectionResponse.ok) setGoogleConnection(await googleConnectionResponse.json() as { connected: boolean; email?: string; connectedAt?: string });
       if (insightsResponse.ok) setInsights(await insightsResponse.json() as InsightReportView[]);
-      if (topicsResponse.ok) setTopicData(await topicsResponse.json() as TopicListView);
+      if (topicsResponse.ok) {
+        // 防御性解析：非预期负载（如旧代理/兜底桩返回数组）不得破坏渲染。
+        const data = await topicsResponse.json() as TopicListView;
+        if (data && Array.isArray(data.topics)) setTopicData({ run: data.run ?? null, topics: data.topics });
+      }
       if (requests.every((response) => !response.ok)) setMessage('The workspace could not be loaded. Check your session permissions.');
     } catch {
       setMessage('Piggybot could not reach the workspace service. Please try again.');
@@ -696,7 +700,8 @@ export default function PlatformDashboard() {
   }, [token, section, insightsInFlight, insightDetail, loadWorkspace, loadInsightDetail]);
 
   // Poll while a topic run is proposing/assigning — counts grow deterministically.
-  const topicsInFlight = topicData.run !== null && ['pending', 'proposing', 'assigning'].includes(topicData.run.status);
+  const topicRun = topicData.run;
+  const topicsInFlight = topicRun !== null && ['pending', 'proposing', 'assigning'].includes(topicRun.status);
   useEffect(() => {
     if (!token || section !== 'topics' || !topicsInFlight) return;
     const timer = window.setInterval(() => {

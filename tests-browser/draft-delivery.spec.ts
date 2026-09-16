@@ -16,6 +16,7 @@ test('selects a full presale draft and displays exact text in the approval queue
     }
     if (path === '/api/approval-requests') return route.fulfill({ json: submitted ? [{ id: 'approval-1', runId: null, requestedAt: '2026-09-14', requestedAction: { summary: 'Send selected draft', parameters: { content: poll, subject: '[Piggybot] Draft review' } } }] : [] });
     if (path.startsWith('/api/billing/')) return route.fulfill({ status: 503, json: { error: 'unused' } });
+    if (path === '/api/topics') return route.fulfill({ json: { run: null, topics: [] } });
     return route.fulfill({ json: [] });
   });
   await page.goto('/app');

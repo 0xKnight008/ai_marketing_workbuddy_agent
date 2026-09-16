@@ -12,6 +12,7 @@ test('first CSV upload submits filename immediately, preserves custom labels and
       return route.fulfill({ json: { id: 'test-batch', status: 'pending' } });
     }
     if (path.startsWith('/api/billing/')) return route.fulfill({ status: 503, json: { error: 'not used by this import regression' } });
+    if (path === '/api/topics') return route.fulfill({ json: { run: null, topics: [] } });
     return route.fulfill({ json: [] });
   });
   await page.goto('/app');

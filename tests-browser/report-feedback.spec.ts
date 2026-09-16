@@ -21,6 +21,7 @@ test('manual execution feedback saves, persists on reopen, and keeps edits after
       return route.fulfill({ json: feedback });
     }
     if (path.startsWith('/api/billing/')) return route.fulfill({ status: 503, json: { error: 'unused' } });
+    if (path === '/api/topics') return route.fulfill({ json: { run: null, topics: [] } });
     return route.fulfill({ json: [] });
   });
   await page.goto('/app');

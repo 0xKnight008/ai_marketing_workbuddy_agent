@@ -13,6 +13,7 @@ test('content recap displays quoted script drafts and truthful historical topic 
     if (path === '/api/insights') return route.fulfill({ json: [report] });
     if (path === '/api/insights/recap-1') return route.fulfill({ json: report });
     if (path.startsWith('/api/billing/')) return route.fulfill({ status: 503, json: { error: 'unused' } });
+    if (path === '/api/topics') return route.fulfill({ json: { run: null, topics: [] } });
     return route.fulfill({ json: [] });
   });
   await page.goto('/app');

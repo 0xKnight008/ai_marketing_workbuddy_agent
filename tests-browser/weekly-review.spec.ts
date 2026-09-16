@@ -20,6 +20,7 @@ test('weekly review shows denominators, unknown effects and report navigation; r
     }
     if (path === '/api/insights/report-1') return route.fulfill({ json: report });
     if (path.startsWith('/api/billing/')) return route.fulfill({ status: 503, json: { error: 'unused' } });
+    if (path === '/api/topics') return route.fulfill({ json: { run: null, topics: [] } });
     return route.fulfill({ json: [] });
   });
   await page.goto('/app');
