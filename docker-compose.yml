@@ -23,6 +23,10 @@ services:
     pull_policy: never
     container_name: ai-marketing-subscribe-api
     restart: unless-stopped
+    ports:
+      # 宿主机 nginx 将 /api/subscribe、/api/feedback、/r/* 反代到 127.0.0.1:3001。
+      # 仅绑定回环地址，不对外暴露。
+      - "127.0.0.1:3001:3001"
     networks:
       - ss_prod
     env_file:
