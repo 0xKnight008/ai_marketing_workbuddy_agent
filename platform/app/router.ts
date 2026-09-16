@@ -22,6 +22,9 @@ export default (app: Application) => {
   router.post('/api/insights', controller.platform.createInsight);
   router.get('/api/insights', controller.platform.listInsights);
   router.get('/api/insights/weekly-review', controller.platform.weeklyInsightReview);
+  router.get('/api/insights/weekly-history', controller.platform.weeklyHistory);
+  router.get('/api/insights/weekly-history/:weekStart', controller.platform.weeklyHistorySnapshot);
+  router.post('/api/insights/weekly-history/snapshots', controller.platform.sealWeeklyHistory);
   router.get('/api/insights/:reportId', controller.platform.insightDetail);
   router.post('/api/insights/:reportId/deliver', controller.platform.requestInsightDelivery);
   router.get('/api/insights/:reportId/actions', controller.platform.insightActions);

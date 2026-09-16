@@ -132,6 +132,22 @@ export default class PlatformController extends Controller {
     this.ctx.body = await this.app.platform.service.weeklyInsightReview(this.actor());
   }
 
+  async weeklyHistory(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.weeklyHistory(this.actor());
+  }
+
+  async weeklyHistorySnapshot(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.weeklyHistorySnapshot(this.actor(), this.ctx.params.weekStart);
+  }
+
+  async sealWeeklyHistory(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.status = 201;
+    this.ctx.body = await this.app.platform.service.sealWeeklyHistory(this.actor(), this.ctx.request.body);
+  }
+
   async saveInsightAction(): Promise<void> {
     this.ctx.set('Cache-Control', 'no-store');
     this.ctx.body = await this.app.platform.service.saveInsightAction(this.actor(), this.ctx.params.reportId, this.ctx.params.actionKey, this.ctx.request.body);

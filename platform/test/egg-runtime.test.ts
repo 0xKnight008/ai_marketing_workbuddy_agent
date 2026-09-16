@@ -49,6 +49,33 @@ describe('Egg production gateway', () => {
       .expect('Cache-Control', 'no-store').expect(200).expect({ templates: [], basis: 'reports_generated_in_window_current_feedback' });
   });
 
+  it('routes weekly history endpoints before report-ID matching and requires workspace auth', async () => {
+    await app.httpRequest().get('/api/insights/weekly-history').expect(401);
+    await app.httpRequest().get('/api/insights/weekly-history/2026-09-07').expect(401);
+    await app.httpRequest().post('/api/insights/weekly-history/snapshots').send({}).expect(401);
+
+    const historyView = { basis: 'feedback_updated_in_window', current: { weekStart: '2026-09-07T00:00:00.000Z', sealed: false }, weeks: [] };
+    mm(app.platform.service, 'weeklyHistory', async () => historyView);
+    await app.httpRequest().get('/api/insights/weekly-history').set('authorization', `Bearer ${ownerToken}`)
+      .expect('Cache-Control', 'no-store').expect(200).expect(historyView);
+
+    const snapshotView = { weekStart: '2026-09-07', weekEnd: '2026-09-14', sealedAt: '2026-09-08T00:00:00.000Z', totals: { events: 0 } };
+    mm(app.platform.service, 'weeklyHistorySnapshot', async (actor: unknown, weekStart: unknown) => {
+      assert.equal(weekStart, '2026-09-07');
+      return snapshotView;
+    });
+    await app.httpRequest().get('/api/insights/weekly-history/2026-09-07').set('authorization', `Bearer ${ownerToken}`)
+      .expect('Cache-Control', 'no-store').expect(200).expect(snapshotView);
+
+    mm(app.platform.service, 'sealWeeklyHistory', async (actor: { role: string }, body: unknown) => {
+      assert.equal(actor.role, 'owner');
+      assert.deepEqual(body, {});
+      return snapshotView;
+    });
+    await app.httpRequest().post('/api/insights/weekly-history/snapshots').set('authorization', `Bearer ${ownerToken}`).send({})
+      .expect('Cache-Control', 'no-store').expect(201).expect(snapshotView);
+  });
+
   it('requires workspace authentication for topic endpoints', async () => {
     await app.httpRequest().post('/api/topics/runs').send({}).expect(401);
     await app.httpRequest().get('/api/topics').expect(401);

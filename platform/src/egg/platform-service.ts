@@ -34,6 +34,7 @@ import { InsightService } from '../insight-service/service';
 import { InsightFeedbackService } from '../insight-service/feedback';
 import { TopicService } from '../insight-service/topics';
 import { WeeklyReviewService } from '../insight-service/weekly-review';
+import { WeeklyHistoryService } from '../insight-service/weekly-history';
 import { createDurableRun, decideApproval, ingestAiRuntimeEvent } from '../run-service/repository';
 import {
   ZERNIO_PLATFORMS,
@@ -166,6 +167,18 @@ export class PlatformService {
 
   async weeklyInsightReview(actor: ActorContext): Promise<unknown> {
     return new WeeklyReviewService(this.database).review(actor);
+  }
+
+  async weeklyHistory(actor: ActorContext): Promise<unknown> {
+    return new WeeklyHistoryService(this.database).history(actor);
+  }
+
+  async weeklyHistorySnapshot(actor: ActorContext, weekStart: unknown): Promise<unknown> {
+    return new WeeklyHistoryService(this.database).snapshotDetail(actor, weekStart);
+  }
+
+  async sealWeeklyHistory(actor: ActorContext, body: unknown): Promise<unknown> {
+    return new WeeklyHistoryService(this.database).seal(actor, body);
   }
 
   async saveInsightAction(actor: ActorContext, reportId: unknown, actionKey: unknown, body: unknown): Promise<unknown> {
