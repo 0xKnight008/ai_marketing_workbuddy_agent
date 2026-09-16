@@ -4,7 +4,9 @@ export default (appInfo: EggAppInfo) => ({
   cluster: {
     listen: {
       port: Number(process.env.GATEWAY_PORT ?? 4100),
-      hostname: '0.0.0.0',
+      // Loopback by default: only nginx (80/443) is public. Set GATEWAY_HOST
+      // explicitly if an off-host consumer ever needs direct access.
+      hostname: process.env.GATEWAY_HOST ?? '127.0.0.1',
     },
   },
   keys: process.env.EGG_COOKIE_KEYS ?? `${appInfo.name}-replace-in-production`,

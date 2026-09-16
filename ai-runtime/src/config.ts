@@ -138,6 +138,10 @@ export function loadConfig(env: Environment = process.env) {
     eventCallbackTimeoutMs: positiveInteger(env, 'EVENT_CALLBACK_TIMEOUT_MS', 5000),
 
     port: port(env, 'PORT', 4111),
+    // Loopback by default: the platform reaches the runtime on the same host
+    // and only nginx (80/443) is public. Set HOST explicitly if an off-host
+    // consumer ever needs direct access.
+    host: optional(env, 'HOST') ?? '127.0.0.1',
 
     storageUrl,
     storageAuthToken: optional(env, 'MASTRA_STORAGE_AUTH_TOKEN'),

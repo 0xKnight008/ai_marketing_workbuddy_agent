@@ -80,3 +80,16 @@ test('keeps direct routing available outside production', () => {
   assert.equal(loaded.openAiBaseUrl, undefined);
   assert.equal(loaded.fallbackModels.eco, undefined);
 });
+
+test('defaults the server host to loopback and honors HOST overrides', () => {
+  const fallback = loadConfig({ AI_MODEL_ROUTING_MODE: 'direct', AI_MODEL_ECO: 'openai/gpt-4o-mini' });
+  assert.equal(fallback.host, '127.0.0.1');
+  assert.equal(fallback.port, 4111);
+
+  const overridden = loadConfig({
+    AI_MODEL_ROUTING_MODE: 'direct',
+    AI_MODEL_ECO: 'openai/gpt-4o-mini',
+    HOST: '0.0.0.0',
+  });
+  assert.equal(overridden.host, '0.0.0.0');
+});

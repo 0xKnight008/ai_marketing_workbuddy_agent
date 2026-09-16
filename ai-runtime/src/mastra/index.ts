@@ -34,6 +34,7 @@ export const mastra = new Mastra({
   }),
   server: {
     port: config.port,
+    host: config.host,
     apiRoutes: internalApiRoutes,
   },
 });
