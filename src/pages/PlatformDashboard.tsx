@@ -10,7 +10,7 @@ import { reportDrafts } from '../../platform/src/contracts/report-drafts';
 
 const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
 
-type Section = 'dashboard' | 'pipelines' | 'imports' | 'insights' | 'accounts' | 'activity' | 'settings';
+type Section = 'dashboard' | 'pipelines' | 'imports' | 'insights' | 'topics' | 'accounts' | 'activity' | 'settings';
 type WizardStep = 'start' | 'configure' | 'accounts' | 'review' | 'saved';
 type TemplateId = 'repurpose' | 'weekly_report' | 'comment_lead';
 type ModelBand = 'eco' | 'standard' | 'flagship';
@@ -35,6 +35,11 @@ type InsightTemplate = 'content_recap' | 'comment_insights' | 'product_opportuni
 interface ReportCitation { ref: string; snippet: string }
 interface ReportDeliveryView { status: 'awaiting_approval' | 'approved' | 'delivered' | 'rejected' | 'failed'; channel: 'email' | 'discord'; targetLabel: string; requestedAt: string; deliveredAt?: string; error?: string }
 interface InsightReportView { id: string; template: InsightTemplate; title: string; status: 'pending' | 'generating' | 'generated' | 'failed'; modelBand: string; batchIds: string[]; itemCount: number; droppedCitations: number; error: string | null; createdAt: string; generatedAt: string | null; report: Record<string, unknown> | null; delivery: ReportDeliveryView | null; }
+interface TopicRunView { id: string; status: 'pending' | 'proposing' | 'assigning' | 'completed' | 'failed'; modelBand: string; itemCount: number; topicCount: number; error: string | null; createdAt: string; completedAt: string | null; }
+interface TopicView { id: string; runId: string; key: string; label: string; description: string; itemCount: number; }
+interface TopicListView { run: TopicRunView | null; topics: TopicView[]; }
+interface TopicItemView { itemId: string; platform: string; author: string | null; text: string; evidence: string; confidence: number; createdAt: string; }
+interface TopicItemListView { topic: TopicView; total: number; items: TopicItemView[]; }
 
 const INSIGHT_TEMPLATES: { id: InsightTemplate; name: string; tagline: string }[] = [
   { id: 'content_recap', name: 'Content recap', tagline: 'What went viral, why, and what to post next' },
@@ -179,6 +184,10 @@ export default function PlatformDashboard() {
   const [insightBatchIds, setInsightBatchIds] = useState<string[]>([]);
   const [insightDetail, setInsightDetail] = useState<InsightReportView | null>(null);
   const [insightBusy, setInsightBusy] = useState(false);
+  const [topicData, setTopicData] = useState<TopicListView>({ run: null, topics: [] });
+  const [topicBand, setTopicBand] = useState<ModelBand>('eco');
+  const [topicDetail, setTopicDetail] = useState<TopicItemListView | null>(null);
+  const [topicBusy, setTopicBusy] = useState(false);
   const applyBillingUsage = useCallback((next: UsageView) => {
     setUsage(next);
     setMe((current) => current ? { ...current, plan: next.plan, subscriptionStatus: next.subscriptionStatus } : current);
@@ -232,8 +241,9 @@ export default function PlatformDashboard() {
       fetch(`${gatewayUrl}/api/imports`, { headers: headers() }),
       fetch(`${gatewayUrl}/api/imports/google/connection`, { headers: headers() }),
       fetch(`${gatewayUrl}/api/insights`, { headers: headers() }),
+      fetch(`${gatewayUrl}/api/topics`, { headers: headers() }),
     ]);
-      const [templatesResponse, pipelinesResponse, accountsResponse, approvalsResponse, usageResponse, tasksResponse, auditResponse, importsResponse, googleConnectionResponse, insightsResponse] = requests;
+      const [templatesResponse, pipelinesResponse, accountsResponse, approvalsResponse, usageResponse, tasksResponse, auditResponse, importsResponse, googleConnectionResponse, insightsResponse, topicsResponse] = requests;
       if (templatesResponse.ok) setTemplates(await templatesResponse.json() as PipelineTemplate[]);
       if (pipelinesResponse.ok) setPipelines(await pipelinesResponse.json() as PipelineView[]);
       if (accountsResponse.ok) setAccounts(await accountsResponse.json() as ConnectedAccount[]);
@@ -248,6 +258,7 @@ export default function PlatformDashboard() {
       if (importsResponse.ok) setImportBatches(await importsResponse.json() as ImportBatchView[]);
       if (googleConnectionResponse.ok) setGoogleConnection(await googleConnectionResponse.json() as { connected: boolean; email?: string; connectedAt?: string });
       if (insightsResponse.ok) setInsights(await insightsResponse.json() as InsightReportView[]);
+      if (topicsResponse.ok) setTopicData(await topicsResponse.json() as TopicListView);
       if (requests.every((response) => !response.ok)) setMessage('The workspace could not be loaded. Check your session permissions.');
     } catch {
       setMessage('Piggybot could not reach the workspace service. Please try again.');
@@ -628,6 +639,43 @@ export default function PlatformDashboard() {
     setInsightDetail(await response.json() as InsightReportView);
   }, [headers]);
 
+  async function startTopicRun() {
+    setMessage(''); setTopicBusy(true);
+    try {
+      const response = await fetch(`${gatewayUrl}/api/topics/runs`, {
+        method: 'POST',
+        headers: headers(true),
+        body: JSON.stringify({ modelBand: topicBand }),
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({})) as { error?: string };
+        if (response.status === 402) {
+          setMessage(result.error === 'ai_credits_exhausted'
+            ? 'AI credits are exhausted — top up in the Dashboard tab, then retry.'
+            : 'Topic clustering requires an active subscription. Pick a plan to unlock AI analysis.');
+          return;
+        }
+        setMessage(result.error === 'topic_run_already_active' ? 'A topic run is already in progress — wait for it to finish.'
+          : result.error === 'topics_no_classified_items' ? 'Import and classify a batch first — topics are built from tagged items.'
+          : result.error ?? 'The topic run could not be created.');
+        return;
+      }
+      setTopicDetail(null);
+      setMessage('Topic run queued — clustering every classified item with verifiable counts.');
+      await loadWorkspace();
+    } catch {
+      setMessage('The topic request could not reach the workspace service. Please retry.');
+    } finally {
+      setTopicBusy(false);
+    }
+  }
+
+  const loadTopicItems = useCallback(async (topicId: string) => {
+    const response = await fetch(`${gatewayUrl}/api/topics/${topicId}/items`, { headers: headers() });
+    if (!response.ok) { setTopicDetail(null); setMessage('Topic not found or access is denied.'); return; }
+    setTopicDetail(await response.json() as TopicItemListView);
+  }, [headers]);
+
   // Poll while any batch is still being classified.
   const importsInFlight = importBatches.some((batch) => batch.status === 'pending' || batch.status === 'classifying');
   useEffect(() => {
@@ -646,6 +694,17 @@ export default function PlatformDashboard() {
     }, 5_000);
     return () => window.clearInterval(timer);
   }, [token, section, insightsInFlight, insightDetail, loadWorkspace, loadInsightDetail]);
+
+  // Poll while a topic run is proposing/assigning — counts grow deterministically.
+  const topicsInFlight = topicData.run !== null && ['pending', 'proposing', 'assigning'].includes(topicData.run.status);
+  useEffect(() => {
+    if (!token || section !== 'topics' || !topicsInFlight) return;
+    const timer = window.setInterval(() => {
+      void loadWorkspace();
+      if (topicDetail) void loadTopicItems(topicDetail.topic.id);
+    }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [token, section, topicsInFlight, topicDetail, loadWorkspace, loadTopicItems]);
 
   if (!token) {
     return <EmailAuthScreen onSession={(session) => {
@@ -677,7 +736,7 @@ export default function PlatformDashboard() {
         <div className="mx-auto flex max-w-7xl flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div><p className="font-hand text-lg text-sky-deep">Piggybot Platform</p><h1 className="font-display text-3xl">{me?.workspace.name ?? 'Marketing workspace'}</h1>{me && <p className="mt-1 text-sm text-ink-soft">Signed in as {me.user.email} · {me.role} · plan {me.plan}</p>}</div>
           <nav className="flex flex-wrap gap-2" aria-label="Workspace navigation">
-            {([['dashboard', 'Dashboard'], ['pipelines', 'Pipelines'], ['imports', 'Imports'], ['insights', 'Insights'], ['accounts', 'Accounts'], ['activity', 'Activity'], ['settings', 'Settings']] as const).map(([id, label]) => <button key={id} onClick={() => setSection(id)} className={`rounded-full px-4 py-2 text-sm font-medium ${section === id ? 'bg-sky-deep text-white' : 'bg-paper text-ink-soft hover:bg-sky-pale'}`}>{label}</button>)}
+            {([['dashboard', 'Dashboard'], ['pipelines', 'Pipelines'], ['imports', 'Imports'], ['insights', 'Insights'], ['topics', 'Topics'], ['accounts', 'Accounts'], ['activity', 'Activity'], ['settings', 'Settings']] as const).map(([id, label]) => <button key={id} onClick={() => setSection(id)} className={`rounded-full px-4 py-2 text-sm font-medium ${section === id ? 'bg-sky-deep text-white' : 'bg-paper text-ink-soft hover:bg-sky-pale'}`}>{label}</button>)}
           </nav>
           <div className="flex items-center gap-4 text-sm"><a className="text-ink-soft hover:text-ink" href="/contact">Help</a><a className="text-ink-soft hover:text-ink" href="/">Website</a><button onClick={signOut} className="rounded-md border border-ink/20 px-3 py-1.5 text-ink-soft hover:text-ink">Sign out</button></div>
         </div>
@@ -691,6 +750,7 @@ export default function PlatformDashboard() {
         {section === 'pipelines' && <PipelinesSection templates={templates} pipelines={pipelines} usage={usage} loading={loading} onNew={() => { setDraft(freshDraft()); setSavedPipeline(null); setReadiness(null); setWizardStep('start'); }} onTemplate={startTemplate} onContinue={continuePipeline} onActivity={() => setSection('activity')} />}
         {section === 'imports' && <ImportsSection batches={importBatches} label={importLabel} setLabel={setImportLabel} band={importBand} setBand={setImportBand} content={importContent} setContent={setImportContent} busy={importBusy} detail={importDetail} onPasteImport={() => void createImport('paste', importContent)} onDiscordImport={(id) => void createImport('discord', id)} onCsvFile={(file) => void importCsvFile(file)} onOpenDetail={(id) => void loadImportDetail(id)} onCloseDetail={() => setImportDetail(null)} googleConnection={googleConnection} sheetId={googleSheetId} setSheetId={setGoogleSheetId} sheetName={googleSheetName} setSheetName={setGoogleSheetName} onConnectGoogle={() => void connectGoogleSheets()} onDisconnectGoogle={() => void disconnectGoogleSheets()} onGoogleImport={() => void importGoogleSheet()} />}
         {section === 'insights' && <InsightsSection reports={insights} batches={importBatches.filter((batch) => batch.status === 'classified')} template={insightTemplate} setTemplate={setInsightTemplate} band={insightBand} setBand={setInsightBand} selectedBatchIds={insightBatchIds} setSelectedBatchIds={setInsightBatchIds} busy={insightBusy} detail={insightDetail} accounts={accounts} onGenerate={() => void createInsight()} onOpenDetail={(id) => void loadInsightDetail(id)} onCloseDetail={() => setInsightDetail(null)} onDeliver={(id, input) => void deliverInsight(id, input)} />}
+        {section === 'topics' && <TopicsSection data={topicData} band={topicBand} setBand={setTopicBand} busy={topicBusy} detail={topicDetail} hasClassifiedItems={importBatches.some((batch) => batch.status === 'classified')} onStart={() => void startTopicRun()} onOpenDetail={(id) => void loadTopicItems(id)} onCloseDetail={() => setTopicDetail(null)} />}
         {section === 'accounts' && <><AccountsSection accounts={accounts.filter(account => !['snapchat', 'whatsapp'].includes(account.platform))} connecting={connecting} onConnect={connectSocial} onRefresh={() => void refreshAccounts(true)} />{telegram && <section className="mt-6 rounded-xl border border-ink/20 p-6"><h3 className="text-lg font-semibold">Connect Telegram</h3><p className="my-3">Code: <strong>{telegram.code}</strong> · Expires: {new Date(telegram.expiresAt).toLocaleString()}</p><ol className="space-y-2">{telegram.instructions.map((instruction, index) => <li key={index}>{instruction}</li>)}</ol><p className="mt-4">After the bot confirms, select Sync account health above to verify the connection.</p><button onClick={() => setTelegram(null)} className="mt-3 underline">Dismiss code</button></section>}</>}
         {section === 'activity' && <ActivitySection approvals={approvals} taskEvents={taskEvents} auditEvents={auditEvents} runId={runId} setRunId={setRunId} run={run} onLoadRun={() => void loadRun()} onDecision={decideApproval} />}
         {section === 'settings' && <SettingsSection me={me} locked={locked} newPassword={newPassword} setNewPassword={setNewPassword} passwordStatus={passwordStatus} onSavePassword={() => void savePassword()} onSignOut={signOut} feedbackCategory={feedbackCategory} setFeedbackCategory={setFeedbackCategory} feedbackMessage={feedbackMessage} setFeedbackMessage={setFeedbackMessage} feedbackStatus={feedbackStatus} onFeedback={() => void sendFeedback()} referralUrl={referralUrl} referralStatus={referralStatus} onReferral={() => void createReferralLink()} />}
@@ -871,6 +931,66 @@ function InsightsSection({ reports, batches, template, setTemplate, band, setBan
 
     {detail && <div className="fixed inset-0 z-50 overflow-y-auto bg-ink/45 p-4 backdrop-blur-sm"><div className="mx-auto my-4 max-w-4xl rounded-2xl bg-paper shadow-2xl"><header className="flex items-start justify-between border-b border-ink/15 p-6"><div><p className="font-hand text-lg text-sky-deep">{INSIGHT_TEMPLATES.find((t) => t.id === detail.template)?.name} · {detail.itemCount} items</p><h2 className="font-display text-3xl">{detail.title}</h2></div><button onClick={onCloseDetail} className="rounded-full border border-ink/20 px-3 py-1 text-sm">Close</button></header><DeliveryPanel report={detail} accounts={accounts} onDeliver={onDeliver} /><InsightReportBody report={detail} /></div></div>}
   </div>;
+}
+
+/**
+ * Module 2（全量主题聚类与可信计数）：对全部已分类条目按具体主题聚类。
+ * "被提到 N 次"由平台 SQL COUNT 得出（不是 LLM 声明）；点开的每条证据
+ * 都是原文逐字摘录，构成可核验的计数路径。
+ */
+function TopicsSection({ data, band, setBand, busy, detail, hasClassifiedItems, onStart, onOpenDetail, onCloseDetail }: { data: TopicListView; band: ModelBand; setBand: (band: ModelBand) => void; busy: boolean; detail: TopicItemListView | null; hasClassifiedItems: boolean; onStart: () => void; onOpenDetail: (id: string) => void; onCloseDetail: () => void; }) {
+  const run = data.run;
+  const active = run !== null && ['pending', 'proposing', 'assigning'].includes(run.status);
+  const runStatusLabel = run?.status === 'pending' ? 'Queued' : run?.status === 'proposing' ? 'Discovering topics' : run?.status === 'assigning' ? 'Assigning items' : run?.status === 'completed' ? 'Completed' : 'Failed';
+  return <div className="space-y-8">
+    <section className="sketch bg-paper-card p-6 shadow-paint-sm">
+      <p className="font-hand text-lg text-sky-deep">Verifiable demand counts</p>
+      <h2 className="font-display text-3xl">Topic clustering</h2>
+      <p className="mt-2 max-w-2xl text-sm text-ink-soft">One run reads every classified item, groups them into concrete topics, and counts exactly how many items mention each need. Counts come from verified database rows — open any topic to audit every item and its verbatim evidence.</p>
+      <div className="mt-5 max-w-md"><Field label="AI model band"><ModelBandPicker value={band} onChange={setBand} /></Field></div>
+      <button disabled={busy || active || !hasClassifiedItems} onClick={onStart} className="mt-4 rounded-md bg-sunset px-5 py-3 font-medium text-white shadow-paint-sm disabled:cursor-not-allowed disabled:opacity-40">{busy ? 'Queuing…' : active ? 'Run in progress…' : 'Cluster all items'}</button>
+      {!hasClassifiedItems && <p className="mt-2 text-xs text-ink-soft">Import and classify a batch first — topics are built from tagged items.</p>}
+    </section>
+
+    {run && <section>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><p className="font-hand text-lg text-sky-deep">Latest run</p><h2 className="font-display text-3xl">Topics</h2></div>
+        <div className="flex items-center gap-3 text-xs text-ink-soft"><StatusBadge status={run.status} /><span>{runStatusLabel} · {run.modelBand} · {run.itemCount} items · {new Date(run.createdAt).toLocaleString()}{run.completedAt ? ` · done ${new Date(run.completedAt).toLocaleString()}` : ''}</span></div>
+      </div>
+      {run.status === 'failed' && run.error && <p className="mt-3 rounded-md bg-sunset/10 p-3 text-sm text-sunset">Run failed: {run.error}. Start a new run to retry from scratch.</p>}
+      {data.topics.length === 0
+        ? <EmptyState title={active ? 'Discovering topics…' : 'No topics yet'} detail={active ? 'The AI is reading a sample of your items to propose concrete topics, then assigns every item with verbatim evidence.' : 'Run a clustering pass to see what your audience keeps asking for.'} />
+        : <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{data.topics.map((topic) => <article key={topic.id} className="sketch bg-paper-card p-5 shadow-paint-sm">
+          <div className="flex items-start justify-between gap-3"><h3 className="text-lg font-semibold">{topic.label}</h3><span className="rounded-full bg-sky-pale px-2.5 py-1 text-sm font-semibold text-sky-deep" title="Verified count: items assigned with platform-checked verbatim evidence">×{topic.itemCount}</span></div>
+          <p className="mt-2 text-sm text-ink-soft">{topic.description}</p>
+          <button onClick={() => onOpenDetail(topic.id)} className="mt-4 w-full rounded-md border border-ink/25 px-4 py-2 text-sm font-medium hover:bg-sky-pale">Audit {topic.itemCount} item{topic.itemCount === 1 ? '' : 's'}</button>
+        </article>)}</div>}
+    </section>}
+    {!run && <EmptyState title="No topic run yet" detail="Cluster all classified items to get verifiable counts of what your audience asks for." />}
+
+    {detail && <div className="fixed inset-0 z-50 overflow-y-auto bg-ink/45 p-4 backdrop-blur-sm"><div className="mx-auto my-4 max-w-4xl rounded-2xl bg-paper shadow-2xl">
+      <header className="flex items-start justify-between border-b border-ink/15 p-6">
+        <div><p className="font-hand text-lg text-sky-deep">{detail.total} verified mention{detail.total === 1 ? '' : 's'}</p><h2 className="font-display text-3xl">{detail.topic.label}</h2><p className="mt-1 text-sm text-ink-soft">{detail.topic.description}</p></div>
+        <button onClick={onCloseDetail} className="rounded-full border border-ink/20 px-3 py-1 text-sm">Close</button>
+      </header>
+      <div className="space-y-3 p-6">
+        <p className="text-xs text-ink-soft">Every row below is one imported item assigned to this topic. The highlighted quote is the exact evidence the platform verified as a verbatim substring of the item text.</p>
+        {detail.items.length === 0 && <p className="text-sm text-ink-soft">No items assigned yet{active ? ' — the run is still processing.' : '.'}</p>}
+        {detail.items.map((item) => <article key={item.itemId} className="rounded-xl border border-ink/15 bg-paper-card p-4">
+          <p className="text-sm leading-relaxed">{highlightEvidence(item.text, item.evidence)}</p>
+          <p className="mt-2 text-xs text-ink-soft">{item.platform}{item.author ? ` · ${item.author}` : ''} · confidence {Math.round(item.confidence * 100)}% · {new Date(item.createdAt).toLocaleString()}</p>
+        </article>)}
+        {detail.total > detail.items.length && <p className="text-xs text-ink-soft">Showing the first {detail.items.length} of {detail.total} mentions.</p>}
+      </div>
+    </div></div>}
+  </div>;
+}
+
+/** 高亮逐字证据（证据已在平台侧校验为原文子串，此处只需定位一次）。 */
+function highlightEvidence(text: string, evidence: string): ReactNode {
+  const at = text.indexOf(evidence);
+  if (at < 0) return text;
+  return <>{text.slice(0, at)}<mark className="rounded bg-sun/40 px-0.5">{text.slice(at, at + evidence.length)}</mark>{text.slice(at + evidence.length)}</>;
 }
 
 /** 报告外发（迭代 4）：生成完毕的报告可申请推送到邮箱/Discord，经人工审批后发送。 */

@@ -3,7 +3,7 @@ import test from 'node:test';
 import type { QueryResultRow } from 'pg';
 
 import type { TenantTransaction } from '../foundation/database';
-import { RunWorker, validatedClassifications, type ClaimedJob, type RunWorkerDatabase } from './worker-runner';
+import { RunWorker, validatedClassifications, validatedTopicAssignments, validatedTopicTaxonomy, type ClaimedJob, type RunWorkerDatabase } from './worker-runner';
 
 test('500 known-answer classifications require complete indexes and verbatim evidence', () => {
   const items = Array.from({ length: 500 }, (_, i) => ({ text: `Comment ${i}: I want to buy it` }));
@@ -984,4 +984,46 @@ test('insight.generate fails the report when no conclusion is grounded in verbat
   assert.ok(auditPayloads.some((entry) => entry.event === 'insight.insufficient_evidence'));
   // 失败是终态：job 正常结束而不是重试烧额度。
   assert.ok(auditPayloads.every((entry) => entry.event !== 'insight.generate_deferred'));
+});
+
+test('topic taxonomy validation rejects duplicate keys and bad shapes', () => {
+  const valid = {
+    topics: [
+      { key: 'tiktok_shop_import', label: 'TikTok Shop 导入', description: '希望支持从 TikTok Shop 导入评论' },
+      { key: 'pricing_question', label: '定价咨询', description: '询问价格与套餐差异' },
+    ],
+  };
+  assert.equal(validatedTopicTaxonomy(valid).length, 2);
+  assert.throws(() => validatedTopicTaxonomy({ topics: [...valid.topics, valid.topics[0]] }), /topics_duplicate_key/);
+  assert.throws(() => validatedTopicTaxonomy({ topics: [{ key: 'Not Snake Case!', label: 'x', description: 'y' }] }), /schema validation/);
+  assert.throws(() => validatedTopicTaxonomy({ topics: [] }), /schema validation/);
+  assert.throws(() => validatedTopicTaxonomy({
+    topics: Array.from({ length: 25 }, (_, i) => ({ key: `topic_${i}`, label: `t${i}`, description: 'd' })),
+  }), /schema validation/);
+});
+
+test('topic assignment validation requires complete indexes, taxonomy keys, verbatim evidence', () => {
+  const items = Array.from({ length: 50 }, (_, i) => ({ text: `Comment ${i}: please add Shopify import` }));
+  const keys = new Set(['shopify_import', 'pricing_question']);
+  const ok = items.map((_, itemIndex) => ({
+    itemIndex,
+    topics: [{ key: 'shopify_import', confidence: 0.9, evidence: 'please add Shopify import' }],
+  }));
+  assert.equal(validatedTopicAssignments({ assignments: ok }, items, keys).length, 50);
+  // 零指派是合法的（显式无匹配），但每条都必须有 assignment 对象。
+  assert.equal(validatedTopicAssignments({ assignments: [{ itemIndex: 0, topics: [] }] }, [{ text: 'unrelated' }], keys).length, 1);
+  assert.throws(() => validatedTopicAssignments({ assignments: ok.slice(1) }, items, keys), /incomplete/);
+  assert.throws(() => validatedTopicAssignments({ assignments: [...ok, ok[0]] }, items, keys), /invalid_item_index/);
+  assert.throws(() => validatedTopicAssignments({
+    assignments: ok.map((a) => ({ ...a, topics: [{ key: 'not_in_taxonomy', confidence: 1, evidence: 'Shopify' }] })),
+  }, items, keys), /invalid_key/);
+  assert.throws(() => validatedTopicAssignments({
+    assignments: ok.map((a) => ({ ...a, topics: [{ key: 'shopify_import', confidence: 1, evidence: 'invented quote' }] })),
+  }, items, keys), /invalid_evidence/);
+  assert.throws(() => validatedTopicAssignments({
+    assignments: [{ itemIndex: 0, topics: [
+      { key: 'shopify_import', confidence: 1, evidence: 'please add Shopify import' },
+      { key: 'shopify_import', confidence: 0.5, evidence: 'Shopify' },
+    ] }],
+  }, [{ text: 'Comment 0: please add Shopify import' }], keys), /invalid_key/);
 });

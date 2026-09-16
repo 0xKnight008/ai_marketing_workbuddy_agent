@@ -64,4 +64,28 @@ export class AiRuntimeClient {
     if (!response.ok) throw new Error(`AI runtime insight report failed: ${response.status}`);
     return await response.json() as Record<string, unknown>;
   }
+
+  /** Topic taxonomy proposal from a bounded sample (Module 2 topic clustering). */
+  async proposeTopics(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const response = await this.fetchImpl(new URL('/internal/topics/propose', this.options.baseUrl), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-internal-token': this.options.internalToken },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!response.ok) throw new Error(`AI runtime topics propose failed: ${response.status}`);
+    return await response.json() as Record<string, unknown>;
+  }
+
+  /** Topic assignment for one chunk against a fixed taxonomy (Module 2). */
+  async assignTopics(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const response = await this.fetchImpl(new URL('/internal/topics/assign', this.options.baseUrl), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-internal-token': this.options.internalToken },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!response.ok) throw new Error(`AI runtime topics assign failed: ${response.status}`);
+    return await response.json() as Record<string, unknown>;
+  }
 }

@@ -32,6 +32,7 @@ import { EmailAuthService } from '../identity/email-auth';
 import { ImportService } from '../import-service/service';
 import { InsightService } from '../insight-service/service';
 import { InsightFeedbackService } from '../insight-service/feedback';
+import { TopicService } from '../insight-service/topics';
 import { WeeklyReviewService } from '../insight-service/weekly-review';
 import { createDurableRun, decideApproval, ingestAiRuntimeEvent } from '../run-service/repository';
 import {
@@ -56,6 +57,7 @@ export class PlatformService {
   readonly adminEmailLogin: AdminEmailLogin;
   private readonly imports: ImportService;
   private readonly insights: InsightService;
+  private readonly topics: TopicService;
 
   constructor(
     private readonly config: GatewayConfig,
@@ -69,6 +71,7 @@ export class PlatformService {
     this.customerBilling = new CustomerBillingService(config, database);
     this.imports = new ImportService(database, config);
     this.insights = new InsightService(database);
+    this.topics = new TopicService(database);
   }
 
   actorFrom(authorization: string | undefined): ActorContext {
@@ -176,6 +179,21 @@ export class PlatformService {
   /** 迭代 4：报告外发请求（创建人工审批）。 */
   async requestInsightDelivery(actor: ActorContext, reportId: unknown, body: unknown): Promise<unknown> {
     return this.insights.requestDelivery(actor, reportId, body);
+  }
+
+  /** Module 2：发起一次全量主题聚类运行（202 由 controller 设置）。 */
+  async startTopicRun(actor: ActorContext, body: unknown): Promise<unknown> {
+    return this.topics.startTopicRun(actor, body);
+  }
+
+  /** Module 2：最近一次运行的主题列表与确定计数。 */
+  async listTopics(actor: ActorContext): Promise<unknown> {
+    return this.topics.listTopics(actor);
+  }
+
+  /** Module 2：主题下被指派条目的核验路径（原文 + 逐字证据）。 */
+  async topicItems(actor: ActorContext, topicId: unknown, query: unknown): Promise<unknown> {
+    return this.topics.topicItems(actor, topicId, query);
   }
 
   /** egg schedule 每日调用：为符合条件的订阅工作区入队 daily_ops 报告。 */

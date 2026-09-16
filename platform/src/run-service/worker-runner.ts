@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 import { actionPlanSchema, type ActionPlan, type AiRuntimeEvent } from '../contracts/ai-runtime-event';
 import { classifyResultSchema, type TagAssignment } from '../contracts/tagging';
+import { TOPIC_ASSIGN_CHUNK, TOPIC_PROPOSE_SAMPLE, topicAssignmentResultSchema, topicProposeResultSchema, type TopicAssignmentResult, type TopicTaxonomyEntry } from '../contracts/topics';
 import { insightResultSchemas, insightTemplateSchema, reportDeliverySchema, type InsightTemplate } from '../contracts/insights';
 import { buildEvidencePack, enforceGroundedConclusions, validateReportCitations, type EvidenceSourceRow, type GroundingStats } from '../insight-service/evidence-pack';
 import { sendReportEmail, type ReportEmailConfig } from '../insight-service/delivery';
@@ -44,6 +45,10 @@ export interface RunWorkerAiRuntime {
   }>;
   classifyItems(payload: Record<string, unknown>): Promise<Record<string, unknown>>;
   generateInsightReport(payload: Record<string, unknown>): Promise<Record<string, unknown>>;
+  /** Module 2：主题 taxonomy 提议（抽样归纳，不产出计数）。与 zernio 同为可选协作方。 */
+  proposeTopics?(payload: Record<string, unknown>): Promise<Record<string, unknown>>;
+  /** Module 2：单 chunk 主题指派（固定 taxonomy，逐字证据）。 */
+  assignTopics?(payload: Record<string, unknown>): Promise<Record<string, unknown>>;
 }
 
 export interface RunWorkerZernio {
@@ -86,6 +91,7 @@ export class RunWorker {
       else if (job.kind === 'import.classify') await this.classifyImport(job);
       else if (job.kind === 'insight.generate') await this.generateInsight(job);
       else if (job.kind === 'insight.deliver') await this.deliverInsight(job);
+      else if (job.kind === 'topics.cluster') await this.clusterTopics(job);
       else throw new Error(`Unsupported job: ${job.kind}`);
     } catch (error) {
       if (error instanceof SupplierUnavailableError) await this.deferForSupplier(job, error);
@@ -430,6 +436,198 @@ export class RunWorker {
     }
   }
 
+  /**
+   * Module 2：全量主题聚类。一个 job 驱动一次运行直到完成：
+   * propose（一次，≤200 条抽样归纳 taxonomy）→ assign（50 条/chunk 循环，
+   * 按 chunk 幂等计费）→ 平台侧 SQL COUNT 回填确定计数。
+   * 进度标记在 import_item.topic_assigned_run：重试跳过已完成 chunk；
+   * 死信后管理员重放可从断点续跑（taxonomy 已存在则直接进指派阶段）。
+   */
+  private async clusterTopics(job: ClaimedJob): Promise<void> {
+    const runId = job.payload.runId;
+    if (typeof runId !== 'string' || !runId) throw new Error('topics.cluster is missing runId');
+    if (!this.options.aiRuntime.proposeTopics || !this.options.aiRuntime.assignTopics) throw new Error('topics_runtime_unavailable');
+
+    const state = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+      const run = await tx.query<{ status: string; modelBand: string; topicCount: string | number }>(
+        `SELECT r.status, r.model_band AS "modelBand",
+                (SELECT COUNT(*) FROM topic t WHERE t.run_id = r.id) AS "topicCount"
+           FROM topic_run r
+          WHERE r.id = $1 AND r.workspace_id = current_setting('app.workspace_id')::uuid`,
+        [runId],
+      );
+      return run.rows[0];
+    });
+    if (!state) throw new Error('topic run not found');
+    if (state.status === 'completed') {
+      // 幂等：运行已完成（重试/重放），直接收尾 job。
+      await this.options.database.withWorkspace(job.workspaceId, (tx) => tx.query(
+        "UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2",
+        [job.id, job.workspaceId],
+      ));
+      return;
+    }
+
+    // 阶段 1：taxonomy 提议（仅当尚无主题时执行；attempt=1 重放不重复扣费）。
+    if (!Number(state.topicCount)) {
+      const proposal = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+        const claimed = await tx.query<{ modelBand: string }>(
+          `UPDATE topic_run SET status = 'proposing', error = NULL
+            WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid
+              AND status IN ('pending', 'proposing', 'failed')
+            RETURNING model_band AS "modelBand"`,
+          [runId],
+        );
+        if (!claimed.rows[0]) throw new Error('topic run not found or already terminal');
+        const reservation = await reserveAiRun(
+          tx,
+          [claimed.rows[0].modelBand],
+          { subjectId: runId, attempt: 1, actionType: 'ai.topics.propose' },
+          claimed.rows[0].modelBand as ModelBand,
+        );
+        if (!reservation.replayed && reservation.guardrail.status === 'paused') {
+          await this.deferJobForCredits(tx, job, 'topics.cluster_deferred', { runId, phase: 'propose' });
+          return { deferred: true as const };
+        }
+        // 抽样只决定 taxonomy 的形状；计数永远来自平台侧 SQL。
+        const sample = await tx.query<{ id: string; text: string; platform: string }>(
+          `SELECT id, text, platform FROM import_item
+            WHERE workspace_id = current_setting('app.workspace_id')::uuid AND classified_at IS NOT NULL
+            ORDER BY created_at DESC, id
+            LIMIT $1`,
+          [TOPIC_PROPOSE_SAMPLE],
+        );
+        if (!sample.rows.length) throw new Error('topics_no_classified_items');
+        return { deferred: false as const, modelBand: reservation.band, provider: reservation.provider, sample: sample.rows };
+      });
+      if (proposal.deferred) return;
+
+      const proposed = await this.options.aiRuntime.proposeTopics({
+        modelBand: proposal.modelBand,
+        provider: proposal.provider,
+        items: proposal.sample.map((row, index) => ({ index, text: row.text, platform: row.platform })),
+      });
+      const taxonomy = validatedTopicTaxonomy(proposed);
+      await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+        for (const entry of taxonomy) {
+          await tx.query(
+            `INSERT INTO topic (workspace_id, run_id, topic_key, label, description)
+             VALUES (current_setting('app.workspace_id')::uuid, $1, $2, $3, $4)
+             ON CONFLICT (run_id, topic_key) DO NOTHING`,
+            [runId, entry.key, entry.label, entry.description],
+          );
+        }
+        await tx.query(
+          `UPDATE topic_run SET status = 'assigning', topic_count = $2
+            WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid`,
+          [runId, taxonomy.length],
+        );
+      });
+    } else if (state.status !== 'assigning') {
+      // 断点续跑（含死信重放）：taxonomy 已就绪，直接进入指派阶段。
+      await this.options.database.withWorkspace(job.workspaceId, (tx) => tx.query(
+        `UPDATE topic_run SET status = 'assigning', error = NULL
+          WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND status IN ('pending', 'proposing', 'failed')`,
+        [runId],
+      ));
+    }
+
+    // 阶段 2：分块指派，直到没有未处理条目。与 import.classify 同一模式：
+    // 每个 chunk 完整落库后才推进进度标记，中途失败重试不重做已付 chunk。
+    for (;;) {
+      const chunk = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+        const run = await tx.query<{ status: string; modelBand: string }>(
+          `SELECT status, model_band AS "modelBand" FROM topic_run
+            WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid`,
+          [runId],
+        );
+        if (run.rows[0]?.status !== 'assigning') throw new Error('topic run not in assigning state');
+        const taxonomy = await tx.query<{ id: string; key: string; label: string; description: string }>(
+          `SELECT id, topic_key AS key, label, description FROM topic
+            WHERE run_id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid
+            ORDER BY topic_key`,
+          [runId],
+        );
+        const pending = await tx.query<{ id: string; text: string; platform: string }>(
+          `SELECT id, text, platform FROM import_item
+            WHERE workspace_id = current_setting('app.workspace_id')::uuid
+              AND classified_at IS NOT NULL
+              AND (topic_assigned_run IS NULL OR topic_assigned_run <> $1)
+            ORDER BY created_at, id
+            LIMIT $2`,
+          [runId, TOPIC_ASSIGN_CHUNK],
+        );
+        if (!pending.rows.length) return { done: true as const };
+        const reservation = await reserveAiRun(
+          tx,
+          [run.rows[0].modelBand],
+          { subjectId: runId, attempt: chunkAttemptKey(pending.rows.map((row) => row.id)), actionType: 'ai.topics.assign' },
+          run.rows[0].modelBand as ModelBand,
+        );
+        if (!reservation.replayed && reservation.guardrail.status === 'paused') {
+          await this.deferJobForCredits(tx, job, 'topics.cluster_deferred', { runId, phase: 'assign' });
+          return { done: false as const, deferred: true as const };
+        }
+        return { done: false as const, deferred: false as const, modelBand: reservation.band, provider: reservation.provider, taxonomy: taxonomy.rows, rows: pending.rows };
+      });
+
+      if ('deferred' in chunk && chunk.deferred) return;
+
+      if (chunk.done) {
+        await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+          // 确定计数回填：唯一权威来源是 item_topic 行数，LLM 无从编造。
+          await tx.query(
+            `UPDATE topic SET item_count = (SELECT COUNT(*) FROM item_topic WHERE item_topic.topic_id = topic.id)
+              WHERE run_id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid`,
+            [runId],
+          );
+          const finalized = await tx.query<{ items: string | number; topics: string | number }>(
+            `UPDATE topic_run SET status = 'completed', completed_at = now(),
+                    item_count = (SELECT COUNT(*) FROM import_item
+                                   WHERE workspace_id = current_setting('app.workspace_id')::uuid AND topic_assigned_run = $1)
+              WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid
+              RETURNING item_count AS items, topic_count AS topics`,
+            [runId],
+          );
+          await tx.query(
+            'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
+            [job.workspaceId, 'topics.clustered', { runId, items: Number(finalized.rows[0]?.items ?? 0), topics: Number(finalized.rows[0]?.topics ?? 0) }],
+          );
+          await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
+        });
+        return;
+      }
+
+      const assigned = await this.options.aiRuntime.assignTopics({
+        modelBand: chunk.modelBand,
+        provider: chunk.provider,
+        taxonomy: chunk.taxonomy.map((row) => ({ key: row.key, label: row.label, description: row.description })),
+        items: chunk.rows.map((row, index) => ({ index, text: row.text, platform: row.platform })),
+      });
+      const assignments = validatedTopicAssignments(assigned, chunk.rows, new Set(chunk.taxonomy.map((row) => row.key)));
+      const topicIdByKey = new Map(chunk.taxonomy.map((row) => [row.key, row.id]));
+      await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+        for (const assignment of assignments) {
+          const item = chunk.rows[assignment.itemIndex]!;
+          for (const topicRef of assignment.topics) {
+            await tx.query(
+              `INSERT INTO item_topic (workspace_id, run_id, item_id, topic_id, confidence, evidence, model_band)
+               VALUES (current_setting('app.workspace_id')::uuid, $1, $2, $3, $4, $5, $6)
+               ON CONFLICT (run_id, item_id, topic_id) DO NOTHING`,
+              [runId, item.id, topicIdByKey.get(topicRef.key)!, topicRef.confidence, topicRef.evidence, chunk.modelBand],
+            );
+          }
+        }
+        // 零指派条目同样标记已处理，否则会被无限重取。
+        await tx.query(
+          `UPDATE import_item SET topic_assigned_run = $1
+            WHERE id = ANY($2::uuid[]) AND workspace_id = current_setting('app.workspace_id')::uuid`,
+          [runId, chunk.rows.map((row) => row.id)],
+        );
+      });
+    }
+  }
+
   private async generateInsight(job: ClaimedJob): Promise<void> {
     const reportId = job.payload.reportId;
     if (typeof reportId !== 'string' || !reportId) throw new Error('insight.generate is missing reportId');
@@ -690,6 +888,11 @@ export class RunWorker {
       if (result.rows[0]?.status === 'dead_lettered' && job.kind === 'import.classify' && typeof job.payload.batchId === 'string') {
         await tx.query("UPDATE import_batch SET status = 'failed' WHERE id = $1 AND workspace_id = $2 AND status IN ('pending', 'classifying')", [job.payload.batchId, job.workspaceId]);
       }
+      // 主题运行同理：死信后置为 failed（保留已落库的部分结果与错误）；
+      // 管理员重放 job 时按 taxonomy 是否存在自动从断点续跑。
+      if (result.rows[0]?.status === 'dead_lettered' && job.kind === 'topics.cluster' && typeof job.payload.runId === 'string') {
+        await tx.query("UPDATE topic_run SET status = 'failed', error = $3 WHERE id = $1 AND workspace_id = $2 AND status IN ('pending', 'proposing', 'assigning')", [job.payload.runId, job.workspaceId, message.slice(0, 500)]);
+      }
       // 报告外发死信：delivery 状态机置为 failed 供前端展示，可重新发起外发。
       if (result.rows[0]?.status === 'dead_lettered' && job.kind === 'insight.deliver' && typeof job.payload.reportId === 'string') {
         await tx.query("UPDATE insight_report SET delivery = COALESCE(delivery, '{}'::jsonb) || $3::jsonb WHERE id = $1 AND workspace_id = $2 AND (delivery->>'approvalId' = $4 OR ($4::text IS NULL AND NOT (delivery ? 'content')))", [job.payload.reportId, job.workspaceId, JSON.stringify({ status: 'failed', error: message.slice(0, 500) }), job.payload.approvalId ?? null]);
@@ -765,5 +968,46 @@ export function validatedClassifications(result: Record<string, unknown>, items:
     }
   }
   if (seen.size !== items.length) throw new Error('classification_incomplete: retry the complete paid chunk');
+  return parsed.data.assignments;
+}
+
+/**
+ * Validates the proposed topic taxonomy. Malformed output throws so the job
+ * retries（attempt=1 重放已付预订，不重复扣费）instead of persisting a broken
+ * taxonomy. Duplicate keys are rejected: assignment chunks reference by key.
+ */
+export function validatedTopicTaxonomy(result: Record<string, unknown>): TopicTaxonomyEntry[] {
+  const parsed = topicProposeResultSchema.safeParse(result);
+  if (!parsed.success) throw new Error(`topics propose result failed schema validation: ${parsed.error.issues.length} issue(s)`);
+  const seen = new Set<string>();
+  for (const entry of parsed.data.topics) {
+    if (seen.has(entry.key)) throw new Error('topics_duplicate_key');
+    seen.add(entry.key);
+  }
+  return parsed.data.topics;
+}
+
+/**
+ * Validates one topic-assignment chunk with the same posture as
+ * validatedClassifications: complete indexes, taxonomy-only keys, verbatim
+ * evidence. A malformed chunk throws for retry — silently dropping it would
+ * corrupt the verifiable per-topic counts.
+ */
+export function validatedTopicAssignments(result: Record<string, unknown>, items: Array<{ text: string }>, taxonomyKeys: Set<string>): TopicAssignmentResult['assignments'] {
+  const parsed = topicAssignmentResultSchema.safeParse(result);
+  if (!parsed.success) throw new Error(`topics assign result failed schema validation: ${parsed.error.issues.length} issue(s)`);
+  const seen = new Set<number>();
+  for (const assignment of parsed.data.assignments) {
+    const item = items[assignment.itemIndex];
+    if (!item || seen.has(assignment.itemIndex)) throw new Error('topics_assignment_invalid_item_index');
+    seen.add(assignment.itemIndex);
+    const keys = new Set<string>();
+    for (const topic of assignment.topics) {
+      if (!taxonomyKeys.has(topic.key) || keys.has(topic.key)) throw new Error('topics_assignment_invalid_key');
+      keys.add(topic.key);
+      if (!item.text.includes(topic.evidence)) throw new Error('topics_assignment_invalid_evidence');
+    }
+  }
+  if (seen.size !== items.length) throw new Error('topics_assignment_incomplete: retry the complete paid chunk');
   return parsed.data.assignments;
 }

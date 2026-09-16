@@ -2,10 +2,13 @@ import { registerApiRoute } from '@mastra/core/server';
 
 import { createInsightReportAgent } from '../agents/insight-report-agent';
 import { createItemClassifierAgent } from '../agents/item-classifier-agent';
+import { createTopicAssignerAgent } from '../agents/topic-assigner-agent';
+import { createTopicTaxonomyAgent } from '../agents/topic-taxonomy-agent';
 import { config } from '../config';
 import { modelForBand } from '../lib/model-routing';
 import { classifyRequestSchema, classifyGenerationSchema } from '../schemas/classify';
 import { insightReportRequestSchema, insightResultSchemas } from '../schemas/insights';
+import { topicAssignRequestSchema, topicAssignResultSchema, topicProposeRequestSchema, topicProposeResultSchema } from '../schemas/topics';
 import { RunServiceEventEmitter, registerEmitter, removeEmitter } from '../events/emitter';
 import { prepareAnnouncementRequestSchema } from '../schemas/announcement';
 import { internalAuth } from './auth';
@@ -169,6 +172,64 @@ export const internalApiRoutes = [
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return c.json({ error: 'classify_failed', message }, 502);
+      }
+    },
+  }),
+
+  registerApiRoute('/internal/topics/propose', {
+    method: 'POST',
+    middleware: [internalAuth],
+    handler: async (c) => {
+      let body: unknown;
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.json({ error: 'invalid_request', message: 'Request body must be valid JSON' }, 400);
+      }
+      const parsed = topicProposeRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
+      }
+      const { items, modelBand, provider, language } = parsed.data;
+      try {
+        const agent = createTopicTaxonomyAgent(modelForBand(config, modelBand, provider));
+        const { object } = await agent.generate(
+          `Propose a topic taxonomy from the following sample of ${items.length} feedback item(s)${language === 'auto' ? '' : ` (expected language: ${language})`}. Items as JSON:\n${JSON.stringify(items)}`,
+          { structuredOutput: { schema: topicProposeResultSchema } },
+        );
+        return c.json(object, 200);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return c.json({ error: 'topics_propose_failed', message }, 502);
+      }
+    },
+  }),
+
+  registerApiRoute('/internal/topics/assign', {
+    method: 'POST',
+    middleware: [internalAuth],
+    handler: async (c) => {
+      let body: unknown;
+      try {
+        body = await c.req.json();
+      } catch {
+        return c.json({ error: 'invalid_request', message: 'Request body must be valid JSON' }, 400);
+      }
+      const parsed = topicAssignRequestSchema.safeParse(body);
+      if (!parsed.success) {
+        return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
+      }
+      const { items, taxonomy, modelBand, provider, language } = parsed.data;
+      try {
+        const agent = createTopicAssignerAgent(modelForBand(config, modelBand, provider));
+        const { object } = await agent.generate(
+          `Assign each of the following ${items.length} item(s) to 0-3 topics from the fixed taxonomy${language === 'auto' ? '' : ` (expected language: ${language})`}. Taxonomy as JSON:\n${JSON.stringify(taxonomy)}\nItems as JSON:\n${JSON.stringify(items)}`,
+          { structuredOutput: { schema: topicAssignResultSchema } },
+        );
+        return c.json(object, 200);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return c.json({ error: 'topics_assign_failed', message }, 502);
       }
     },
   }),

@@ -49,6 +49,35 @@ describe('Egg production gateway', () => {
       .expect('Cache-Control', 'no-store').expect(200).expect({ templates: [], basis: 'reports_generated_in_window_current_feedback' });
   });
 
+  it('requires workspace authentication for topic endpoints', async () => {
+    await app.httpRequest().post('/api/topics/runs').send({}).expect(401);
+    await app.httpRequest().get('/api/topics').expect(401);
+    await app.httpRequest().get('/api/topics/11111111-1111-4111-8111-111111111111/items').expect(401);
+  });
+
+  it('routes authenticated topic run creation and reads with no-store responses', async () => {
+    const runView = { id: '33333333-3333-4333-8333-333333333333', status: 'pending', modelBand: 'eco', itemCount: 12, topicCount: 0, error: null, createdAt: new Date().toISOString(), completedAt: null };
+    mm(app.platform.service, 'startTopicRun', async (actor: { role: string }, body: unknown) => {
+      assert.equal(actor.role, 'owner');
+      assert.deepEqual(body, { modelBand: 'standard' });
+      return runView;
+    });
+    await app.httpRequest().post('/api/topics/runs').set('authorization', `Bearer ${ownerToken}`).send({ modelBand: 'standard' })
+      .expect('Cache-Control', 'no-store').expect(201).expect(runView);
+
+    mm(app.platform.service, 'listTopics', async () => ({ run: runView, topics: [] }));
+    await app.httpRequest().get('/api/topics').set('authorization', `Bearer ${ownerToken}`)
+      .expect('Cache-Control', 'no-store').expect(200).expect({ run: runView, topics: [] });
+
+    mm(app.platform.service, 'topicItems', async (_actor: unknown, topicId: string, query: Record<string, unknown>) => {
+      assert.equal(topicId, '44444444-4444-4444-8444-444444444444');
+      assert.equal(query.limit, '5');
+      return { topic: { id: topicId, runId: runView.id, key: 'k', label: 'L', description: 'D', itemCount: 1 }, total: 1, items: [] };
+    });
+    await app.httpRequest().get('/api/topics/44444444-4444-4444-8444-444444444444/items?limit=5').set('authorization', `Bearer ${ownerToken}`)
+      .expect('Cache-Control', 'no-store').expect(200);
+  });
+
   it('requires workspace authentication for execution feedback reads and writes', async () => {
     await app.httpRequest().get('/api/insights/11111111-1111-4111-8111-111111111111/actions').expect(401);
     await app.httpRequest().put('/api/insights/11111111-1111-4111-8111-111111111111/actions/tasks%3A0').send({ status: 'completed' }).expect(401);

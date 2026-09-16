@@ -148,6 +148,22 @@ export default class PlatformController extends Controller {
     this.ctx.body = await this.app.platform.service.insightDetail(this.actor(), this.ctx.params.reportId);
   }
 
+  async createTopicRun(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.status = 201;
+    this.ctx.body = await this.app.platform.service.startTopicRun(this.actor(), this.ctx.request.body);
+  }
+
+  async listTopics(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.listTopics(this.actor());
+  }
+
+  async topicItems(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.topicItems(this.actor(), this.ctx.params.topicId, this.ctx.query);
+  }
+
   async createRun(): Promise<void> {
     const created = await this.app.platform.service.createWorkflowRun(this.actor(), this.ctx.request.body);
     this.ctx.status = 202;
