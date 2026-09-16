@@ -192,6 +192,14 @@ npm run migrate
 npm run db:check
 
 cd "$deploy_dir"
+# The fixed container names may still be held by pre-CI containers that this
+# compose project does not own; remove them so `up -d` can recreate cleanly.
+for container in ai-markting-front ai-marketing-subscribe-api; do
+  if [[ -n "$(sudo docker ps -aq --filter "name=^/${container}$")" ]]; then
+    echo "Removing stale container $container so compose can recreate it."
+    sudo docker rm -f "$container"
+  fi
+done
 sudo docker compose up -d
 
 sudo systemctl restart piggybot-ai-runtime piggybot-platform
