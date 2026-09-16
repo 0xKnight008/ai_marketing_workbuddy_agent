@@ -76,6 +76,44 @@ describe('Egg production gateway', () => {
       .expect('Cache-Control', 'no-store').expect(201).expect(snapshotView);
   });
 
+  it('routes notification rule and event endpoints with workspace auth', async () => {
+    await app.httpRequest().get('/api/notifications/rules').expect(401);
+    await app.httpRequest().put('/api/notifications/rules/morning_push').send({ channel: 'email' }).expect(401);
+    await app.httpRequest().get('/api/notifications/events').expect(401);
+    await app.httpRequest().post('/api/notifications/events/11111111-1111-4111-8111-111111111111/approve').send({}).expect(401);
+    await app.httpRequest().post('/api/notifications/events/11111111-1111-4111-8111-111111111111/act').send({ action: 'acknowledge' }).expect(401);
+
+    mm(app.platform.service, 'listNotificationRules', async () => ({ rules: [], weeklyTemplates: [] }));
+    await app.httpRequest().get('/api/notifications/rules').set('authorization', `Bearer ${ownerToken}`)
+      .expect('Cache-Control', 'no-store').expect(200).expect({ rules: [], weeklyTemplates: [] });
+
+    mm(app.platform.service, 'putNotificationRule', async (actor: unknown, kind: unknown, body: unknown) => {
+      assert.equal(kind, 'morning_push');
+      assert.deepEqual(body, { channel: 'email' });
+      return { id: 'rule-1', kind: 'morning_push', updatedAt: '2026-09-17T00:00:00.000Z' };
+    });
+    await app.httpRequest().put('/api/notifications/rules/morning_push').set('authorization', `Bearer ${ownerToken}`).send({ channel: 'email' })
+      .expect('Cache-Control', 'no-store').expect(200);
+
+    mm(app.platform.service, 'listNotificationEvents', async (actor: unknown, query: unknown) => {
+      assert.deepEqual(query, { kind: 'urgent_risk' });
+      return { events: [] };
+    });
+    await app.httpRequest().get('/api/notifications/events?kind=urgent_risk').set('authorization', `Bearer ${ownerToken}`)
+      .expect('Cache-Control', 'no-store').expect(200).expect({ events: [] });
+
+    mm(app.platform.service, 'approveNotificationEvent', async () => ({ id: 'event-1', status: 'queued' }));
+    await app.httpRequest().post('/api/notifications/events/11111111-1111-4111-8111-111111111111/approve').set('authorization', `Bearer ${ownerToken}`).send({})
+      .expect('Cache-Control', 'no-store').expect(200).expect({ id: 'event-1', status: 'queued' });
+
+    mm(app.platform.service, 'actOnNotificationEvent', async (actor: unknown, eventId: unknown, body: unknown) => {
+      assert.deepEqual(body, { action: 'resolve' });
+      return { id: 'event-2', status: 'resolved' };
+    });
+    await app.httpRequest().post('/api/notifications/events/11111111-1111-4111-8111-111111111111/act').set('authorization', `Bearer ${ownerToken}`).send({ action: 'resolve' })
+      .expect('Cache-Control', 'no-store').expect(200).expect({ id: 'event-2', status: 'resolved' });
+  });
+
   it('requires workspace authentication for topic endpoints', async () => {
     await app.httpRequest().post('/api/topics/runs').send({}).expect(401);
     await app.httpRequest().get('/api/topics').expect(401);

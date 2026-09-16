@@ -148,6 +148,36 @@ export default class PlatformController extends Controller {
     this.ctx.body = await this.app.platform.service.sealWeeklyHistory(this.actor(), this.ctx.request.body);
   }
 
+  async listNotificationRules(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.listNotificationRules(this.actor());
+  }
+
+  async putNotificationRule(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.putNotificationRule(this.actor(), this.ctx.params.kind, this.ctx.request.body);
+  }
+
+  async deleteNotificationRule(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.deleteNotificationRule(this.actor(), this.ctx.params.kind);
+  }
+
+  async listNotificationEvents(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.listNotificationEvents(this.actor(), this.ctx.query);
+  }
+
+  async approveNotificationEvent(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.approveNotificationEvent(this.actor(), this.ctx.params.eventId);
+  }
+
+  async actOnNotificationEvent(): Promise<void> {
+    this.ctx.set('Cache-Control', 'no-store');
+    this.ctx.body = await this.app.platform.service.actOnNotificationEvent(this.actor(), this.ctx.params.eventId, this.ctx.request.body);
+  }
+
   async saveInsightAction(): Promise<void> {
     this.ctx.set('Cache-Control', 'no-store');
     this.ctx.body = await this.app.platform.service.saveInsightAction(this.actor(), this.ctx.params.reportId, this.ctx.params.actionKey, this.ctx.request.body);

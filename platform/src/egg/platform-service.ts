@@ -35,6 +35,7 @@ import { InsightFeedbackService } from '../insight-service/feedback';
 import { TopicService } from '../insight-service/topics';
 import { WeeklyReviewService } from '../insight-service/weekly-review';
 import { WeeklyHistoryService } from '../insight-service/weekly-history';
+import { NotificationService, ScheduledNotificationService } from '../insight-service/notifications';
 import { createDurableRun, decideApproval, ingestAiRuntimeEvent } from '../run-service/repository';
 import {
   ZERNIO_PLATFORMS,
@@ -212,6 +213,40 @@ export class PlatformService {
   /** egg schedule 每日调用：为符合条件的订阅工作区入队 daily_ops 报告。 */
   async enqueueScheduledDailyOps(): Promise<number> {
     return this.insights.enqueueScheduledDailyOps();
+  }
+
+  /** Module 4：egg schedule 晚间复盘入口。 */
+  async enqueueEveningRecaps(): Promise<number> {
+    return new ScheduledNotificationService(this.database).enqueueEveningRecaps();
+  }
+
+  /** Module 4：egg schedule 周报生成入口。 */
+  async enqueueWeeklyReports(): Promise<number> {
+    return new ScheduledNotificationService(this.database).enqueueWeeklyReports();
+  }
+
+  async listNotificationRules(actor: ActorContext): Promise<unknown> {
+    return new NotificationService(this.database).listRules(actor);
+  }
+
+  async putNotificationRule(actor: ActorContext, kind: unknown, body: unknown): Promise<unknown> {
+    return new NotificationService(this.database).putRule(actor, kind, body);
+  }
+
+  async deleteNotificationRule(actor: ActorContext, kind: unknown): Promise<unknown> {
+    return new NotificationService(this.database).deleteRule(actor, kind);
+  }
+
+  async listNotificationEvents(actor: ActorContext, query: unknown): Promise<unknown> {
+    return new NotificationService(this.database).listEvents(actor, query);
+  }
+
+  async approveNotificationEvent(actor: ActorContext, eventId: unknown): Promise<unknown> {
+    return new NotificationService(this.database).approveEvent(actor, eventId);
+  }
+
+  async actOnNotificationEvent(actor: ActorContext, eventId: unknown, body: unknown): Promise<unknown> {
+    return new NotificationService(this.database).actOnEvent(actor, eventId, body);
   }
 
   async createWorkflowRun(actor: ActorContext, body: unknown): Promise<{ runId: string; status: 'pending' }> {

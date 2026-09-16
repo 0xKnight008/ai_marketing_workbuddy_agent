@@ -25,6 +25,12 @@ export default (app: Application) => {
   router.get('/api/insights/weekly-history', controller.platform.weeklyHistory);
   router.get('/api/insights/weekly-history/:weekStart', controller.platform.weeklyHistorySnapshot);
   router.post('/api/insights/weekly-history/snapshots', controller.platform.sealWeeklyHistory);
+  router.get('/api/notifications/rules', controller.platform.listNotificationRules);
+  router.put('/api/notifications/rules/:kind', controller.platform.putNotificationRule);
+  router.delete('/api/notifications/rules/:kind', controller.platform.deleteNotificationRule);
+  router.get('/api/notifications/events', controller.platform.listNotificationEvents);
+  router.post('/api/notifications/events/:eventId/approve', controller.platform.approveNotificationEvent);
+  router.post('/api/notifications/events/:eventId/act', controller.platform.actOnNotificationEvent);
   router.get('/api/insights/:reportId', controller.platform.insightDetail);
   router.post('/api/insights/:reportId/deliver', controller.platform.requestInsightDelivery);
   router.get('/api/insights/:reportId/actions', controller.platform.insightActions);

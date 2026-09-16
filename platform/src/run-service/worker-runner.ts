@@ -10,6 +10,7 @@ import { TOPIC_ASSIGN_CHUNK, TOPIC_PROPOSE_SAMPLE, topicAssignmentResultSchema, 
 import { insightResultSchemas, insightTemplateSchema, reportDeliverySchema, type InsightTemplate } from '../contracts/insights';
 import { buildEvidencePack, enforceGroundedConclusions, validateReportCitations, type EvidenceSourceRow, type GroundingStats } from '../insight-service/evidence-pack';
 import { sendReportEmail, type ReportEmailConfig } from '../insight-service/delivery';
+import { ScheduledNotificationService } from '../insight-service/notifications';
 import type { BrandContextSnapshot } from '../contracts/domain';
 import { MODEL_BAND_POLICIES, MODEL_BANDS, type ModelBand } from '../billing/plans';
 import { projectedActionUsage, recordSuccessfulAction, reserveAiRun, type AiReservation, type UsageSnapshot } from '../billing/guardrails';
@@ -92,6 +93,8 @@ export class RunWorker {
       else if (job.kind === 'insight.generate') await this.generateInsight(job);
       else if (job.kind === 'insight.deliver') await this.deliverInsight(job);
       else if (job.kind === 'topics.cluster') await this.clusterTopics(job);
+      else if (job.kind === 'notification.plan') await this.planNotifications(job);
+      else if (job.kind === 'notification.send') await this.sendNotification(job);
       else throw new Error(`Unsupported job: ${job.kind}`);
     } catch (error) {
       if (error instanceof SupplierUnavailableError) await this.deferForSupplier(job, error);
@@ -757,6 +760,107 @@ export class RunWorker {
         'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
         [job.workspaceId, 'insight.generated', { reportId, template: prepared.template, droppedCitations: stats.dropped, droppedConclusions: grounding.droppedConclusions, groundedRate }],
       );
+      // Module 4：报告生成后按工作区通知规则规划定时交付（早间推送/周报/紧急风险）。
+      await tx.query(
+        "INSERT INTO job (workspace_id, kind, payload) VALUES ($1, 'notification.plan', $2)",
+        [job.workspaceId, { reportId }],
+      );
+      await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
+    });
+  }
+
+  /**
+   * Module 4：报告生成后按通知规则规划事件（早间推送/周报/紧急风险）。
+   * 事件创建与 send job 入队在同一租户事务内，重复 plan 由 dedup key 兜底。
+   */
+  private async planNotifications(job: ClaimedJob): Promise<void> {
+    const service = new ScheduledNotificationService(this.options.database);
+    await service.planForReport(job.workspaceId, job.payload.reportId);
+    await this.options.database.withWorkspace(job.workspaceId, (tx) => tx.query(
+      "UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2",
+      [job.id, job.workspaceId]));
+  }
+
+  /**
+   * Module 4：投递 queued 通知事件。与 deliverInsight 同一姿势——邮件走
+   * Resend 幂等键，Discord 走 Zernio 且发送前重新校验账号能力；只有
+   * status='queued' 的事件才投递，重复入队安全跳过。
+   */
+  private async sendNotification(job: ClaimedJob): Promise<void> {
+    const eventId = z.string().uuid().parse(job.payload.eventId);
+    const prepared = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+      const result = await tx.query<{
+        kind: string; status: string; channel: 'email' | 'discord';
+        target: string; targetLabel: string; subject: string; content: string;
+      }>(
+        `SELECT kind, status, channel, target, target_label AS "targetLabel", subject, content
+           FROM notification_event
+          WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid`,
+        [eventId]);
+      const row = result.rows[0];
+      if (!row) throw new Error('notification event not found');
+      if (row.status !== 'queued') return { skipped: true as const };
+      return { skipped: false as const, ...row };
+    });
+    if (prepared.skipped) {
+      await this.options.database.withWorkspace(job.workspaceId, (tx) => tx.query(
+        "UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2",
+        [job.id, job.workspaceId]));
+      return;
+    }
+
+    if (prepared.channel === 'email') {
+      if (!this.options.email) throw new Error('Email delivery is not configured');
+      await sendReportEmail(this.options.email, {
+        to: prepared.target,
+        subject: prepared.subject,
+        text: prepared.content.slice(0, 12000),
+        idempotencyKey: `notification/${eventId}`,
+      });
+    } else {
+      const { zernio } = this.options;
+      if (!zernio) throw new Error('Zernio action execution is not configured');
+      const account = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+        const result = await tx.query<{ id: string; workspaceId: string; status: ConnectedAccountView['status']; capabilities: string[]; externalAccountId: string }>(
+          `SELECT id, workspace_id AS "workspaceId", status, capabilities, external_account_id AS "externalAccountId"
+             FROM connected_account
+            WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND provider = 'zernio'`,
+          [prepared.target]);
+        return result.rows[0];
+      });
+      if (!account) throw new Error('Notification target account was not found in this workspace');
+      const action = {
+        stepOrder: 1,
+        type: 'social.create_post' as const,
+        platform: 'discord',
+        accountId: account.externalAccountId,
+        content: prepared.content.slice(0, 1900),
+        hashtags: [] as string[],
+        mode: 'publish_now' as const,
+        idempotencyKey: `notification:${eventId}`,
+        requiresApproval: false,
+      };
+      assertExecutableAction({
+        workspaceId: job.workspaceId,
+        runId: eventId,
+        stepId: job.id,
+        attempt: Math.max(job.attempt, 1),
+        account: { id: account.id, workspaceId: account.workspaceId, status: account.status, capabilities: account.capabilities },
+        type: action.type,
+        payload: action,
+      });
+      await zernio.executeAction(action.idempotencyKey, action, job.workspaceId);
+    }
+
+    await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+      await tx.query(
+        `UPDATE notification_event SET status = 'sent', sent_at = now()
+          WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND status = 'queued'`,
+        [eventId, job.workspaceId]);
+      await tx.query(
+        'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
+        [job.workspaceId, 'notification.sent', { eventId, kind: prepared.kind, channel: prepared.channel, targetLabel: prepared.targetLabel }],
+      );
       await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
     });
   }
@@ -897,6 +1001,10 @@ export class RunWorker {
       if (result.rows[0]?.status === 'dead_lettered' && job.kind === 'insight.deliver' && typeof job.payload.reportId === 'string') {
         await tx.query("UPDATE insight_report SET delivery = COALESCE(delivery, '{}'::jsonb) || $3::jsonb WHERE id = $1 AND workspace_id = $2 AND (delivery->>'approvalId' = $4 OR ($4::text IS NULL AND NOT (delivery ? 'content')))", [job.payload.reportId, job.workspaceId, JSON.stringify({ status: 'failed', error: message.slice(0, 500) }), job.payload.approvalId ?? null]);
         await tx.query('INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)', [job.workspaceId, 'insight.delivery_failed', { reportId: job.payload.reportId, error: message.slice(0, 200) }]);
+      }
+      // 定时通知死信：事件置为 failed（保留错误），下个调度周期由 dedup key 自然换新。
+      if (result.rows[0]?.status === 'dead_lettered' && job.kind === 'notification.send' && typeof job.payload.eventId === 'string') {
+        await tx.query("UPDATE notification_event SET status = 'failed', error = $3 WHERE id = $1 AND workspace_id = $2 AND status = 'queued'", [job.payload.eventId, job.workspaceId, message.slice(0, 500)]);
       }
     });
   }
