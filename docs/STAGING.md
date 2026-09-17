@@ -5,6 +5,9 @@ Staging 与生产共用 piggybot-2 主机，但每个 touchpoint 都是独立资
 （staging.piggybot.me）。脚本内置硬性防呆：任何指向生产路径、生产端口、
 生产数据库或生产 systemd 单元的配置都会让脚本直接拒绝运行。
 
+> 分步搭建与验收操作手册（含真实 routing proxy 接入）见
+> [STAGING_SETUP.md](./STAGING_SETUP.md)。
+
 ## 架构
 
 | 资源 | 生产 | Staging |
