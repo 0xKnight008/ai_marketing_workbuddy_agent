@@ -138,13 +138,19 @@ fi
 set +a
 : "${DATABASE_URL:?DATABASE_URL must be set in the platform environment file}"
 
+# ai-runtime dependencies must be installed BEFORE the platform typecheck:
+# the platform tsconfig type-checks ../ai-runtime/src schemas, and resolving
+# their imports (zod, etc.) requires ai-runtime/node_modules to exist. On a
+# fresh checkout it does not exist yet, so platform-first ordering fails.
+cd "$deploy_dir/ai-runtime"
+npm ci
+
 cd "$deploy_dir/platform"
 npm ci
 npm run typecheck
 npm test
 
 cd "$deploy_dir/ai-runtime"
-npm ci
 npm run typecheck
 npm test
 npm run build
