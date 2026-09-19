@@ -35,6 +35,19 @@ import {
 
 const RUNTIME_UNIT = process.env.STAGING_RUNTIME_UNIT ?? 'piggybot-ai-runtime-staging';
 
+// Cloudflare Access service token, required when probing
+// staging.piggybot.me from outside the origin host. Leave unset when
+// running on the staging host against 127.0.0.1:4200.
+const CF_ACCESS_HEADERS = {};
+if (process.env.CF_ACCESS_CLIENT_ID && process.env.CF_ACCESS_CLIENT_SECRET) {
+  CF_ACCESS_HEADERS['CF-Access-Client-Id'] = process.env.CF_ACCESS_CLIENT_ID;
+  CF_ACCESS_HEADERS['CF-Access-Client-Secret'] = process.env.CF_ACCESS_CLIENT_SECRET;
+}
+
+function withCfAccess(headers) {
+  return { ...CF_ACCESS_HEADERS, ...headers };
+}
+
 function usage(exitCode) {
   console.log(`Usage: node scripts/staging-acceptance.mjs [options]
 
@@ -90,7 +103,7 @@ function sleep(ms) {
 async function api(baseUrl, token, method, path, body) {
   const response = await fetch(`${baseUrl}${path}`, {
     method,
-    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    headers: withCfAccess({ authorization: `Bearer ${token}`, 'content-type': 'application/json' }),
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const text = await response.text();
@@ -127,9 +140,13 @@ async function main() {
   const baseUrl = (options.baseUrl ?? `http://127.0.0.1:${env.GATEWAY_PORT ?? '4200'}`).replace(/\/+$/, '');
 
   console.log('==> Health checks');
-  const platformHealth = await fetch(`${baseUrl}/internal/ready`, { signal: AbortSignal.timeout(10_000) });
+  const platformHealth = await fetch(`${baseUrl}/internal/ready`, {
+    signal: AbortSignal.timeout(10_000), headers: withCfAccess({}),
+  });
   if (!platformHealth.ok) throw new Error(`staging platform is not ready at ${baseUrl} (HTTP ${platformHealth.status})`);
-  const runtimeHealth = await fetch(`${env.AI_RUNTIME_URL}/internal/health`, { signal: AbortSignal.timeout(10_000) });
+  const runtimeHealth = await fetch(`${env.AI_RUNTIME_URL}/internal/health`, {
+    signal: AbortSignal.timeout(10_000), headers: withCfAccess({}),
+  });
   if (!runtimeHealth.ok) throw new Error('staging ai-runtime is not healthy');
   console.log('    platform and ai-runtime are healthy');
 

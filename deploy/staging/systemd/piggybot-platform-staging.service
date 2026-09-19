@@ -9,6 +9,10 @@ User=piggybot
 Group=piggybot
 WorkingDirectory=/opt/ai-marketing-agent-staging/platform
 EnvironmentFile=/etc/piggybot-staging/platform.env
+Environment=EGG_TYPESCRIPT=true
+Environment="NODE_OPTIONS=--require ts-node/register"
+Environment=TS_NODE_TRANSPILE_ONLY=true
+Environment=PORT=4200
 ExecStart=/usr/bin/env npm run start
 Restart=always
 RestartSec=5
