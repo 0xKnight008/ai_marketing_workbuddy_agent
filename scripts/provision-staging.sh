@@ -112,6 +112,19 @@ for unit in "$platform_unit" "$runtime_unit"; do
   fi
 done
 echo "    service user: $service_user"
+
+# systemd's default PATH lacks user-local Node installs (nvm, volta, ...).
+# Detect the deploy shell's npm location and drop it into both units, or the
+# services crash-loop with "/usr/bin/env: 'npm': No such file or directory".
+npm_bin_dir="$(dirname "$(command -v npm 2>/dev/null || echo /usr/bin/npm)")"
+if [[ "$npm_bin_dir" != '/usr/bin' && "$npm_bin_dir" != '/usr/local/bin' ]]; then
+  for unit in "$platform_unit" "$runtime_unit"; do
+    sudo install -d -m 0755 -o root -g root "/etc/systemd/system/${unit}.service.d"
+    printf '[Service]\nEnvironment=PATH=%s:/usr/local/bin:/usr/bin:/bin\n' "$npm_bin_dir" \
+      | sudo tee "/etc/systemd/system/${unit}.service.d/10-node-path.conf" > /dev/null
+  done
+  echo "    injected npm PATH ($npm_bin_dir) into both units"
+fi
 sudo systemctl daemon-reload
 sudo systemctl enable "$platform_unit" "$runtime_unit"
 
