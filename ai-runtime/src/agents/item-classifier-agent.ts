@@ -1,4 +1,5 @@
 import { Agent } from '@mastra/core/agent';
+import { chatCompletionsModel } from '../lib/chat-completions-model';
 
 /**
  * 导入内容分类 agent（迭代 1 · P0 地基）。
@@ -32,6 +33,6 @@ Rules:
 - confidence reflects how unambiguous the signal is (0.9+ only for explicit statements).
 - Work in the item's own language; tag values and output schema stay in English.
 - Output strictly follows the structured schema. No commentary outside the schema.`,
-    model,
+    model: chatCompletionsModel(model),
   });
 }

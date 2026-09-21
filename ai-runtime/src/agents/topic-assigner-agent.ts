@@ -1,4 +1,5 @@
 import { Agent } from '@mastra/core/agent';
+import { chatCompletionsModel } from '../lib/chat-completions-model';
 
 /**
  * 主题指派 agent（Module 2 · 全量主题聚类）。
@@ -22,6 +23,6 @@ Rules:
 - confidence reflects how unambiguous the match is (0.9+ only for explicit statements).
 - Reference topics ONLY by their key, exactly as given in the taxonomy.
 - Output strictly follows the structured schema. Include one assignment object for EVERY input item (empty topics array when nothing fits). No commentary outside the schema.`,
-    model,
+    model: chatCompletionsModel(model),
   });
 }

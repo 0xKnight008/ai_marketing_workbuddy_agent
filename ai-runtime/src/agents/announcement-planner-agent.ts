@@ -1,4 +1,5 @@
 import { Agent } from '@mastra/core/agent';
+import { chatCompletionsModel } from '../lib/chat-completions-model';
 
 /**
  * 公告内容规划 agent。
@@ -23,6 +24,6 @@ Rules:
 - Use prior approved examples (when provided) as style reference, not as content to copy.
 - Write in the language specified by the brand profile.
 - Output strictly follows the structured schema. No commentary outside the schema.`,
-    model,
+    model: chatCompletionsModel(model),
   });
 }

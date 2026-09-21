@@ -1,4 +1,5 @@
 import { Agent } from '@mastra/core/agent';
+import { chatCompletionsModel } from '../lib/chat-completions-model';
 
 /**
  * 文案优化 agent（架构文档 §3.5 明确点名的 agent）。
@@ -27,6 +28,6 @@ Rules:
 - Preserve all keyPoints from the plan; do not invent product facts not present in the brief/plan.
 - Write in the language specified by the brand profile.
 - Output strictly follows the structured schema.`,
-    model,
+    model: chatCompletionsModel(model),
   });
 }
