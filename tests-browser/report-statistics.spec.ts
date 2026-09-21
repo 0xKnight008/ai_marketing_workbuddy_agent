@@ -59,7 +59,7 @@ test('report shows full totals separately from sampled quotations and supports h
   await expect(emotions).toContainText('Classified: 4000 / 5000 · Unknown: 1000 (20.0%)');
   await expect(emotions).toContainText('excited: 1000 (20.0%)');
   await expect(emotions).toContainText('unknown is not neutral');
-  await page.getByRole('button', { name: 'Back to reports', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to insights', exact: true }).click();
   includeDataset = false;
   await page.getByRole('button', { name: 'Open report', exact: true }).click();
   await expect(page.getByText('Packaging feedback', { exact: true })).toBeVisible();
