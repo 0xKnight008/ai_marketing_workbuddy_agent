@@ -1,3 +1,4 @@
+import { t } from '../workspace/translate';
 import { useState } from 'react';
 import { readSessionAccessToken } from '../lib/auth-session';
 
@@ -25,23 +26,23 @@ const day = (iso: string) => iso.slice(0, 10);
 
 function TotalsLine({ totals }: { totals: Totals }) {
   return <>
-    <p className="mt-1 text-sm">{totals.events} decisions recorded · {totals.planned} planned · {totals.dismissed} dismissed</p>
-    <p className="mt-1 text-sm">Adopted: {totals.adopted}/{totals.events} ({percent(totals.adoptionRate)}) · Completed: {totals.completed}/{totals.events} ({percent(totals.completionRate)})</p>
-    <p className="mt-1 text-sm">Improved: {totals.effects.improved}/{totals.knownEffects} ({percent(totals.improvementRate)}) · Unchanged: {totals.effects.unchanged} · Worse: {totals.effects.worse} · Completed, effect unknown: {totals.effects.unknown}</p>
+    <p className="mt-1 text-sm">{totals.events} {t("decisions recorded ·")} {totals.planned} {t("planned ·")} {totals.dismissed} {t("dismissed")}</p>
+    <p className="mt-1 text-sm">{t("Adopted:")} {totals.adopted}/{totals.events} ({percent(totals.adoptionRate)}{t(") · Completed:")} {totals.completed}/{totals.events} ({percent(totals.completionRate)})</p>
+    <p className="mt-1 text-sm">{t("Improved:")} {totals.effects.improved}/{totals.knownEffects} ({percent(totals.improvementRate)}{t(") · Unchanged:")} {totals.effects.unchanged} {t("· Worse:")} {totals.effects.worse} {t("· Completed, effect unknown:")} {totals.effects.unknown}</p>
   </>;
 }
 
 function ComparisonLine({ comparison }: { comparison: Comparison | null }) {
-  if (!comparison) return <p className="mt-1 text-xs text-ink-soft">No consecutive sealed week to compare with.</p>;
-  return <p className="mt-1 text-xs text-ink-soft">vs previous week — decisions: {signed(comparison.events)} · completed: {signed(comparison.completed)} · adoption: {rateDelta(comparison.adoptionRate)} · completion: {rateDelta(comparison.completionRate)} · improvement: {rateDelta(comparison.improvementRate)}</p>;
+  if (!comparison) return <p className="mt-1 text-xs text-ink-soft">{t("No consecutive sealed week to compare with.")}</p>;
+  return <p className="mt-1 text-xs text-ink-soft">{t("vs previous week — decisions:")} {signed(comparison.events)} {t("· completed:")} {signed(comparison.completed)} {t("· adoption:")} {rateDelta(comparison.adoptionRate)} {t("· completion:")} {rateDelta(comparison.completionRate)} {t("· improvement:")} {rateDelta(comparison.improvementRate)}</p>;
 }
 
 function CompletedList({ actions, onOpenReport }: { actions: CompletedAction[]; onOpenReport: (id: string) => void }) {
-  if (actions.length === 0) return <p className="mt-2 text-xs text-ink-soft">No actions were marked completed in this window.</p>;
+  if (actions.length === 0) return <p className="mt-2 text-xs text-ink-soft">{t("No actions were marked completed in this window.")}</p>;
   return <ul className="mt-2 space-y-2">{actions.map(action => <li key={`${action.reportId}:${action.key}`} className="rounded border border-ink/10 p-2 text-sm">
-    <p>{action.title} · effect: {action.effect}</p>
-    <p className="text-xs text-ink-soft">From report “{action.reportTitle}” · completed {day(action.updatedAt)}{action.note ? ` · Observation: ${action.note}` : ''}</p>
-    <button type="button" onClick={() => onOpenReport(action.reportId)} className="mt-1 rounded border px-2 py-0.5 text-xs">Open report</button>
+    <p>{action.title} {t("· effect:")} {action.effect}</p>
+    <p className="text-xs text-ink-soft">{t("From report “")}{action.reportTitle}{t("” · completed")} {day(action.updatedAt)}{action.note ? ` · Observation: ${action.note}` : ''}</p>
+    <button type="button" onClick={() => onOpenReport(action.reportId)} className="mt-1 rounded border px-2 py-0.5 text-xs">{t("Open report")}</button>
   </li>)}</ul>;
 }
 
@@ -77,7 +78,7 @@ export function WeeklyHistory({ apiBase, onOpenReport }: { apiBase: string; onOp
     finally { setSealing(false); }
   };
   const toggleDetail = async (weekStart: string) => {
-    if (details[weekStart]) { setDetails(({ [weekStart]: _drop, ...rest }) => rest); return; }
+    if (details[weekStart]) { setDetails(current => { const next = { ...current }; delete next[weekStart]; return next; }); return; }
     setDetails(previous => ({ ...previous, [weekStart]: 'loading' }));
     try {
       const response = await fetch(`${apiBase}/api/insights/weekly-history/${weekStart}`, { headers: headers() });
@@ -90,39 +91,39 @@ export function WeeklyHistory({ apiBase, onOpenReport }: { apiBase: string; onOp
     }
   };
 
-  return <section aria-label="Weekly execution history" className="sketch bg-paper-card p-6 shadow-paint-sm">
-    <h2 className="font-display text-3xl">Weekly execution history</h2>
-    <p className="mt-2 text-sm text-ink-soft">Decisions attributed to the ISO week (UTC, Monday-start) in which you recorded them — including completions of actions from older reports. Seal a week to freeze it forever; sealed weeks power week-over-week comparison. No AI credits or outbound messages are used.</p>
+  return <section aria-label={t("Weekly execution history")} className="sketch bg-paper-card p-6 shadow-paint-sm">
+    <h2 className="font-display text-3xl">{t("Weekly execution history")}</h2>
+    <p className="mt-2 text-sm text-ink-soft">{t("Decisions attributed to the ISO week (UTC, Monday-start) in which you recorded them — including completions of actions from older reports. Seal a week to freeze it forever; sealed weeks power week-over-week comparison. No AI credits or outbound messages are used.")}</p>
     <div className="mt-3 flex flex-wrap gap-2">
-      <button type="button" disabled={busy} onClick={load} className="rounded border px-4 py-2 text-sm">{busy ? 'Loading history…' : history ? 'Refresh weekly history' : 'Load weekly history'}</button>
-      {history && !history.current.sealed && <button type="button" disabled={sealing} onClick={seal} className="rounded bg-sky-deep px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{sealing ? 'Sealing…' : 'Seal this week'}</button>}
+      <button type="button" disabled={busy} onClick={load} className="rounded border px-4 py-2 text-sm">{busy ? t("Loading history…") : history ? t("Refresh weekly history") : t("Load weekly history")}</button>
+      {history && !history.current.sealed && <button type="button" disabled={sealing} onClick={seal} className="rounded bg-sky-deep px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{sealing ? t("Sealing…") : t("Seal this week")}</button>}
     </div>
     {notice && <p role="status" className="mt-3 text-sm">{notice}</p>}
-    {error && <p role="alert" className="mt-3 text-sm">{error}</p>}
+    {error && <p role="alert" className="mt-3 text-sm">{t(error)}</p>}
     {history && <div className="mt-4 space-y-4">
       <article className="rounded-xl border border-ink/15 p-4">
-        <h3 className="text-lg font-semibold">This week · {day(history.current.weekStart)} → {day(history.current.weekEnd)} {history.current.sealed && <span className="ml-2 rounded bg-meadow/20 px-2 py-0.5 text-xs">sealed</span>}</h3>
+        <h3 className="text-lg font-semibold">{t("This week ·")} {day(history.current.weekStart)} → {day(history.current.weekEnd)} {history.current.sealed && <span className="ml-2 rounded bg-meadow/20 px-2 py-0.5 text-xs">{t("sealed")}</span>}</h3>
         <TotalsLine totals={history.current.totals} />
         <ComparisonLine comparison={history.current.comparison} />
         <details className="mt-3">
-          <summary className="cursor-pointer text-sm font-semibold">Completed this week ({history.current.completedActions.length})</summary>
+          <summary className="cursor-pointer text-sm font-semibold">{t("Completed this week (")}{history.current.completedActions.length})</summary>
           <CompletedList actions={history.current.completedActions} onOpenReport={onOpenReport} />
         </details>
       </article>
       {history.weeks.length > 0 && <article className="rounded-xl border border-ink/15 p-4">
-        <h3 className="text-lg font-semibold">Sealed weeks</h3>
+        <h3 className="text-lg font-semibold">{t("Sealed weeks")}</h3>
         <ul className="mt-2 space-y-2">{history.weeks.map(week => <li key={week.weekStart} className="rounded border border-ink/10 p-3">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm font-semibold">{week.weekStart} → {week.weekEnd}</p>
-            <span className="text-xs text-ink-soft">sealed {day(week.sealedAt)}</span>
-            <button type="button" onClick={() => void toggleDetail(week.weekStart)} className="ml-auto rounded border px-2 py-0.5 text-xs">{details[week.weekStart] ? 'Hide detail' : 'Show detail'}</button>
+            <span className="text-xs text-ink-soft">{t("sealed")} {day(week.sealedAt)}</span>
+            <button type="button" onClick={() => void toggleDetail(week.weekStart)} className="ml-auto rounded border px-2 py-0.5 text-xs">{details[week.weekStart] ? t("Hide detail") : t("Show detail")}</button>
           </div>
           <TotalsLine totals={week.totals} />
           <ComparisonLine comparison={week.comparison} />
-          {details[week.weekStart] === 'loading' && <p className="mt-2 text-xs text-ink-soft">Loading sealed snapshot…</p>}
+          {details[week.weekStart] === 'loading' && <p className="mt-2 text-xs text-ink-soft">{t("Loading sealed snapshot…")}</p>}
           {details[week.weekStart] && details[week.weekStart] !== 'loading' && (() => { const detail = details[week.weekStart] as WeekExecution; return <div className="mt-3 space-y-2">
-            {detail.templates.filter(group => group.counts.events > 0).map(group => <p key={group.template} className="text-xs text-ink-soft">{group.label}: {group.counts.events} decisions · {group.counts.completed} completed · improved {percent(group.improvementRate)}</p>)}
-            <p className="text-sm font-semibold">Completed that week ({detail.completedActions.length})</p>
+            {detail.templates.filter(group => group.counts.events > 0).map(group => <p key={group.template} className="text-xs text-ink-soft">{group.label}: {group.counts.events} {t("decisions ·")} {group.counts.completed} {t("completed · improved")} {percent(group.improvementRate)}</p>)}
+            <p className="text-sm font-semibold">{t("Completed that week (")}{detail.completedActions.length})</p>
             <CompletedList actions={detail.completedActions} onOpenReport={onOpenReport} />
           </div>; })()}
         </li>)}</ul>

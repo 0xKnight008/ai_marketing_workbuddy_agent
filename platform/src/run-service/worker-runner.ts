@@ -697,6 +697,7 @@ export class RunWorker {
     // 2. LLM 生成；schema 非法 → 抛错走 job 重试（与 import.classify 同一语义）。
     const result = await this.options.aiRuntime.generateInsightReport({
       template: prepared.template,
+      language: ['en', 'es', 'zh'].includes(String(job.payload.language)) ? job.payload.language : 'auto',
       modelBand: prepared.modelBand,
       provider: prepared.provider,
       totals: prepared.pack.totals,
@@ -747,6 +748,7 @@ export class RunWorker {
           WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND status = 'generating'`,
         [reportId, job.workspaceId, JSON.stringify({
           ...cleaned,
+          _language: ['en', 'es', 'zh'].includes(String(job.payload.language)) ? job.payload.language : 'auto',
           _evidence: prepared.pack.refMap,
           _priorEvidence: prepared.priorReports ?? [],
           _countBasis: 'distinct_cited_sources',
