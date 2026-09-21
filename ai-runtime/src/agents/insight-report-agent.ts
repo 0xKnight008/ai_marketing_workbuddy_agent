@@ -1,4 +1,5 @@
 import { Agent } from '@mastra/core/agent';
+import { chatCompletionsModel } from '../lib/chat-completions-model';
 
 import type { InsightTemplate } from '../schemas/insights';
 
@@ -79,6 +80,6 @@ export function createInsightReportAgent(template: InsightTemplate, model: strin
     id: `insight-${template}-agent`,
     name: `insight-${template}-agent`,
     instructions: TEMPLATE_INSTRUCTIONS[template],
-    model,
+    model: chatCompletionsModel(model),
   });
 }

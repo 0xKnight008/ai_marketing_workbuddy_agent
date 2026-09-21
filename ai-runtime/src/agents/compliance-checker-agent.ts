@@ -1,4 +1,5 @@
 import { Agent } from '@mastra/core/agent';
+import { chatCompletionsModel } from '../lib/chat-completions-model';
 
 /**
  * 合规校验 agent。与确定性校验（禁用词扫描、长度上限）互补，
@@ -29,6 +30,6 @@ Rules:
 - If nothing is wrong, return passed=true with an empty or info-only issues list.
 - passed=false if and only if at least one blocker exists.
 - Output strictly follows the structured schema.`,
-    model,
+    model: chatCompletionsModel(model),
   });
 }
