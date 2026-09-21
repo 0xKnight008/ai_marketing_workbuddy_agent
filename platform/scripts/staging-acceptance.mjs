@@ -191,7 +191,13 @@ async function main() {
   const batch = await api(baseUrl, token, 'POST', '/api/imports', {
     label: `staging-acceptance-${stamp}`, sourceType: 'csv', content: dataset.csv, modelBand: 'eco',
   });
-  const batchState = await pollUntil('import classification', 90 * 60 * 1000, async () => {
+  // Import classification can take hours on a slow upstream: 500 items
+  // at 25 items per chunk means 20 LLM calls, and the routing proxy
+  // intermittently returns 502/504 responses which each cost ~30s of
+  // retry backoff. Measured on staging 2026-09-21: 3h10m, succeeded on
+  // attempt 5. Budget 4 hours so the acceptance run can observe the
+  // completed batch instead of aborting on timeout.
+  const batchState = await pollUntil('import classification', 240 * 60 * 1000, async () => {
     const view = await api(baseUrl, token, 'GET', `/api/imports/${batch.id}`);
     if (view.status === 'classified') return { done: true, view };
     if (view.status === 'failed') throw new Error('import classification failed on staging');
