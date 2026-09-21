@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 // Browser regression uses stubbed API responses, never production accounts.
-test('first CSV upload submits filename immediately, preserves custom labels and rejects oversized files', async ({ page }) => {
+test('CSV preview requires confirmation, preserves custom labels and rejects oversized files', async ({ page }) => {
   const submissions: Array<{ label: string; content: string }> = [];
   await page.addInitScript(() => sessionStorage.setItem('piggybot.ownerAccessToken', `test.${btoa(JSON.stringify({ exp: 4102444800 }))}.test`));
   await page.route('**/api/**', async route => {
@@ -16,19 +16,27 @@ test('first CSV upload submits filename immediately, preserves custom labels and
     return route.fulfill({ json: [] });
   });
   await page.goto('/app');
-  await page.getByRole('button', { name: 'Imports', exact: true }).click();
+  await page.getByRole('button', { name: 'Sources', exact: true }).click();
   const file = page.locator('input[type=file]');
   await file.setInputFiles({ name: 'first.csv', mimeType: 'text/csv', buffer: Buffer.from('text\nhello') });
+  expect(submissions).toHaveLength(0);
+  await page.getByLabel('Batch label',{exact:true}).fill('first');
+  await page.getByRole('button',{name:'Preview CSV',exact:true}).click();
+  await page.getByRole('button',{name:'Confirm import',exact:true}).click();
   await expect.poll(() => submissions.length).toBe(1);
   expect(submissions[0]).toMatchObject({ label: 'first', content: 'text\nhello' });
   await expect(page.getByText(/Import queued/)).toBeVisible();
   await page.getByPlaceholder('October comment export').fill('Custom label');
   await file.setInputFiles({ name: 'second.csv', mimeType: 'text/csv', buffer: Buffer.from('text\nsecond') });
+  await page.getByRole('button',{name:'Preview CSV',exact:true}).click();
+  await page.getByRole('button',{name:'Confirm import',exact:true}).click();
   await expect.poll(() => submissions.length).toBe(2);
   expect(submissions[1].label).toBe('Custom label');
   await expect(page.getByText(/Import queued/)).toBeVisible();
   await file.setInputFiles({ name: 'large.csv', mimeType: 'text/csv', buffer: Buffer.alloc(2 * 1024 * 1024 + 1, 'x') });
-  await expect(page.getByText(/CSV files are limited/)).toBeVisible();
+  await page.getByLabel('Batch label',{exact:true}).fill('Large file');
+  await page.getByRole('button',{name:'Preview CSV',exact:true}).click();
+  await expect(page.getByText('Use a file under 2 MiB.')).toBeVisible();
   expect(submissions).toHaveLength(2);
   await page.getByPlaceholder('October comment export').fill('Community snapshot');
   await page.getByLabel('Discord channel ID').fill('123456789012345678');

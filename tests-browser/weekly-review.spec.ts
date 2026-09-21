@@ -36,7 +36,7 @@ test('weekly review shows denominators, unknown effects and report navigation; r
   await expect(panel).toContainText('More replies observed');
   await panel.getByRole('button', { name: 'Open report and update feedback' }).click();
   await expect(page.getByRole('region', { name: 'Execution feedback' })).toBeVisible();
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to insights', exact: true }).click();
   failNext = true;
   await panel.getByRole('button', { name: 'Refresh weekly review' }).click();
   await expect(panel.getByRole('alert')).toContainText('Unable to load weekly review');

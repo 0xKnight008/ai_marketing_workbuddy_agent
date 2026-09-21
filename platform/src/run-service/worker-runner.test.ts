@@ -294,7 +294,7 @@ test('insight.generate stores citation-verified report and drops hallucinated re
       return { rows: [] as Row[], rowCount: 1 };
     },
   } as TenantTransaction;
-  const jobs: ClaimedJob[] = [{ id: 'job-11', workspaceId: 'workspace-1', runId: null, kind: 'insight.generate', payload: { reportId: 'report-1' }, attempt: 1 }];
+  const jobs: ClaimedJob[] = [{ id: 'job-11', workspaceId: 'workspace-1', runId: null, kind: 'insight.generate', payload: { reportId: 'report-1', language: 'es' }, attempt: 1 }];
   let capturedPayload: Record<string, unknown> | null = null;
   const worker = new RunWorker({
     workerName: 'test-worker',
@@ -329,6 +329,8 @@ test('insight.generate stores citation-verified report and drops hallucinated re
 
   assert.equal(await worker.runOne(), true);
   // 证据包不含租户内部 id，且模板/计数齐全
+  assert.equal((capturedPayload as unknown as Record<string, unknown>).language, 'es');
+  assert.equal((persistedReport as unknown as Record<string, unknown>)._language, 'es');
   assert.ok(capturedPayload);
   const pack = capturedPayload! as { template: string; totals: { items: number }; topItems: Array<{ ref: string }> };
   assert.equal(pack.template, 'comment_insights');

@@ -1,0 +1,2398 @@
+{
+  "Retry": [
+    "Reintentar",
+    "重试"
+  ],
+  "Sign in again": [
+    "Volver a iniciar sesión",
+    "重新登录"
+  ],
+  "Automation is paused": [
+    "La automatización está pausada",
+    "自动化已暂停"
+  ],
+  "Complete your subscription or review your usage limits. A free trial pauses after 7 days or 30 AI credits, whichever comes first.": [
+    "Completa tu suscripción o revisa tus límites. La prueba se pausa a los 7 días o 30 créditos de IA, lo que ocurra primero.",
+    "请完成订阅或检查用量限制。试用在 7 天或 30 AI 额度中任一先到时暂停。"
+  ],
+  "View plans": [
+    "Ver planes",
+    "查看套餐"
+  ],
+  "Connect Telegram": [
+    "Conectar Telegram",
+    "连接 Telegram"
+  ],
+  "Code:": [
+    "Código:",
+    "代码："
+  ],
+  "· Expires:": [
+    "· Caduca:",
+    "· 到期："
+  ],
+  "After the bot confirms, select Sync account health above to verify the connection.": [
+    "Cuando el bot confirme, pulsa Sincronizar conexiones para verificar.",
+    "机器人确认后，点击同步连接状态进行验证。"
+  ],
+  "Dismiss code": [
+    "Cerrar código",
+    "关闭代码"
+  ],
+  "Piggybot Platform": [
+    "Plataforma Piggybot",
+    "Piggybot 工作区"
+  ],
+  "Sign in": [
+    "Iniciar sesión",
+    "登录"
+  ],
+  "Register": [
+    "Registrarse",
+    "注册"
+  ],
+  "Email": [
+    "Correo electrónico",
+    "邮箱"
+  ],
+  "Password": [
+    "Contraseña",
+    "密码"
+  ],
+  "Display name": [
+    "Nombre visible",
+    "显示名称"
+  ],
+  "(optional)": [
+    "(opcional)",
+    "（可选）"
+  ],
+  "How should we call you?": [
+    "¿Cómo te llamamos?",
+    "如何称呼你？"
+  ],
+  "← Back to site": [
+    "← Volver al sitio",
+    "← 返回网站"
+  ],
+  "Need help?": [
+    "¿Necesitas ayuda?",
+    "需要帮助？"
+  ],
+  "Published pipelines": [
+    "Flujos publicados",
+    "已发布流程"
+  ],
+  "Task usage": [
+    "Uso de tareas",
+    "任务用量"
+  ],
+  "AI credits": [
+    "Créditos de IA",
+    "AI 额度"
+  ],
+  "Create": [
+    "Crear",
+    "创建"
+  ],
+  "New automation →": [
+    "Nueva automatización →",
+    "新建自动化 →"
+  ],
+  "Your automation shelf": [
+    "Tus automatizaciones",
+    "你的自动化"
+  ],
+  "My Pipelines": [
+    "Mis flujos",
+    "我的流程"
+  ],
+  "Refreshing…": [
+    "Actualizando…",
+    "刷新中…"
+  ],
+  "No pipelines yet": [
+    "Aún no hay flujos",
+    "暂无流程"
+  ],
+  "Choose a proven template or describe the result you want. Piggybot will create a safe, editable draft.": [
+    "Elige una plantilla o describe el resultado que buscas. Piggybot creará un borrador editable.",
+    "选择模板或描述期望结果，Piggybot 将创建可编辑的草稿。"
+  ],
+  "Create your first pipeline": [
+    "Crear tu primer flujo",
+    "创建第一个流程"
+  ],
+  "destination": [
+    "destino",
+    "个目标"
+  ],
+  "Approval": [
+    "Aprobación",
+    "审批"
+  ],
+  "Last run:": [
+    "Última ejecución:",
+    "上次运行："
+  ],
+  "Proven starting points": [
+    "Puntos de partida",
+    "从这里开始"
+  ],
+  "Standard templates": [
+    "Plantillas estándar",
+    "标准模板"
+  ],
+  "Conclusion counts below show distinct cited sources, not total mentions across the dataset. References starting with p quote prior report summaries (secondary evidence), not original comments.": [
+    "Los recuentos muestran fuentes citadas distintas, no menciones totales. Las referencias p citan resúmenes anteriores (evidencia secundaria), no comentarios originales.",
+    "以下计数为不同引用来源数，不是全量提及次数。p 开头的引用来自历史报告摘要（二级证据），而非原始评论。"
+  ],
+  "citation": [
+    "cita",
+    "条引用"
+  ],
+  "failed verbatim verification and were removed before saving.": [
+    "no superaron la verificación literal y se eliminaron antes de guardar.",
+    "未通过逐字校验，已在保存前移除。"
+  ],
+  "Top content & why it worked": [
+    "Contenido destacado y sus claves",
+    "优质内容与成功原因"
+  ],
+  "Repeatable success factors": [
+    "Factores de éxito repetibles",
+    "可复用的成功因素"
+  ],
+  "What fans care about now": [
+    "Qué interesa a tu audiencia",
+    "粉丝当前关注点"
+  ],
+  "Next batch:": [
+    "Próxima tanda:",
+    "下一批："
+  ],
+  "topic ideas": [
+    "ideas de temas",
+    "个选题"
+  ],
+  "Script drafts · review before publishing": [
+    "Guiones · revisar antes de publicar",
+    "脚本草稿 · 发布前审核"
+  ],
+  "Ready-to-publish titles": [
+    "Títulos para revisar",
+    "待审核标题"
+  ],
+  "Fan demand ranking": [
+    "Necesidades de la audiencia",
+    "粉丝需求排序"
+  ],
+  "cited sources": [
+    "fuentes citadas",
+    "条引用来源"
+  ],
+  "Frequent questions": [
+    "Preguntas frecuentes",
+    "常见问题"
+  ],
+  "Sentiment signals": [
+    "Señales de sentimiento",
+    "情绪信号"
+  ],
+  "High-value comments & reply drafts": [
+    "Comentarios relevantes y respuestas",
+    "高价值评论与回复草稿"
+  ],
+  "Reply draft": [
+    "Borrador de respuesta",
+    "回复草稿"
+  ],
+  "Meme material": [
+    "Material para memes",
+    "梗素材"
+  ],
+  "Productizable signals": [
+    "Señales de producto",
+    "可转化的商品信号"
+  ],
+  "Opportunity list": [
+    "Lista de oportunidades",
+    "机会列表"
+  ],
+  "difficulty": [
+    "dificultad",
+    "难度"
+  ],
+  "Audience:": [
+    "Audiencia:",
+    "受众："
+  ],
+  "Risks:": [
+    "Riesgos:",
+    "风险："
+  ],
+  "Validate:": [
+    "Validación:",
+    "验证："
+  ],
+  "Listing draft": [
+    "Borrador de ficha",
+    "商品页面草稿"
+  ],
+  "Presale poll draft": [
+    "Borrador de encuesta de preventa",
+    "预售投票草稿"
+  ],
+  "Top": [
+    "Principales",
+    "前"
+  ],
+  "issues (up to 5): ordered by model-assessed severity, then distinct cited reviews. This is not a sales-impact or full-dataset frequency ranking. SKU labels are restricted to the cited source metadata.": [
+    "problemas (hasta 5): ordenados por gravedad estimada y reseñas citadas distintas. No mide impacto en ventas ni frecuencia total. Los SKU proceden de metadatos citados.",
+    "项问题（最多 5 项）：按模型判断的严重度、不同引用评论数排序，不代表销量影响或全量频次。SKU 仅来自引用来源元数据。"
+  ],
+  "Complaint themes": [
+    "Temas de quejas",
+    "投诉主题"
+  ],
+  "cited reviews": [
+    "reseñas citadas",
+    "条引用评价"
+  ],
+  "Priority fixes": [
+    "Correcciones prioritarias",
+    "优先修复"
+  ],
+  "Expected impact:": [
+    "Impacto esperado:",
+    "预期影响："
+  ],
+  "Return reasons": [
+    "Motivos de devolución",
+    "退货原因"
+  ],
+  "Listing vs reality": [
+    "Ficha frente a realidad",
+    "商品描述与实际差异"
+  ],
+  "Customer-service reply drafts": [
+    "Respuestas de atención al cliente",
+    "客服回复草稿"
+  ],
+  "Product page edits": [
+    "Cambios en la página del producto",
+    "商品页修改建议"
+  ],
+  "Hot topics": [
+    "Temas destacados",
+    "热门话题"
+  ],
+  "High-value members": [
+    "Miembros destacados",
+    "高价值成员"
+  ],
+  "Unresolved questions": [
+    "Preguntas sin resolver",
+    "待解决问题"
+  ],
+  "Moderation watchlist": [
+    "Alertas de moderación",
+    "管理关注事项"
+  ],
+  "Activity ideas": [
+    "Ideas de actividades",
+    "活动建议"
+  ],
+  "Announcement draft": [
+    "Borrador de anuncio",
+    "公告草稿"
+  ],
+  "Today's priorities": [
+    "Prioridades de hoy",
+    "今日优先事项"
+  ],
+  "Action:": [
+    "Acción:",
+    "行动："
+  ],
+  "Ready-to-use copy": [
+    "Texto para revisar",
+    "待审核文案"
+  ],
+  "Result templates": [
+    "Plantillas de resultados",
+    "成果模板"
+  ],
+  "Insight reports": [
+    "Informes de análisis",
+    "洞察报告"
+  ],
+  "Each report is generated only from your imported, AI-tagged items — every conclusion carries verbatim evidence quotes verified by the platform.": [
+    "Cada informe se basa en tus datos importados y etiquetados. Las conclusiones incluyen citas literales verificadas por la plataforma.",
+    "报告仅基于已导入并分类的内容生成，结论附有平台逐字核验的证据引用。"
+  ],
+  "AI model band": [
+    "Nivel del modelo de IA",
+    "AI 模型档位"
+  ],
+  "Source": [
+    "Fuente",
+    "来源"
+  ],
+  "Automatic — your latest classified items plus the findings of your recent insight reports. A fresh report is also auto-generated every morning for subscribed workspaces.": [
+    "Automático: últimos elementos clasificados y hallazgos recientes. Los espacios suscritos reciben un nuevo informe cada mañana.",
+    "自动选择最新分类内容和近期报告结论；已订阅工作区每天早晨自动生成新报告。"
+  ],
+  "No classified batches yet — import data first.": [
+    "Aún no hay lotes clasificados. Importa datos primero.",
+    "暂无已分类批次，请先导入数据。"
+  ],
+  "items": [
+    "elementos",
+    "条内容"
+  ],
+  "History": [
+    "Historial",
+    "历史"
+  ],
+  "Reports": [
+    "Informes",
+    "报告"
+  ],
+  "No reports yet": [
+    "Aún no hay informes",
+    "暂无报告"
+  ],
+  "Pick a template above and generate your first evidence-backed report.": [
+    "Elige una plantilla y genera tu primer informe con evidencia.",
+    "选择模板生成第一份有证据支撑的报告。"
+  ],
+  "items ·": [
+    "elementos ·",
+    "条内容 ·"
+  ],
+  "Open report": [
+    "Abrir informe",
+    "打开报告"
+  ],
+  "Close": [
+    "Cerrar",
+    "关闭"
+  ],
+  "Verifiable demand counts": [
+    "Recuentos verificables",
+    "可核验的需求计数"
+  ],
+  "Topic clustering": [
+    "Agrupación de temas",
+    "主题聚类"
+  ],
+  "One run reads every classified item, groups them into concrete topics, and counts exactly how many items mention each need. Counts come from verified database rows — open any topic to audit every item and its verbatim evidence.": [
+    "Agrupa todos los elementos clasificados y cuenta las menciones verificadas de cada necesidad. Abre un tema para revisar cada elemento y su evidencia literal.",
+    "聚类读取全部已分类内容，按具体主题分组并统计提及数。计数来自核验后的数据库记录，打开主题即可逐条检查原文证据。"
+  ],
+  "Import and classify a batch first — topics are built from tagged items.": [
+    "Primero importa y clasifica un lote; los temas se basan en elementos etiquetados.",
+    "请先导入并分类，主题基于已分类内容生成。"
+  ],
+  "Latest run": [
+    "Última ejecución",
+    "最近运行"
+  ],
+  "Topics": [
+    "Temas",
+    "主题"
+  ],
+  "Run failed:": [
+    "Error de ejecución:",
+    "运行失败："
+  ],
+  ". Start a new run to retry from scratch.": [
+    ". Inicia una nueva ejecución para reintentar.",
+    "。请启动新任务重试。"
+  ],
+  "Verified count: items assigned with platform-checked verbatim evidence": [
+    "Recuento verificado mediante evidencia literal",
+    "已核验计数：具有平台逐字核验证据的内容"
+  ],
+  "Audit": [
+    "Revisar",
+    "核验"
+  ],
+  "item": [
+    "elemento",
+    "条内容"
+  ],
+  "No topic run yet": [
+    "Aún no hay análisis de temas",
+    "暂无主题任务"
+  ],
+  "Cluster all classified items to get verifiable counts of what your audience asks for.": [
+    "Agrupa los elementos clasificados para contar las necesidades de tu audiencia.",
+    "聚类全部已分类内容，获得可核验的受众需求计数。"
+  ],
+  "Details": [
+    "Detalles",
+    "详情"
+  ],
+  "verified mention": [
+    "mención verificada",
+    "条核验提及"
+  ],
+  "Every row below is one imported item assigned to this topic. The highlighted quote is the exact evidence the platform verified as a verbatim substring of the item text.": [
+    "Cada fila es un elemento del tema. El texto resaltado se ha verificado como cita literal del original.",
+    "每行是一条归属此主题的内容，高亮部分是平台核验过的逐字原文证据。"
+  ],
+  "No items assigned yet": [
+    "Aún no hay elementos asignados",
+    "暂无归类内容"
+  ],
+  "· confidence": [
+    "· confianza",
+    "· 置信度"
+  ],
+  "Showing the first": [
+    "Se muestran los primeros",
+    "显示前"
+  ],
+  "of": [
+    "de",
+    "/ "
+  ],
+  "mentions.": [
+    "menciones.",
+    "条提及。"
+  ],
+  "Approve or reject this delivery in the Activity tab — nothing is sent automatically.": [
+    "Aprueba o rechaza el envío en Revisar; nada se envía automáticamente.",
+    "请在待审核页面批准或拒绝，不会自动发送。"
+  ],
+  "Content to send": [
+    "Contenido que se enviará",
+    "待发送内容"
+  ],
+  "Report digest": [
+    "Resumen del informe",
+    "报告摘要"
+  ],
+  "Delivery email": [
+    "Correo de destino",
+    "收件邮箱"
+  ],
+  "Workspace owner's email (or type another address)": [
+    "Correo del propietario (u otra dirección)",
+    "工作区所有者邮箱（或输入其他地址）"
+  ],
+  "No connected Discord account with posting permission — connect one in the Accounts tab.": [
+    "No hay una cuenta Discord con permiso para publicar. Conecta una en Canales.",
+    "没有具备发布权限的 Discord 账号，请到渠道页面连接。"
+  ],
+  "Discord destination": [
+    "Destino Discord",
+    "Discord 发送目标"
+  ],
+  "Pick a Discord account…": [
+    "Elige una cuenta Discord…",
+    "选择 Discord 账号…"
+  ],
+  "Request approval": [
+    "Solicitar aprobación",
+    "提交审批"
+  ],
+  "Cancel": [
+    "Cancelar",
+    "取消"
+  ],
+  "Nothing is sent yet — a human approves every outbound delivery in the Activity tab.": [
+    "Aún no se envía nada; cada envío requiere aprobación humana.",
+    "尚未发送，所有外发均需人工批准。"
+  ],
+  "Bring your own data": [
+    "Importa tus datos",
+    "导入你的数据"
+  ],
+  "Import content for AI tagging": [
+    "Importar contenido para clasificar",
+    "导入内容进行 AI 分类"
+  ],
+  "Paste comments, reviews, or posts — or upload a CSV export (columns like text, author, platform, views, likes). Every AI tag is stored with a verbatim evidence quote from the original text.": [
+    "Pega comentarios, reseñas o publicaciones, o sube un CSV (text, author, platform, views, likes). Cada etiqueta incluye una cita literal del original.",
+    "粘贴评论、评价或帖子，或上传 CSV（text、author、platform、views、likes 等列）。每个 AI 标签保留逐字原文证据。"
+  ],
+  "Batch label": [
+    "Nombre del lote",
+    "批次名称"
+  ],
+  "October comment export": [
+    "Comentarios de octubre",
+    "十月评论导出"
+  ],
+  "Paste content (one item per line)": [
+    "Pegar contenido (un elemento por línea)",
+    "粘贴内容（每行一条）"
+  ],
+  "Up to 5,000 items or 2 MB per batch. Classification runs in the background.": [
+    "Hasta 5.000 elementos o 2 MiB por lote. La clasificación continúa en segundo plano.",
+    "每批最多 5,000 条或 2 MiB，分类在后台运行。"
+  ],
+  "Discord channel ID": [
+    "ID del canal Discord",
+    "Discord 频道 ID"
+  ],
+  "Admin-authorized channels only. Scans the latest 500 messages, imports new human text and queues paid AI classification. Bots, attachments and thread history are excluded; this is not continuous sync.": [
+    "Solo canales autorizados. Lee los últimos 500 mensajes e importa texto humano nuevo para clasificación de pago. Excluye bots, adjuntos e hilos. No es sincronización continua.",
+    "仅限管理员授权频道。扫描最近 500 条消息，导入新增人工文字并使用额度分类。不含机器人、附件或子线程历史，也非持续同步。"
+  ],
+  "Import Discord messages": [
+    "Importar mensajes de Discord",
+    "导入 Discord 消息"
+  ],
+  "Connected as": [
+    "Conectado como",
+    "已连接为"
+  ],
+  "Disconnect": [
+    "Desconectar",
+    "断开连接"
+  ],
+  "Connect Google account": [
+    "Conectar cuenta de Google",
+    "连接 Google 账号"
+  ],
+  "Spreadsheet link or ID": [
+    "Enlace o ID de la hoja",
+    "表格链接或 ID"
+  ],
+  "Tab name (optional)": [
+    "Nombre de pestaña (opcional)",
+    "工作表名称（可选）"
+  ],
+  "First row must be headers (text, author, platform, views, likes, rating…). Reads up to 5,000 rows once — already-imported rows are skipped, and this is not continuous sync.": [
+    "La primera fila debe ser la cabecera (text, author, platform…). Lee hasta 5.000 filas, omite las ya importadas. No es sincronización continua.",
+    "首行必须是列名（text、author、platform 等）。单次最多读取 5,000 行，跳过已导入行，非持续同步。"
+  ],
+  "Import sheet rows": [
+    "Importar filas",
+    "导入表格行"
+  ],
+  "Authorize read-only access with your Google account, then import rows from any spreadsheet shared with it. The token is stored encrypted and can be revoked at any time.": [
+    "Autoriza acceso de solo lectura e importa hojas compartidas con tu cuenta. El token se cifra y puede revocarse cuando quieras.",
+    "授权 Google 只读权限后，可导入该账号可访问的表格。凭据加密保存，可随时撤销。"
+  ],
+  "Import batches": [
+    "Lotes importados",
+    "导入批次"
+  ],
+  "No imports yet": [
+    "Aún no hay importaciones",
+    "暂无导入"
+  ],
+  "Import a batch above. The AI will tag each item with intent labels and keep the exact evidence quote for every tag.": [
+    "Importa un lote. La IA añade etiquetas de intención con citas literales como evidencia.",
+    "导入批次后，AI 将添加意图标签并保留每个标签的原文证据。"
+  ],
+  "View tagged items": [
+    "Ver elementos clasificados",
+    "查看分类内容"
+  ],
+  "No items in this batch.": [
+    "Este lote no tiene elementos.",
+    "此批次暂无内容。"
+  ],
+  "White-label connections": [
+    "Conexiones de tu espacio",
+    "工作区连接"
+  ],
+  "Connected Accounts": [
+    "Cuentas conectadas",
+    "已连接账号"
+  ],
+  "Authorize with the social network, then choose pages, organizations, boards, or phone numbers inside a Piggybot-branded flow.": [
+    "Autoriza en la red social y elige páginas, organizaciones, tableros o teléfonos en el flujo de Piggybot.",
+    "在社交平台授权后，在 Piggybot 连接流程中选择主页、组织、看板或电话号码。"
+  ],
+  "Sync account health": [
+    "Sincronizar conexiones",
+    "同步连接状态"
+  ],
+  "No connected accounts": [
+    "No hay cuentas conectadas",
+    "暂无已连接账号"
+  ],
+  "Connect at least one destination before activating a pipeline.": [
+    "Conecta al menos un destino antes de activar un flujo.",
+    "激活流程前，请至少连接一个发送目标。"
+  ],
+  "Add another destination": [
+    "Añadir otro destino",
+    "添加其他目标"
+  ],
+  "Human control": [
+    "Control humano",
+    "人工控制"
+  ],
+  "Approvals & Activity": [
+    "Revisiones y actividad",
+    "审批与活动"
+  ],
+  "Successful actions": [
+    "Acciones completadas",
+    "成功操作"
+  ],
+  "No billable actions yet.": [
+    "Aún no hay acciones facturables.",
+    "暂无计费操作。"
+  ],
+  "Audit trail": [
+    "Registro de auditoría",
+    "审计记录"
+  ],
+  "No audit events yet.": [
+    "Aún no hay eventos de auditoría.",
+    "暂无审计事件。"
+  ],
+  "Find a specific run": [
+    "Buscar una ejecución",
+    "查找指定运行"
+  ],
+  "Workflow run UUID": [
+    "UUID de la ejecución",
+    "运行 UUID"
+  ],
+  "Load run": [
+    "Cargar ejecución",
+    "加载运行"
+  ],
+  "Status:": [
+    "Estado:",
+    "状态："
+  ],
+  "Workflow:": [
+    "Flujo:",
+    "流程："
+  ],
+  "Created:": [
+    "Creado:",
+    "创建时间："
+  ],
+  "Account": [
+    "Cuenta",
+    "账号"
+  ],
+  "· plan": [
+    "· plan",
+    "· 套餐"
+  ],
+  "Set a password so you can sign in with your email next time.": [
+    "Establece una contraseña para iniciar sesión con tu correo.",
+    "设置密码，以便下次通过邮箱登录。"
+  ],
+  "New password": [
+    "Nueva contraseña",
+    "新密码"
+  ],
+  "New password (8-128 characters)": [
+    "Nueva contraseña (8–128 caracteres)",
+    "新密码（8–128 个字符）"
+  ],
+  "Save password": [
+    "Guardar contraseña",
+    "保存密码"
+  ],
+  "Loading workspace identity…": [
+    "Cargando identidad…",
+    "加载工作区信息…"
+  ],
+  "Sign out": [
+    "Cerrar sesión",
+    "退出登录"
+  ],
+  "Refer & earn 20%": [
+    "Recomienda y gana un 20 %",
+    "推荐赚取 20%"
+  ],
+  "Earn account credit after an eligible referral clears its refund window.": [
+    "Recibe crédito cuando una recomendación válida supere el plazo de devolución.",
+    "符合条件的推荐订单度过退款期后，可获得账户抵扣金。"
+  ],
+  "Referral link": [
+    "Enlace de recomendación",
+    "推荐链接"
+  ],
+  "Generate your personal referral link": [
+    "Generar tu enlace personal",
+    "生成个人推荐链接"
+  ],
+  "Generate link": [
+    "Generar enlace",
+    "生成链接"
+  ],
+  "Copy": [
+    "Copiar",
+    "复制"
+  ],
+  "Help & support": [
+    "Ayuda y soporte",
+    "帮助与支持"
+  ],
+  "Support category": [
+    "Categoría de soporte",
+    "支持类别"
+  ],
+  "Billing": [
+    "Facturación",
+    "账单"
+  ],
+  "Bug": [
+    "Error",
+    "故障"
+  ],
+  "Feature request": [
+    "Solicitud de función",
+    "功能建议"
+  ],
+  "Other": [
+    "Otro",
+    "其他"
+  ],
+  "Support message": [
+    "Mensaje de soporte",
+    "支持消息"
+  ],
+  "How can we help?": [
+    "¿Cómo podemos ayudarte?",
+    "需要什么帮助？"
+  ],
+  "Send to support": [
+    "Enviar a soporte",
+    "发送给支持团队"
+  ],
+  "Build your pipeline": [
+    "Configura tu flujo",
+    "构建流程"
+  ],
+  "New automation": [
+    "Nueva automatización",
+    "新建自动化"
+  ],
+  "How would you like to start?": [
+    "¿Cómo quieres empezar?",
+    "如何开始？"
+  ],
+  "Both paths create an editable pipeline draft.": [
+    "Ambas opciones crean un borrador editable.",
+    "两种方式均创建可编辑的流程草稿。"
+  ],
+  "Custom": [
+    "Personalizado",
+    "自定义"
+  ],
+  "Describe an announcement": [
+    "Describe un anuncio",
+    "描述公告"
+  ],
+  "Turn your announcement brief into posts for approval. Other automation types are not enabled.": [
+    "Convierte tu descripción en publicaciones para revisión. Otros tipos aún no están disponibles.",
+    "将公告简报转为待审批帖子，其他自动化类型尚未启用。"
+  ],
+  "Configure the outcome": [
+    "Configura el resultado",
+    "配置成果"
+  ],
+  "Name the pipeline and give Piggybot the context it needs.": [
+    "Pon nombre al flujo y añade el contexto necesario.",
+    "为流程命名并提供所需背景。"
+  ],
+  "What should this automation do?": [
+    "¿Qué debe hacer esta automatización?",
+    "此自动化要做什么？"
+  ],
+  "Example: Turn every product launch brief into LinkedIn and Instagram drafts for approval.": [
+    "Ejemplo: convertir lanzamientos en borradores para LinkedIn e Instagram.",
+    "例如：将新品简报转为 LinkedIn 和 Instagram 待审核草稿。"
+  ],
+  "Pipeline name": [
+    "Nombre del flujo",
+    "流程名称"
+  ],
+  "Product launch distribution": [
+    "Difusión de lanzamiento",
+    "新品发布"
+  ],
+  "Working brief": [
+    "Descripción del trabajo",
+    "工作简报"
+  ],
+  "Tone": [
+    "Tono",
+    "语气"
+  ],
+  "Language": [
+    "Idioma del contenido",
+    "内容语言"
+  ],
+  "Approval policy": [
+    "Política de aprobación",
+    "审批规则"
+  ],
+  "Always require approval": [
+    "Requerir siempre aprobación",
+    "始终需要审批"
+  ],
+  "Assisted approval": [
+    "Aprobación asistida",
+    "辅助审批"
+  ],
+  "Choose destinations": [
+    "Elige los destinos",
+    "选择目标"
+  ],
+  "Pipelines remain drafts until their selected accounts are connected and healthy.": [
+    "Los flujos siguen como borradores hasta que las cuentas estén conectadas y disponibles.",
+    "选定账号连接且状态正常前，流程保持草稿状态。"
+  ],
+  "Connect an account first": [
+    "Conecta una cuenta primero",
+    "请先连接账号"
+  ],
+  "Close this builder, open Accounts, and connect a destination through the Piggybot-branded flow.": [
+    "Cierra este asistente y conecta un destino en Canales.",
+    "关闭构建器，在渠道页面连接发送目标。"
+  ],
+  "Review the pipeline draft": [
+    "Revisa el borrador del flujo",
+    "审核流程草稿"
+  ],
+  "Pipeline": [
+    "Flujo",
+    "流程"
+  ],
+  "Model band": [
+    "Nivel del modelo",
+    "模型档位"
+  ],
+  "Destinations": [
+    "Destinos",
+    "发送目标"
+  ],
+  "Planned steps": [
+    "Pasos previstos",
+    "计划步骤"
+  ],
+  "Test before activation": [
+    "Comprueba antes de activar",
+    "激活前检查"
+  ],
+  "This readiness test performs no external publishing action. Starting queues one announcement run; posts require approval. Recurring schedules are not enabled.": [
+    "La comprobación no publica nada. Al iniciar se crea una ejecución que requiere aprobación. No hay programación recurrente.",
+    "就绪检查不会对外发布。启动后创建一次公告任务，帖子仍需审批；未启用循环定时。"
+  ],
+  "Edit setup": [
+    "Editar configuración",
+    "编辑配置"
+  ],
+  "Run the readiness check to validate the brief, destinations, account health, and approval guardrail.": [
+    "Comprueba la descripción, los destinos, las conexiones y la aprobación.",
+    "运行就绪检查以核对简报、目标、账号状态和审批限制。"
+  ],
+  "Keep as draft": [
+    "Guardar como borrador",
+    "保留为草稿"
+  ],
+  "Start run (approval required)": [
+    "Iniciar (requiere aprobación)",
+    "启动运行（需审批）"
+  ],
+  "Standard template": [
+    "Plantilla estándar",
+    "标准模板"
+  ],
+  "Back": [
+    "Atrás",
+    "返回"
+  ],
+  "Billing dashboard": [
+    "Panel de facturación",
+    "账单面板"
+  ],
+  "Dashboard": [
+    "Panel",
+    "工作台"
+  ],
+  "Your subscription, AI credits and usage in one place.": [
+    "Tu suscripción, créditos y consumo en un solo lugar.",
+    "在这里查看订阅、AI 额度和用量。"
+  ],
+  "Refresh billing": [
+    "Actualizar facturación",
+    "刷新账单"
+  ],
+  "Loading billing details…": [
+    "Cargando facturación…",
+    "加载账单中…"
+  ],
+  "Stripe details are temporarily unavailable. The usage below is your last recorded entitlement; refresh to verify subscription changes.": [
+    "Stripe no está disponible temporalmente. Se muestra el último registro; actualiza para verificar cambios.",
+    "暂时无法读取 Stripe，以下为最近记录的权益；请刷新以核实订阅变更。"
+  ],
+  "Already subscribed?": [
+    "¿Ya tienes suscripción?",
+    "已订阅？"
+  ],
+  "The workspace owner can verify an existing Stripe subscription without purchasing again. Enter its sub_… ID; the server checks ownership, current status and original trial dates.": [
+    "El propietario puede verificar una suscripción existente sin volver a comprar. Introduce su ID sub_… para comprobar titularidad, estado y fechas de prueba.",
+    "工作区所有者可核实已有订阅，无需重复购买。输入 sub_… ID，服务端会检查归属、状态和原始试用日期。"
+  ],
+  "Stripe subscription ID": [
+    "ID de suscripción Stripe",
+    "Stripe 订阅 ID"
+  ],
+  "Verify existing subscription": [
+    "Verificar suscripción existente",
+    "核实已有订阅"
+  ],
+  "plan": [
+    "plan",
+    "套餐"
+  ],
+  "Upgrade Plan": [
+    "Mejorar plan",
+    "升级套餐"
+  ],
+  "Subscription:": [
+    "Suscripción:",
+    "订阅："
+  ],
+  "Automation:": [
+    "Automatización:",
+    "自动化："
+  ],
+  "Trial ends:": [
+    "Fin de prueba:",
+    "试用到期："
+  ],
+  "Manage payment details, invoices, cancellation, renewal and available plan changes securely in Stripe. Only the workspace owner can make changes.": [
+    "Gestiona pagos, facturas, cancelación, renovación y planes en Stripe. Solo el propietario puede hacer cambios.",
+    "在 Stripe 管理付款、发票、取消、续费和套餐变更，仅工作区所有者可修改。"
+  ],
+  "Manage subscription in Stripe": [
+    "Gestionar suscripción en Stripe",
+    "在 Stripe 管理订阅"
+  ],
+  "available": [
+    "disponibles",
+    "可用"
+  ],
+  "Included credits used:": [
+    "Créditos incluidos usados:",
+    "已用套餐额度："
+  ],
+  "Purchased balance:": [
+    "Saldo comprado:",
+    "购买余额："
+  ],
+  "credits": [
+    "créditos",
+    "额度"
+  ],
+  "Refund adjustment:": [
+    "Ajuste por reembolso:",
+    "退款调整："
+  ],
+  "credits will be deducted from future top-ups.": [
+    "créditos se descontarán de futuras recargas.",
+    "额度将在后续充值中扣除。"
+  ],
+  "$1 = 100 AI credits. Choose $10–$1000 at checkout. Purchased credits carry over month to month. Top-ups do not extend a trial or reactivate a canceled subscription.": [
+    "1 USD = 100 créditos. Elige entre 10 y 1000 USD. Los créditos comprados no caducan al cambiar de mes. Recargar no amplía la prueba ni reactiva una suscripción cancelada.",
+    "1 美元 = 100 AI 额度，结账可选 10–1000 美元。购买额度可跨月保留，但不延长试用或恢复已取消订阅。"
+  ],
+  "Add AI Credits": [
+    "Añadir créditos de IA",
+    "充值 AI 额度"
+  ],
+  "Trial accounts can purchase credits. Purchases stay in your wallet; they do not extend the 7-day / 30-credit trial or unlock paused automation. Upgrade your plan to use credits beyond the trial limit.": [
+    "Puedes comprar créditos durante la prueba. Se guardan en tu saldo, pero no amplían los 7 días / 30 créditos ni reactivan automatizaciones. Mejora el plan para superar el límite.",
+    "试用账号可充值，额度保留在账户中，但不延长 7 天 / 30 额度试用或解锁暂停的自动化。升级套餐后可超出试用额度使用。"
+  ],
+  "Usage status": [
+    "Estado del consumo",
+    "用量状态"
+  ],
+  "Tasks this month:": [
+    "Tareas de este mes:",
+    "本月任务："
+  ],
+  "Task and supplier safety limits still apply even when you have purchased AI credits.": [
+    "Los límites de tareas y proveedores siguen vigentes tras comprar créditos.",
+    "充值后仍受任务和供应商安全限制约束。"
+  ],
+  "Recent credit purchases": [
+    "Recargas recientes",
+    "最近充值"
+  ],
+  "No completed credit purchases yet.": [
+    "Aún no hay recargas completadas.",
+    "暂无已完成充值。"
+  ],
+  "on ·": [
+    "activo ·",
+    "已开启 ·"
+  ],
+  "off": [
+    "desactivado",
+    "关闭"
+  ],
+  "Runs": [
+    "Se ejecuta",
+    "执行时间"
+  ],
+  "Recipient email (blank = workspace owner)": [
+    "Correo de destino (vacío = propietario)",
+    "收件邮箱（留空则为所有者）"
+  ],
+  "No connected Discord account with publish capability — connect one under Accounts first.": [
+    "Conecta primero una cuenta Discord con permiso de publicación en Canales.",
+    "请先在渠道页面连接具备发布权限的 Discord 账号。"
+  ],
+  "Content recap": [
+    "Resumen de contenido",
+    "内容复盘"
+  ],
+  "Comment insights": [
+    "Análisis de comentarios",
+    "评论洞察"
+  ],
+  "Product opportunities": [
+    "Oportunidades de producto",
+    "商品机会"
+  ],
+  "Review attribution": [
+    "Análisis de reseñas",
+    "评价归因"
+  ],
+  "Community digest": [
+    "Resumen de comunidad",
+    "社群摘要"
+  ],
+  "approval — I release each digest": [
+    "aprobación — reviso cada resumen",
+    "逐次审批 — 由我确认发送"
+  ],
+  "auto — deliver directly": [
+    "automático — enviar directamente",
+    "自动 — 直接发送"
+  ],
+  "Disable": [
+    "Desactivar",
+    "停用"
+  ],
+  "Saving this rule is your standing approval for this recurring delivery. Report content is platform-validated; suggested outbound actions inside reports still need per-action approval.": [
+    "Guardar autoriza este envío recurrente. La plataforma valida el contenido; las acciones externas sugeridas requieren aprobación individual.",
+    "保存规则即持续授权该定时发送。报告内容经平台验证，其中建议的外发操作仍需逐次审批。"
+  ],
+  "Scheduled delivery": [
+    "Envíos programados",
+    "定时发送"
+  ],
+  "The daily operations loop, delivered: morning task push, evening recap, weekly report generation with approval delivery, and urgent risk alerts. Times are UTC. Enabling a flow is your standing approval for that recurring delivery; AI-suggested outbound actions stay per-action approval-gated.": [
+    "Tareas matinales, resumen vespertino, informes semanales con aprobación y alertas urgentes. Horarios UTC. Activar autoriza los envíos recurrentes; las acciones sugeridas siguen requiriendo aprobación individual.",
+    "早间任务、晚间复盘、每周报告审批发送及紧急风险提醒。时间均为 UTC。启用即持续授权该定时发送，AI 建议的外发操作仍需逐次审批。"
+  ],
+  "Delivery events": [
+    "Eventos de envío",
+    "发送事件"
+  ],
+  "No events yet. They appear as scheduled flows run.": [
+    "Aún no hay eventos. Aparecerán al ejecutarse los envíos.",
+    "暂无事件，定时流程运行后将在这里显示。"
+  ],
+  "Error:": [
+    "Error:",
+    "错误："
+  ],
+  "Approve delivery": [
+    "Aprobar envío",
+    "批准发送"
+  ],
+  "Acknowledge": [
+    "Confirmar lectura",
+    "确认已读"
+  ],
+  "Resolve": [
+    "Resolver",
+    "标记解决"
+  ],
+  "Full dataset statistics": [
+    "Estadísticas del conjunto completo",
+    "全量数据统计"
+  ],
+  "source items ·": [
+    "elementos de origen ·",
+    "条来源内容 ·"
+  ],
+  "with intent labels (": [
+    "con etiquetas de intención (",
+    "条有意图标签（"
+  ],
+  "sampled for quotations": [
+    "muestreados para citas",
+    "条用于引用采样"
+  ],
+  "Calculated before sampling. Intent labels can overlap; these are not emotion percentages or individual topic frequencies. Unlabelled items may have no actionable signal.": [
+    "Calculado antes del muestreo. Las etiquetas pueden solaparse; no son porcentajes de emoción ni frecuencias temáticas. Los elementos sin etiqueta pueden carecer de señales útiles.",
+    "采样前计算。意图标签可重叠，不代表情绪占比或单一主题频次；未标注内容可能没有可行动信号。"
+  ],
+  "Negative reviews:": [
+    "Reseñas negativas:",
+    "差评："
+  ],
+  "rated items (": [
+    "elementos valorados (",
+    "条已评分内容（"
+  ],
+  "). Denominator excludes unrated items; negative = rating 1–2 on a 1–5 scale.": [
+    "). Se excluyen los elementos sin valoración; negativo = 1–2 en escala de 1–5.",
+    "）。分母不含未评分内容，1–5 分中 1–2 分计为差评。"
+  ],
+  "Emotion distribution": [
+    "Distribución emocional",
+    "情绪分布"
+  ],
+  "One dominant label per source, verified against an original quote. Percentages use all": [
+    "Una etiqueta principal por fuente, verificada con una cita original. Los porcentajes usan los",
+    "每条来源一个主要标签，并核验原文证据。占比以全部"
+  ],
+  "source items; unknown is not neutral. These are model classifications, not independently measured facts.": [
+    "elementos; desconocido no equivale a neutral. Son clasificaciones del modelo, no hechos medidos independientemente.",
+    "条内容为分母；未知不等于中性。这是模型分类，不是独立测量事实。"
+  ],
+  "Classified:": [
+    "Clasificados:",
+    "已分类："
+  ],
+  "· Unknown:": [
+    "· Desconocidos:",
+    "· 未知："
+  ],
+  "Execution feedback": [
+    "Seguimiento de acciones",
+    "执行反馈"
+  ],
+  "Manually record adoption, completion and observed effects. Saving does not execute, publish or approve anything, and uses no AI credits. Effects are self-reported, not measured automatically.": [
+    "Registra decisiones, finalización y resultados observados. Guardar no ejecuta, publica ni aprueba nada, y no usa créditos. Los efectos son declarados manualmente.",
+    "手动记录采纳、完成和观察效果。保存不会执行、发布或审批任何操作，也不消耗 AI 额度。效果为人工记录，非自动测量。"
+  ],
+  "No trackable actions available.": [
+    "No hay acciones para registrar.",
+    "暂无可跟踪行动。"
+  ],
+  "Action status": [
+    "Estado de la acción",
+    "行动状态"
+  ],
+  "Observed effect": [
+    "Efecto observado",
+    "观察效果"
+  ],
+  "What was done? What result did you observe?": [
+    "¿Qué hiciste? ¿Qué resultado observaste?",
+    "做了什么？观察到什么结果？"
+  ],
+  "Weekly follow-up review": [
+    "Revisión semanal de seguimiento",
+    "每周跟进复盘"
+  ],
+  "Reports generated in the last 7 days, with their current manual feedback. This is not a historical snapshot or a count of all work completed this week. No AI credits or outbound messages are used.": [
+    "Informes de los últimos 7 días y su seguimiento actual. No es una instantánea histórica ni el total del trabajo semanal. No usa créditos ni envía mensajes.",
+    "最近 7 天生成的报告及当前人工反馈，不是历史快照，也非本周全部完成工作统计。不消耗 AI 额度或发送消息。"
+  ],
+  "UTC generation window:": [
+    "Periodo de generación UTC:",
+    "UTC 生成时间窗口："
+  ],
+  "(inclusive) →": [
+    "(incluido) →",
+    "（含）→"
+  ],
+  "(exclusive). Refresh after recording feedback.": [
+    "(excluido). Actualiza tras registrar el seguimiento.",
+    "（不含）。记录反馈后请刷新。"
+  ],
+  "Adoption includes completed actions. Adoption and completion use all tracked suggestions, including unreviewed ones. Improvement uses only completed actions with a known, self-reported effect; N/A means no denominator.": [
+    "La adopción incluye acciones completadas. Adopción y finalización usan todas las sugerencias, incluso sin revisar. La mejora solo usa acciones completadas con efecto conocido; N/A indica que no hay denominador.",
+    "采纳包含已完成行动。采纳率和完成率以全部建议（含未审核）为分母；改善率仅基于已完成且效果已知的行动。N/A 表示无分母。"
+  ],
+  "reports ·": [
+    "informes ·",
+    "份报告 ·"
+  ],
+  "suggestions ·": [
+    "sugerencias ·",
+    "条建议 ·"
+  ],
+  "unreviewed ·": [
+    "sin revisar ·",
+    "未审核 ·"
+  ],
+  "planned ·": [
+    "planificadas ·",
+    "已计划 ·"
+  ],
+  "dismissed": [
+    "descartado",
+    "已忽略"
+  ],
+  "Adopted:": [
+    "Adoptadas:",
+    "已采纳："
+  ],
+  ") · Completed:": [
+    ") · Completadas:",
+    "）· 已完成："
+  ],
+  "Improved:": [
+    "Mejoradas:",
+    "已改善："
+  ],
+  ") · Unchanged:": [
+    ") · Sin cambios:",
+    "）· 无变化："
+  ],
+  "· Worse:": [
+    "· Peor:",
+    "· 变差："
+  ],
+  "· Completed, effect unknown:": [
+    "· Completadas, efecto desconocido:",
+    "· 已完成但效果未知："
+  ],
+  "Next: review the unreviewed suggestions and record your decision.": [
+    "Siguiente: revisa las sugerencias pendientes y registra tu decisión.",
+    "下一步：审核待处理建议并记录决定。"
+  ],
+  "Next: record observed results when available; unknown does not mean no improvement.": [
+    "Siguiente: registra los resultados observados; desconocido no significa que no haya mejora.",
+    "下一步：有结果时记录效果，未知不代表没有改善。"
+  ],
+  "Findings — saved report summary, not newly verified:": [
+    "Hallazgos: resumen guardado, sin nueva verificación:",
+    "结论 — 已保存报告摘要，非重新验证："
+  ],
+  "· effect:": [
+    "· efecto:",
+    "· 效果："
+  ],
+  "Observation:": [
+    "Observación:",
+    "观察："
+  ],
+  "Open report and update feedback": [
+    "Abrir informe y actualizar seguimiento",
+    "打开报告并更新反馈"
+  ],
+  "decisions recorded ·": [
+    "decisiones registradas ·",
+    "项决定已记录 ·"
+  ],
+  "No consecutive sealed week to compare with.": [
+    "No hay una semana consecutiva sellada para comparar.",
+    "无连续封存周可供比较。"
+  ],
+  "vs previous week — decisions:": [
+    "frente a la semana anterior — decisiones:",
+    "相比上周 — 决定："
+  ],
+  "· completed:": [
+    "· completadas:",
+    "· 已完成："
+  ],
+  "· adoption:": [
+    "· adopción:",
+    "· 采纳："
+  ],
+  "· completion:": [
+    "· finalización:",
+    "· 完成："
+  ],
+  "· improvement:": [
+    "· mejora:",
+    "· 改善："
+  ],
+  "No actions were marked completed in this window.": [
+    "No se marcaron acciones completadas en este periodo.",
+    "此时间窗口内无标记完成的行动。"
+  ],
+  "From report “": [
+    "Del informe «",
+    "来自报告“"
+  ],
+  "” · completed": [
+    "» · completada",
+    "” · 已完成"
+  ],
+  "Weekly execution history": [
+    "Historial semanal de ejecución",
+    "每周执行历史"
+  ],
+  "Decisions attributed to the ISO week (UTC, Monday-start) in which you recorded them — including completions of actions from older reports. Seal a week to freeze it forever; sealed weeks power week-over-week comparison. No AI credits or outbound messages are used.": [
+    "Decisiones atribuidas a la semana ISO (UTC, desde el lunes) en que se registraron, incluso acciones de informes anteriores. Sellar congela la semana para comparaciones. No usa créditos ni envía mensajes.",
+    "决定归属记录时所在的 ISO 周（UTC，周一开始），含旧报告行动的完成记录。封存后不可更改，用于周间对比；不消耗 AI 额度或发送消息。"
+  ],
+  "This week ·": [
+    "Esta semana ·",
+    "本周 ·"
+  ],
+  "sealed": [
+    "sellada",
+    "已封存"
+  ],
+  "Completed this week (": [
+    "Completadas esta semana (",
+    "本周完成（"
+  ],
+  "Sealed weeks": [
+    "Semanas selladas",
+    "已封存周"
+  ],
+  "Loading sealed snapshot…": [
+    "Cargando instantánea…",
+    "加载封存快照…"
+  ],
+  "decisions ·": [
+    "decisiones ·",
+    "项决定 ·"
+  ],
+  "completed · improved": [
+    "completadas · mejoradas",
+    "已完成 · 已改善"
+  ],
+  "Completed that week (": [
+    "Completadas esa semana (",
+    "该周完成（"
+  ],
+  "Content language": [
+    "Idioma del contenido",
+    "内容语言"
+  ],
+  "Original language": [
+    "Idioma original",
+    "原始语言"
+  ],
+  "Email subject": [
+    "Asunto del correo",
+    "邮件主题"
+  ],
+  "Checking Stripe…": [
+    "Comprobando Stripe…",
+    "检查 Stripe…"
+  ],
+  "Check / resume checkout": [
+    "Comprobar / continuar pago",
+    "检查 / 继续结账"
+  ],
+  "Sign in to your workspace": [
+    "Entra en tu espacio",
+    "登录工作区"
+  ],
+  "Create your workspace": [
+    "Crea tu espacio",
+    "创建工作区"
+  ],
+  "Use the email you signed up with — Gmail works great.": [
+    "Usa el correo con el que te registraste.",
+    "使用注册邮箱登录。"
+  ],
+  "Register with your email. A free workspace is created instantly; subscribe any time to unlock every feature.": [
+    "Regístrate con tu correo. Se crea un espacio gratuito; suscríbete cuando quieras para acceder a las funciones.",
+    "使用邮箱注册即可创建免费工作区，订阅后解锁相关功能。"
+  ],
+  "8-128 characters": [
+    "8–128 caracteres",
+    "8–128 个字符"
+  ],
+  "Your password": [
+    "Tu contraseña",
+    "你的密码"
+  ],
+  "One moment…": [
+    "Un momento…",
+    "请稍候…"
+  ],
+  "Create account": [
+    "Crear cuenta",
+    "创建账号"
+  ],
+  "Energy-saving mode": [
+    "Modo de ahorro",
+    "节能模式"
+  ],
+  "Current billing period": [
+    "Periodo de facturación actual",
+    "当前计费周期"
+  ],
+  "Continue setup": [
+    "Continuar configuración",
+    "继续配置"
+  ],
+  "View activity": [
+    "Ver actividad",
+    "查看活动"
+  ],
+  "The AI is reading your tagged evidence. This usually takes under a minute…": [
+    "La IA está leyendo la evidencia. La duración puede variar…",
+    "AI 正在读取证据，所需时间可能有所不同…"
+  ],
+  "latest classified": [
+    "últimos clasificados",
+    "最近已分类"
+  ],
+  "Queuing…": [
+    "Encolando…",
+    "排队中…"
+  ],
+  "Generate today's tasks": [
+    "Generar tareas de hoy",
+    "生成今日任务"
+  ],
+  "Generate insight report": [
+    "Generar informe",
+    "生成洞察报告"
+  ],
+  "Run in progress…": [
+    "Ejecución en curso…",
+    "运行中…"
+  ],
+  "Cluster all items": [
+    "Agrupar todos los elementos",
+    "聚类全部内容"
+  ],
+  "Discovering topics…": [
+    "Descubriendo temas…",
+    "发现主题中…"
+  ],
+  "No topics yet": [
+    "Aún no hay temas",
+    "暂无主题"
+  ],
+  "The AI is reading a sample of your items to propose concrete topics, then assigns every item with verbatim evidence.": [
+    "La IA propone temas a partir de una muestra y asigna todos los elementos con evidencia literal.",
+    "AI 从样本中提出主题，再依据原文证据分配全部内容。"
+  ],
+  "Run a clustering pass to see what your audience keeps asking for.": [
+    "Agrupa los datos para conocer las necesidades recurrentes de tu audiencia.",
+    "运行聚类，查看受众反复提出的需求。"
+  ],
+  " — the run is still processing.": [
+    " — la ejecución continúa.",
+    " — 任务仍在处理中。"
+  ],
+  "Send again…": [
+    "Enviar de nuevo…",
+    "再次发送…"
+  ],
+  "Send report…": [
+    "Enviar informe…",
+    "发送报告…"
+  ],
+  "Capabilities update after the next sync.": [
+    "Los permisos se actualizan al sincronizar.",
+    "权限将在下次同步后更新。"
+  ],
+  "Opening…": [
+    "Abriendo…",
+    "打开中…"
+  ],
+  "Review pipeline": [
+    "Revisar flujo",
+    "审核流程"
+  ],
+  "Save without accounts": [
+    "Guardar sin cuentas",
+    "暂不选择账号并保存"
+  ],
+  "Always required": [
+    "Siempre obligatoria",
+    "始终需要"
+  ],
+  "Assisted": [
+    "Asistida",
+    "辅助"
+  ],
+  "Saving…": [
+    "Guardando…",
+    "保存中…"
+  ],
+  "Update draft": [
+    "Actualizar borrador",
+    "更新草稿"
+  ],
+  "Save pipeline draft": [
+    "Guardar borrador del flujo",
+    "保存流程草稿"
+  ],
+  "Checking…": [
+    "Comprobando…",
+    "检查中…"
+  ],
+  "Test setup": [
+    "Comprobar configuración",
+    "检查配置"
+  ],
+  "Use this template →": [
+    "Usar esta plantilla →",
+    "使用此模板 →"
+  ],
+  "Coming soon — not executable yet": [
+    "Próximamente — aún no disponible",
+    "即将推出 — 尚不可执行"
+  ],
+  "Published": [
+    "Publicado",
+    "已发布"
+  ],
+  "Ends on": [
+    "Termina el",
+    "到期时间"
+  ],
+  "Next billing date": [
+    "Próxima fecha de cobro",
+    "下次计费日期"
+  ],
+  "Only the workspace owner can purchase credits.": [
+    "Solo el propietario puede comprar créditos.",
+    "仅工作区所有者可购买额度。"
+  ],
+  "Verify your existing subscription above to link your Stripe customer before adding credits.": [
+    "Verifica tu suscripción arriba para vincular Stripe antes de recargar.",
+    "请先核实上方已有订阅并关联 Stripe 客户，再充值。"
+  ],
+  "Credit checkout is not configured. Contact support.": [
+    "La recarga no está configurada. Contacta con soporte.",
+    "额度结账尚未配置，请联系支持。"
+  ],
+  "Trial AI usage is cumulative: 7 days or 30 AI credits, whichever comes first.": [
+    "El uso de prueba es acumulativo: 7 días o 30 créditos, lo que ocurra primero.",
+    "试用累计限制：7 天或 30 AI 额度，以先到者为准。"
+  ],
+  "Included allowances reset each calendar month; purchased credits do not reset.": [
+    "Los límites incluidos se reinician cada mes; los créditos comprados no.",
+    "套餐额度每自然月重置，购买额度不重置。"
+  ],
+  "Edit": [
+    "Editar",
+    "编辑"
+  ],
+  "Enable": [
+    "Activar",
+    "启用"
+  ],
+  "Save rule": [
+    "Guardar regla",
+    "保存规则"
+  ],
+  "Loading…": [
+    "Cargando…",
+    "加载中…"
+  ],
+  "Refresh scheduled delivery": [
+    "Actualizar envíos programados",
+    "刷新定时发送"
+  ],
+  "Load scheduled delivery": [
+    "Cargar envíos programados",
+    "加载定时发送"
+  ],
+  "Save feedback": [
+    "Guardar seguimiento",
+    "保存反馈"
+  ],
+  "Loading review…": [
+    "Cargando revisión…",
+    "加载复盘…"
+  ],
+  "Refresh weekly review": [
+    "Actualizar revisión semanal",
+    "刷新每周复盘"
+  ],
+  "Load weekly review": [
+    "Cargar revisión semanal",
+    "加载每周复盘"
+  ],
+  "Loading history…": [
+    "Cargando historial…",
+    "加载历史…"
+  ],
+  "Refresh weekly history": [
+    "Actualizar historial semanal",
+    "刷新每周历史"
+  ],
+  "Load weekly history": [
+    "Cargar historial semanal",
+    "加载每周历史"
+  ],
+  "Sealing…": [
+    "Sellando…",
+    "封存中…"
+  ],
+  "Seal this week": [
+    "Sellar esta semana",
+    "封存本周"
+  ],
+  "Hide detail": [
+    "Ocultar detalle",
+    "隐藏详情"
+  ],
+  "Show detail": [
+    "Mostrar detalle",
+    "显示详情"
+  ],
+  "What went viral, why, and what to post next": [
+    "Qué funcionó, por qué y qué publicar después",
+    "哪些内容受欢迎、原因及下一步选题"
+  ],
+  "What your fans actually want, from their own words": [
+    "Qué quiere tu audiencia, en sus propias palabras",
+    "从粉丝原话了解真实需求"
+  ],
+  "Merch your audience is already asking for": [
+    "Productos que tu audiencia ya está pidiendo",
+    "发现受众已经提出的商品需求"
+  ],
+  "Why negative reviews happen and what to fix first": [
+    "Por qué hay reseñas negativas y qué corregir primero",
+    "差评原因及优先改进事项"
+  ],
+  "Hot topics, open questions, and members worth recognizing": [
+    "Temas, preguntas abiertas y miembros destacados",
+    "热门话题、待答问题与值得关注的成员"
+  ],
+  "Today's 3-5 most important tasks, decided from your insights": [
+    "Las 3–5 tareas prioritarias según tus análisis",
+    "基于洞察确定今日 3–5 项优先任务"
+  ],
+  "Daily ops tasks": [
+    "Tareas diarias",
+    "每日运营任务"
+  ],
+  "Eco": [
+    "Económico",
+    "经济"
+  ],
+  "Standard": [
+    "Estándar",
+    "标准"
+  ],
+  "Flagship": [
+    "Avanzado",
+    "旗舰"
+  ],
+  "1 credit/run · fastest, cheapest": [
+    "1 crédito/ejecución · rápido y económico",
+    "1 额度/次 · 快速经济"
+  ],
+  "6 credits/run · balanced quality": [
+    "6 créditos/ejecución · calidad equilibrada",
+    "6 额度/次 · 均衡质量"
+  ],
+  "20 credits/run · strongest model": [
+    "20 créditos/ejecución · modelo avanzado",
+    "20 额度/次 · 高级模型"
+  ],
+  "Morning push": [
+    "Tareas matinales",
+    "早间推送"
+  ],
+  "Evening recap": [
+    "Resumen vespertino",
+    "晚间复盘"
+  ],
+  "Weekly report": [
+    "Informe semanal",
+    "每周报告"
+  ],
+  "Urgent risk alerts": [
+    "Alertas de riesgo urgente",
+    "紧急风险提醒"
+  ],
+  "The validated daily task digest, delivered automatically once the morning report is generated.": [
+    "Resumen validado de tareas enviado al generarse el informe matinal.",
+    "早间报告生成后，自动发送经验证的任务摘要。"
+  ],
+  "Today’s recorded decisions — including completions of older suggestions — plus anything still unreviewed.": [
+    "Decisiones de hoy, incluidas acciones de sugerencias anteriores, y asuntos pendientes.",
+    "今日记录的决定（含旧建议的完成）以及未审核事项。"
+  ],
+  "A weekly insight report is generated automatically. Approval mode freezes the digest until you click approve; auto mode delivers it directly.": [
+    "Se genera un informe semanal. En modo aprobación, el resumen queda congelado hasta aprobarlo; en automático se envía directamente.",
+    "自动生成每周报告。审批模式冻结摘要直至批准；自动模式直接发送。"
+  ],
+  "Verbatim-evidence alerts from validated reports. Close the loop in the console: acknowledge, then resolve.": [
+    "Alertas con evidencia literal de informes validados. Confirma y resuelve desde el panel.",
+    "来自已验证报告的原文证据提醒，可在面板中确认并标记解决。"
+  ],
+  "every day after the 07:00 UTC daily-tasks report": [
+    "cada día tras el informe de las 07:00 UTC",
+    "每天 UTC 07:00 任务报告生成后"
+  ],
+  "every day at 20:00 UTC": [
+    "cada día a las 20:00 UTC",
+    "每天 UTC 20:00"
+  ],
+  "every Monday 08:00 UTC": [
+    "cada lunes a las 08:00 UTC",
+    "每周一 UTC 08:00"
+  ],
+  "immediately when a report flags a high-severity risk": [
+    "al detectarse un riesgo grave en un informe",
+    "报告标记高严重度风险时立即发送"
+  ],
+  "Repurpose and publish": [
+    "Adaptar y publicar",
+    "改写并发布"
+  ],
+  "Turn one brief into channel-ready posts with approval before publishing.": [
+    "Convierte una descripción en publicaciones listas para revisar antes de publicar.",
+    "将简报转为适合各渠道的帖子，发布前需审批。"
+  ],
+  "Weekly growth report": [
+    "Informe semanal de crecimiento",
+    "每周增长报告"
+  ],
+  "Collect performance and prepare an approval-ready weekly summary.": [
+    "Recopila resultados y prepara un resumen semanal para revisión.",
+    "汇总表现并准备待审核的每周摘要。"
+  ],
+  "Weekly trigger": [
+    "Activación semanal",
+    "每周触发"
+  ],
+  "Pull analytics": [
+    "Obtener estadísticas",
+    "读取统计"
+  ],
+  "Comment-to-lead review": [
+    "Revisar oportunidades en comentarios",
+    "评论线索审核"
+  ],
+  "Classify high-intent comments and hand qualified leads to your team.": [
+    "Clasifica comentarios con intención y entrega oportunidades al equipo.",
+    "分类高意向评论，并将有效线索交给团队。"
+  ],
+  "Watch comments": [
+    "Observar comentarios",
+    "关注评论"
+  ],
+  "Hand off": [
+    "Entregar",
+    "移交"
+  ],
+  "Purchase intent": [
+    "Intención de compra",
+    "购买意向"
+  ],
+  "Product demand": [
+    "Demanda de producto",
+    "商品需求"
+  ],
+  "Content idea": [
+    "Idea de contenido",
+    "内容建议"
+  ],
+  "Urging update": [
+    "Petición de actualización",
+    "催更"
+  ],
+  "Risk event": [
+    "Riesgo",
+    "风险事件"
+  ],
+  "Needs reply": [
+    "Requiere respuesta",
+    "需要回复"
+  ],
+  "Your session could not be verified. Please retry or sign in again.": [
+    "No se pudo verificar la sesión. Reintenta o vuelve a entrar.",
+    "无法验证会话，请重试或重新登录。"
+  ],
+  "The workspace could not be loaded. Check your session permissions.": [
+    "No se pudo cargar el espacio. Revisa tus permisos.",
+    "无法加载工作区，请检查会话权限。"
+  ],
+  "Piggybot could not reach the workspace service. Please try again.": [
+    "No se pudo conectar al servicio. Reintenta.",
+    "无法连接工作区服务，请重试。"
+  ],
+  "Account connected. Refreshing your destinations…": [
+    "Cuenta conectada. Actualizando destinos…",
+    "账号已连接，正在刷新目标…"
+  ],
+  "Google account connected — paste a spreadsheet link below to import its rows.": [
+    "Cuenta Google conectada. Pega el enlace de una hoja para importar.",
+    "Google 账号已连接，粘贴表格链接即可导入。"
+  ],
+  "Allow pop-ups for Piggybot, then click Connect again.": [
+    "Permite ventanas emergentes y vuelve a pulsar Conectar.",
+    "请允许 Piggybot 弹窗，再次点击连接。"
+  ],
+  "The platform’s Zernio account has a billing or capacity restriction. Contact support.": [
+    "La cuenta Zernio de la plataforma tiene una restricción de facturación o capacidad. Contacta con soporte.",
+    "平台 Zernio 账号有计费或容量限制，请联系支持。"
+  ],
+  "The connection could not be started. Check your session and connector configuration, then retry.": [
+    "No se pudo iniciar la conexión. Revisa la sesión y configuración, y reintenta.",
+    "无法发起连接，请检查会话和连接器配置后重试。"
+  ],
+  "Invalid connector redirect. Contact support.": [
+    "Redirección de conexión inválida. Contacta con soporte.",
+    "连接跳转无效，请联系支持。"
+  ],
+  "The connection window was closed. Click Connect to try again.": [
+    "Se cerró la ventana. Pulsa Conectar para reintentar.",
+    "连接窗口已关闭，请再次点击连接。"
+  ],
+  "Connection failed. Please retry.": [
+    "Error de conexión. Reintenta.",
+    "连接失败，请重试。"
+  ],
+  "The pipeline draft could not be saved.": [
+    "No se pudo guardar el borrador.",
+    "无法保存流程草稿。"
+  ],
+  "The readiness check could not be completed.": [
+    "No se pudo completar la comprobación.",
+    "无法完成就绪检查。"
+  ],
+  "The pipeline could not be started. Check billing and run the readiness check again.": [
+    "No se pudo iniciar. Revisa la facturación y vuelve a comprobar.",
+    "无法启动流程，请检查账单并重新运行就绪检查。"
+  ],
+  "The start request could not be confirmed. Retry safely: this pipeline version will not create a duplicate run.": [
+    "No se confirmó el inicio. Puedes reintentar: esta versión no creará duplicados.",
+    "无法确认启动结果。可安全重试，此流程版本不会创建重复运行。"
+  ],
+  "Run not found or access is denied.": [
+    "Ejecución no encontrada o acceso denegado.",
+    "找不到运行或无权访问。"
+  ],
+  "Your message could not be sent. Confirm that your workspace session is active.": [
+    "No se pudo enviar. Comprueba que tu sesión esté activa.",
+    "无法发送消息，请确认会话有效。"
+  ],
+  "Share this link and earn 20% credit on eligible first-year payments.": [
+    "Comparte el enlace y recibe un 20 % de crédito sobre pagos elegibles del primer año.",
+    "分享此链接，可获符合条件的首年付款 20% 抵扣金。"
+  ],
+  "The password could not be saved. Use 8-128 characters.": [
+    "No se pudo guardar. Usa 8–128 caracteres.",
+    "密码保存失败，请使用 8–128 个字符。"
+  ],
+  "Password saved — you can now sign in with your email.": [
+    "Contraseña guardada. Ya puedes entrar con tu correo.",
+    "密码已保存，可通过邮箱登录。"
+  ],
+  "Import content exceeds 2 MiB. Split it into smaller batches.": [
+    "El contenido supera 2 MiB. Divídelo en lotes menores.",
+    "导入内容超过 2 MiB，请拆分批次。"
+  ],
+  "Give this import a title first — it is how you will recognize the batch later.": [
+    "Pon un título para reconocer este lote después.",
+    "请先填写标题，以便之后识别批次。"
+  ],
+  "Imports require an active subscription. Pick a plan to unlock AI classification.": [
+    "Se necesita una suscripción activa para clasificar con IA.",
+    "导入需要有效订阅，请选择套餐以启用 AI 分类。"
+  ],
+  "Ask your administrator to configure the Discord import bot and workspace channel allowlist.": [
+    "Pide al administrador que configure el bot y los canales autorizados.",
+    "请管理员配置 Discord 导入机器人和工作区频道白名单。"
+  ],
+  "The Discord import configuration is invalid. Contact your administrator.": [
+    "La configuración de Discord no es válida. Contacta al administrador.",
+    "Discord 导入配置无效，请联系管理员。"
+  ],
+  "This Discord channel is not authorized for your workspace. Contact your administrator.": [
+    "Este canal no está autorizado. Contacta al administrador.",
+    "此频道未获工作区授权，请联系管理员。"
+  ],
+  "Ask your administrator to check the Discord bot token, View Channel and Read Message History permissions.": [
+    "Pide revisar el token y permisos de ver canal y leer historial.",
+    "请管理员检查机器人凭据、查看频道及读取历史权限。"
+  ],
+  "No readable human text was found. Check Message Content intent and channel history permissions, or try a channel with recent text.": [
+    "No hay texto humano legible. Revisa Message Content y permisos de historial, o prueba otro canal.",
+    "未找到可读人工文字，请检查 Message Content intent 和历史权限，或选择有近期文字的频道。"
+  ],
+  "No new Discord messages in the latest 500-message window. Existing imports will not be billed again.": [
+    "No hay mensajes nuevos entre los últimos 500. Lo ya importado no se factura de nuevo.",
+    "最近 500 条消息中无新增内容，已有导入不会重复计费。"
+  ],
+  "Discord is rate limiting imports. Wait before trying again.": [
+    "Discord limita las solicitudes. Espera y reintenta.",
+    "Discord 正在限流，请稍后重试。"
+  ],
+  "Discord could not be reached. Nothing was imported; retry later.": [
+    "No se pudo conectar a Discord. No se importó nada; reintenta después.",
+    "无法连接 Discord，未导入任何内容，请稍后重试。"
+  ],
+  "The import could not be created.": [
+    "No se pudo crear la importación.",
+    "无法创建导入。"
+  ],
+  "The import could not reach the workspace service. Please retry.": [
+    "La importación no pudo conectar al servicio. Reintenta.",
+    "导入无法连接服务，请重试。"
+  ],
+  "Google Sheets import is not configured on this deployment. Contact your administrator.": [
+    "Google Sheets no está configurado. Contacta al administrador.",
+    "当前部署未配置 Google Sheets 导入，请联系管理员。"
+  ],
+  "The connection could not be started. Check your session, then retry.": [
+    "No se pudo iniciar. Revisa la sesión y reintenta.",
+    "无法发起连接，请检查会话后重试。"
+  ],
+  "The Google account could not be disconnected. Retry or contact support.": [
+    "No se pudo desconectar Google. Reintenta o contacta con soporte.",
+    "无法断开 Google 账号，请重试或联系支持。"
+  ],
+  "Google account disconnected. Stored credentials were deleted.": [
+    "Google desconectado. Se eliminaron las credenciales guardadas.",
+    "Google 账号已断开，保存的凭据已删除。"
+  ],
+  "Google Sheets token storage is missing its encryption key. Contact your administrator.": [
+    "Falta la clave de cifrado para Google Sheets. Contacta al administrador.",
+    "Google Sheets 凭据存储缺少加密密钥，请联系管理员。"
+  ],
+  "Connect your Google account first, then import the sheet.": [
+    "Conecta Google antes de importar la hoja.",
+    "请先连接 Google 账号再导入表格。"
+  ],
+  "Google access was revoked or expired. Reconnect your Google account and retry.": [
+    "El acceso Google caducó o fue revocado. Vuelve a conectar.",
+    "Google 授权已过期或撤销，请重新连接后重试。"
+  ],
+  "The stored Google credential can no longer be read. Reconnect your Google account.": [
+    "No se puede leer la credencial guardada. Vuelve a conectar Google.",
+    "无法读取已保存的 Google 凭据，请重新连接。"
+  ],
+  "The spreadsheet is not readable. Share it with the connected Google account and check the spreadsheet link.": [
+    "No se puede leer la hoja. Compártela con la cuenta conectada y revisa el enlace.",
+    "无法读取表格，请共享给已连接账号并检查链接。"
+  ],
+  "No importable rows found. The first row must be headers like text, author, platform, views, likes, rating.": [
+    "No hay filas importables. La primera fila debe contener text, author, platform, views, likes, rating.",
+    "无可导入行，首行需为 text、author、platform、views、likes、rating 等列名。"
+  ],
+  "Every row in that sheet is already imported. New or edited rows will import next time.": [
+    "Todas las filas están importadas. La próxima vez se leerán filas nuevas o modificadas.",
+    "所有行已导入，下次将读取新增或修改行。"
+  ],
+  "Google is rate limiting sheet reads. Wait before trying again.": [
+    "Google limita las lecturas. Espera y reintenta.",
+    "Google 正在限制读取频率，请稍后重试。"
+  ],
+  "Google returned an unexpected response. Nothing was imported; retry later.": [
+    "Google devolvió una respuesta inesperada. No se importó nada.",
+    "Google 返回异常响应，未导入任何内容，请稍后重试。"
+  ],
+  "Google Sheets could not be reached. Nothing was imported; retry later.": [
+    "No se pudo conectar a Google Sheets. No se importó nada.",
+    "无法连接 Google Sheets，未导入任何内容，请稍后重试。"
+  ],
+  "Import batch not found or access is denied.": [
+    "Lote no encontrado o acceso denegado.",
+    "找不到批次或无权访问。"
+  ],
+  "Insight reports require an active subscription. Pick a plan to unlock AI analysis.": [
+    "Los informes requieren una suscripción activa. Elige un plan.",
+    "洞察报告需要有效订阅，请选择套餐。"
+  ],
+  "Import and classify a batch first — insights are built from tagged items.": [
+    "Primero importa y clasifica un lote para crear análisis.",
+    "请先导入并分类，洞察基于已分类内容生成。"
+  ],
+  "Some selected batches are still classifying. Wait for them to finish.": [
+    "Algunos lotes siguen clasificándose. Espera a que terminen.",
+    "部分选中批次仍在分类，请等待完成。"
+  ],
+  "The insight report could not be created.": [
+    "No se pudo crear el informe.",
+    "无法创建洞察报告。"
+  ],
+  "Insight report queued — the AI is reading your tagged evidence now.": [
+    "Informe en cola. La IA está leyendo la evidencia.",
+    "报告已排队，AI 正在读取证据。"
+  ],
+  "The insight request could not reach the workspace service. Please retry.": [
+    "No se pudo conectar para crear el informe. Reintenta.",
+    "洞察请求无法连接服务，请重试。"
+  ],
+  "Only a finished report can be sent.": [
+    "Solo se pueden enviar informes terminados.",
+    "仅可发送已完成的报告。"
+  ],
+  "Pick a connected Discord account with posting permission.": [
+    "Elige una cuenta Discord conectada con permiso para publicar.",
+    "请选择已连接且有发布权限的 Discord 账号。"
+  ],
+  "No workspace owner email found — enter an email address.": [
+    "No se encontró el correo del propietario. Introduce una dirección.",
+    "未找到所有者邮箱，请输入收件地址。"
+  ],
+  "This draft exceeds the Discord delivery limit. Choose Email to send the complete text.": [
+    "El borrador supera el límite de Discord. Usa correo para enviarlo completo.",
+    "草稿超过 Discord 限制，请选邮箱发送完整内容。"
+  ],
+  "This draft is unavailable. Reopen the report and select a saved draft.": [
+    "Este borrador no está disponible. Reabre el informe y elige otro guardado.",
+    "草稿不可用，请重新打开报告选择已保存草稿。"
+  ],
+  "The delivery request could not be created.": [
+    "No se pudo crear la solicitud de envío.",
+    "无法创建发送请求。"
+  ],
+  "Delivery queued — approve it in Review to send.": [
+    "Envío pendiente. Apruébalo en Revisar.",
+    "发送已排队，请在待审核页面批准。"
+  ],
+  "Insight report not found or access is denied.": [
+    "Informe no encontrado o acceso denegado.",
+    "找不到洞察报告或无权访问。"
+  ],
+  "Topic clustering requires an active subscription. Pick a plan to unlock AI analysis.": [
+    "La agrupación requiere una suscripción activa.",
+    "主题聚类需要有效订阅。"
+  ],
+  "The topic run could not be created.": [
+    "No se pudo crear el análisis de temas.",
+    "无法创建主题任务。"
+  ],
+  "Topic run queued — clustering every classified item with verifiable counts.": [
+    "Análisis en cola; se agrupan los elementos con recuentos verificables.",
+    "主题任务已排队，正在聚类并生成可核验计数。"
+  ],
+  "The topic request could not reach the workspace service. Please retry.": [
+    "No se pudo conectar para analizar temas. Reintenta.",
+    "主题请求无法连接服务，请重试。"
+  ],
+  "Topic not found or access is denied.": [
+    "Tema no encontrado o acceso denegado.",
+    "找不到主题或无权访问。"
+  ],
+  "Verifying your session…": [
+    "Verificando sesión…",
+    "验证会话中…"
+  ],
+  "Unable to verify checkout. Retry or contact support; do not purchase again.": [
+    "No se pudo verificar el pago. Reintenta o contacta con soporte; no compres otra vez.",
+    "无法核实结账，请重试或联系支持，无需重复购买。"
+  ],
+  "Subscription verified. Current trial and usage limits still apply.": [
+    "Suscripción verificada. Siguen vigentes los límites de prueba y uso.",
+    "订阅已核实，当前试用和用量限制仍适用。"
+  ],
+  "Your previous checkout expired without completing. Choose a plan to start a new checkout.": [
+    "El pago anterior caducó sin completarse. Elige un plan para empezar de nuevo.",
+    "上次结账未完成且已过期，请选择套餐重新结账。"
+  ],
+  "No recorded checkout was found for this workspace. A Stripe Customer alone does not activate a subscription.": [
+    "No hay un pago registrado. Un cliente Stripe por sí solo no activa una suscripción.",
+    "未找到此工作区的结账记录，仅有 Stripe 客户记录不会激活订阅。"
+  ],
+  "Checkout verification failed.": [
+    "Falló la verificación del pago.",
+    "结账核实失败。"
+  ],
+  "This email already has an account — sign in instead.": [
+    "Este correo ya tiene cuenta. Inicia sesión.",
+    "此邮箱已有账号，请直接登录。"
+  ],
+  "Too many attempts. Wait a few minutes and try again.": [
+    "Demasiados intentos. Espera unos minutos.",
+    "尝试过多，请等待几分钟再试。"
+  ],
+  "Sign-in failed. Check your email and password.": [
+    "No se pudo iniciar sesión. Revisa correo y contraseña.",
+    "登录失败，请检查邮箱和密码。"
+  ],
+  "The platform could not be reached. Try again in a moment.": [
+    "No se pudo conectar. Reintenta en un momento.",
+    "无法连接平台，请稍后重试。"
+  ],
+  "Discovering topics": [
+    "Descubriendo temas",
+    "发现主题中"
+  ],
+  "Assigning items": [
+    "Asignando elementos",
+    "分配内容中"
+  ],
+  "Awaiting approval": [
+    "Pendiente de aprobación",
+    "等待审批"
+  ],
+  "Approved — sending": [
+    "Aprobado — enviando",
+    "已批准 — 发送中"
+  ],
+  "Delivery failed": [
+    "Error de envío",
+    "发送失败"
+  ],
+  "Starting point": [
+    "Punto de partida",
+    "开始"
+  ],
+  "Understand outcome": [
+    "Entender el resultado",
+    "理解目标"
+  ],
+  "Human review": [
+    "Revisión humana",
+    "人工审核"
+  ],
+  "Execute safely": [
+    "Ejecución controlada",
+    "受控执行"
+  ],
+  "Not available": [
+    "No disponible",
+    "不可用"
+  ],
+  "Stripe subscription verified. Original trial dates and usage limits apply.": [
+    "Suscripción verificada. Se aplican las fechas y límites originales.",
+    "Stripe 订阅已核实，原始试用日期和限制仍适用。"
+  ],
+  "Recovery failed.": [
+    "Falló la recuperación.",
+    "恢复失败。"
+  ],
+  "Only the workspace owner can manage billing. Ask your owner for help.": [
+    "Solo el propietario puede gestionar la facturación.",
+    "仅工作区所有者可管理账单，请联系所有者。"
+  ],
+  "Billing could not be verified. Please retry or contact support.": [
+    "No se pudo verificar la facturación. Reintenta o contacta con soporte.",
+    "无法核实账单，请重试或联系支持。"
+  ],
+  "Payment verified. Your credits are available in the balance below. Trial limits still apply.": [
+    "Pago verificado. Los créditos están disponibles; se mantienen los límites de prueba.",
+    "付款已核实，额度已计入下方余额，试用限制仍适用。"
+  ],
+  "Invalid payment redirect. Contact support.": [
+    "Redirección de pago inválida. Contacta con soporte.",
+    "付款跳转无效，请联系支持。"
+  ],
+  "Please retry.": [
+    "Reintenta.",
+    "请重试。"
+  ],
+  "Choose a connected Discord account with publish capability.": [
+    "Elige una cuenta Discord con permiso para publicar.",
+    "请选择有发布权限的已连接 Discord 账号。"
+  ],
+  "Unable to save the rule": [
+    "No se pudo guardar la regla",
+    "无法保存规则"
+  ],
+  "Unable to disable the rule.": [
+    "No se pudo desactivar la regla.",
+    "无法停用规则。"
+  ],
+  "Unable to disable the rule": [
+    "No se pudo desactivar la regla",
+    "无法停用规则"
+  ],
+  "Unable to load notifications. Please retry.": [
+    "No se pudieron cargar las notificaciones. Reintenta.",
+    "无法加载通知，请重试。"
+  ],
+  "Invalid notifications response.": [
+    "Respuesta de notificaciones inválida.",
+    "通知响应无效。"
+  ],
+  "Unable to load notifications": [
+    "No se pudieron cargar las notificaciones",
+    "无法加载通知"
+  ],
+  "This event was already handled. Refreshing.": [
+    "Este evento ya se gestionó. Actualizando.",
+    "此事件已处理，正在刷新。"
+  ],
+  "Action failed. Please retry.": [
+    "La acción falló. Reintenta.",
+    "操作失败，请重试。"
+  ],
+  "Unable to load action feedback": [
+    "No se pudo cargar el seguimiento",
+    "无法加载执行反馈"
+  ],
+  "Saved feedback": [
+    "Seguimiento guardado",
+    "反馈已保存"
+  ],
+  "Not yet reviewed": [
+    "Sin revisar",
+    "尚未审核"
+  ],
+  "Save failed. Your edits are retained; please retry.": [
+    "No se pudo guardar. Se conservan tus cambios; reintenta.",
+    "保存失败，编辑内容已保留，请重试。"
+  ],
+  "Feedback saved": [
+    "Seguimiento guardado",
+    "反馈已保存"
+  ],
+  "Save failed": [
+    "No se pudo guardar",
+    "保存失败"
+  ],
+  "This window contains too many reports; no partial totals are shown.": [
+    "Hay demasiados informes en este periodo; no se muestran totales parciales.",
+    "此窗口报告过多，不显示不完整统计。"
+  ],
+  "Unable to load weekly review. Please retry.": [
+    "No se pudo cargar la revisión semanal. Reintenta.",
+    "无法加载每周复盘，请重试。"
+  ],
+  "Invalid weekly review response.": [
+    "Respuesta de revisión semanal inválida.",
+    "每周复盘响应无效。"
+  ],
+  "Unable to load review": [
+    "No se pudo cargar la revisión",
+    "无法加载复盘"
+  ],
+  "Unable to load weekly history. Please retry.": [
+    "No se pudo cargar el historial semanal. Reintenta.",
+    "无法加载每周历史，请重试。"
+  ],
+  "Invalid weekly history response.": [
+    "Respuesta de historial semanal inválida.",
+    "每周历史响应无效。"
+  ],
+  "Unable to load weekly history": [
+    "No se pudo cargar el historial semanal",
+    "无法加载每周历史"
+  ],
+  "This week is already sealed. Sealed snapshots never change.": [
+    "Esta semana ya está sellada. Las instantáneas no se modifican.",
+    "本周已封存，封存快照不可更改。"
+  ],
+  "Unable to seal this week. Please retry.": [
+    "No se pudo sellar la semana. Reintenta.",
+    "无法封存本周，请重试。"
+  ],
+  "Week sealed. This snapshot is now immutable and available for cross-week comparison.": [
+    "Semana sellada. La instantánea es inmutable y permite comparar semanas.",
+    "本周已封存，快照不可更改，可用于周间比较。"
+  ],
+  "Unable to seal this week": [
+    "No se pudo sellar la semana",
+    "无法封存本周"
+  ],
+  "Unable to load the sealed snapshot.": [
+    "No se pudo cargar la instantánea sellada.",
+    "无法加载封存快照。"
+  ],
+  "Unable to load the sealed snapshot. Please retry.": [
+    "No se pudo cargar la instantánea sellada. Reintenta.",
+    "无法加载封存快照，请重试。"
+  ],
+  "Some workspace data could not be loaded. Refresh to retry; missing results may be incomplete.": [
+    "No se pudieron cargar algunos datos. Actualiza; los resultados pueden estar incompletos.",
+    "部分数据未能加载，请刷新重试；当前结果可能不完整。"
+  ],
+  "pending": [
+    "pendiente",
+    "待处理"
+  ],
+  "generating": [
+    "generando",
+    "生成中"
+  ],
+  "generated": [
+    "generado",
+    "已生成"
+  ],
+  "classified": [
+    "clasificado",
+    "已分类"
+  ],
+  "classifying": [
+    "clasificando",
+    "分类中"
+  ],
+  "failed": [
+    "fallido",
+    "失败"
+  ],
+  "connected": [
+    "conectado",
+    "已连接"
+  ],
+  "expired": [
+    "caducado",
+    "已过期"
+  ],
+  "disconnected": [
+    "desconectado",
+    "已断开"
+  ],
+  "syncing": [
+    "sincronizando",
+    "同步中"
+  ],
+  "planned": [
+    "planificado",
+    "已计划"
+  ],
+  "adopted": [
+    "adoptado",
+    "已采纳"
+  ],
+  "completed": [
+    "completado",
+    "已完成"
+  ],
+  "unknown": [
+    "desconocido",
+    "未知"
+  ],
+  "improved": [
+    "mejorado",
+    "已改善"
+  ],
+  "unchanged": [
+    "sin cambios",
+    "无变化"
+  ],
+  "worse": [
+    "peor",
+    "变差"
+  ],
+  "Continue": [
+    "Continuar",
+    "继续"
+  ],
+  "Completed": [
+    "Completado",
+    "已完成"
+  ],
+  "Failed": [
+    "Fallido",
+    "失败"
+  ],
+  "Queued": [
+    "En cola",
+    "已排队"
+  ],
+  "Delivered": [
+    "Entregado",
+    "已送达"
+  ],
+  "Rejected": [
+    "Rechazado",
+    "已拒绝"
+  ]
+}

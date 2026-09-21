@@ -251,7 +251,7 @@ export const internalApiRoutes = [
       const request = parsed.data;
       try {
         const agent = createInsightReportAgent(request.template, modelForBand(config, request.modelBand, request.provider));
-        const prompt = `Generate the ${request.template} insight report from this evidence pack. Evidence pack as JSON:\n${JSON.stringify({
+        const prompt = `Generate the ${request.template} insight report from this evidence pack. Output language: ${request.language === 'auto' ? 'match the majority source language' : request.language}. Preserve all citations verbatim in the source language. Evidence pack as JSON:\n${JSON.stringify({
           workspaceLabel: request.workspaceLabel,
           totals: request.totals,
           topItems: request.topItems,

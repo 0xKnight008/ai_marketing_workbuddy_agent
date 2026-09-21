@@ -26,8 +26,8 @@ test('selects a full presale draft and displays exact text in the approval queue
   await page.getByLabel('Content to send', { exact: true }).selectOption('presalePollDraft');
   await page.getByRole('button', { name: 'Request approval', exact: true }).click();
   await expect.poll(() => submitted).toEqual({ channel: 'email', draftKey: 'presalePollDraft' });
-  await expect(page.getByText('Delivery queued — approve it in the Activity tab to send.')).toBeVisible();
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.getByText('Delivery queued — approve it in Review to send.')).toBeVisible();
+  await page.getByRole('button', { name: 'Back to insights', exact: true }).click();
   await page.getByRole('button', { name: 'Activity', exact: true }).click();
   await expect(page.getByText('Exact message to be sent:', { exact: true })).toBeVisible();
   await expect(page.locator('pre').filter({ hasText: 'Please vote before Friday.' })).toHaveText(poll);

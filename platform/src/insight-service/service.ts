@@ -96,7 +96,7 @@ export class InsightService {
       if (!count && input.template !== 'daily_ops') throw new HttpError(422, 'insight_no_items');
 
       const labels = INSIGHT_TEMPLATE_LABELS[input.template];
-      const title = input.title ?? `${labels.zh} · ${new Date().toISOString().slice(0, 10)}`;
+      const title = input.title ?? `${input.language === 'es' ? labels.es : input.language === 'en' ? labels.en : labels.zh} · ${new Date().toISOString().slice(0, 10)}`;
       const inserted = await tx.query<{ id: string }>(
         `INSERT INTO insight_report (workspace_id, template, title, model_band, batch_ids, item_count, created_by)
          VALUES (current_setting('app.workspace_id')::uuid, $1, $2, $3, $4::jsonb, $5, $6)
@@ -108,7 +108,7 @@ export class InsightService {
 
       await tx.query(
         "INSERT INTO job (workspace_id, kind, payload) VALUES (current_setting('app.workspace_id')::uuid, 'insight.generate', $1)",
-        [JSON.stringify({ reportId })],
+        [JSON.stringify({ reportId, ...(input.language ? { language: input.language } : {}) })],
       );
       await tx.query(
         'INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)',

@@ -15,13 +15,13 @@ export type InsightTemplate = (typeof INSIGHT_TEMPLATES)[number];
 
 export const insightTemplateSchema = z.enum(INSIGHT_TEMPLATES);
 
-export const INSIGHT_TEMPLATE_LABELS: Record<InsightTemplate, { en: string; zh: string; audience: string }> = {
-  content_recap: { en: 'Content recap', zh: '爆款内容复盘', audience: 'creators' },
-  comment_insights: { en: 'Comment insights', zh: '粉丝评论洞察', audience: 'creators + community' },
-  product_opportunities: { en: 'Product opportunities', zh: '商品机会发现', audience: 'creators + sellers' },
-  review_attribution: { en: 'Review attribution', zh: '差评归因', audience: 'sellers' },
-  community_digest: { en: 'Community digest', zh: '社群摘要', audience: 'community' },
-  daily_ops: { en: 'Daily ops tasks', zh: '每日运营任务', audience: 'all' },
+export const INSIGHT_TEMPLATE_LABELS: Record<InsightTemplate, { en: string; es: string; zh: string; audience: string }> = {
+  content_recap: { en: 'Content recap', es: 'Resumen de contenido', zh: '爆款内容复盘', audience: 'creators' },
+  comment_insights: { en: 'Comment insights', es: 'Análisis de comentarios', zh: '粉丝评论洞察', audience: 'creators + community' },
+  product_opportunities: { en: 'Product opportunities', es: 'Oportunidades de producto', zh: '商品机会发现', audience: 'creators + sellers' },
+  review_attribution: { en: 'Review attribution', es: 'Análisis de reseñas', zh: '差评归因', audience: 'sellers' },
+  community_digest: { en: 'Community digest', es: 'Resumen de comunidad', zh: '社群摘要', audience: 'community' },
+  daily_ops: { en: 'Daily ops tasks', es: 'Tareas diarias', zh: '每日运营任务', audience: 'all' },
 };
 
 export const reportCitationSchema = z.object({
@@ -196,6 +196,7 @@ export const insightResultSchemas = {
 } as const;
 
 export const createInsightReportSchema = z.object({
+  language: z.enum(['en', 'es', 'zh', 'auto']).optional(),
   template: insightTemplateSchema,
   title: z.string().trim().min(1).max(120).optional(),
   batchIds: z.array(z.string().uuid()).max(10).optional(),

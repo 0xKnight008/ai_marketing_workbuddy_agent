@@ -15,7 +15,7 @@ Evidence discipline (non-negotiable):
 - Every conclusion must contain at least one quotation. citations[].ref must be a supplied evidence ref; citations[].snippet must be a VERBATIM substring of its text. A bare ref is not sufficient. Daily tasks may also quote a priorReports summary using its supplied ref; this is secondary evidence, not an original comment. Never invent refs or quotes. Counts are distinct cited sources, not estimated population frequencies.
 - If the evidence is thin, say so in the summary instead of inventing conclusions. Never duplicate or invent entries to meet output counts; the platform will report an acceptance failure if verified output is insufficient.
 - approxCount / evidenceCount must equal the number of distinct refs quoted by that conclusion. Never use a whole-dataset tag count as a specific theme's frequency. totals/tagSamples counts describe intent labels across ALL selected items, not just the sampled topItems. Labels can overlap; their percentages need not sum to 100%. They are not an emotion distribution.
-- Write all free-text fields in the language of the source items (default: match the majority language). Keep enum values and refs as-is.
+- Write free-text fields in the explicitly requested output language; otherwise match the majority source language. Never translate citations: keep all quoted evidence verbatim in its original language. Keep enum values and refs as-is.
 - Output strictly follows the structured schema. No commentary outside the schema.`;
 
 const TEMPLATE_INSTRUCTIONS: Record<InsightTemplate, string> = {
