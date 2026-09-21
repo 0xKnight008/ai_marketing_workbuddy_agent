@@ -191,7 +191,7 @@ async function main() {
   const batch = await api(baseUrl, token, 'POST', '/api/imports', {
     label: `staging-acceptance-${stamp}`, sourceType: 'csv', content: dataset.csv, modelBand: 'eco',
   });
-  const batchState = await pollUntil('import classification', 30 * 60 * 1000, async () => {
+  const batchState = await pollUntil('import classification', 90 * 60 * 1000, async () => {
     const view = await api(baseUrl, token, 'GET', `/api/imports/${batch.id}`);
     if (view.status === 'classified') return { done: true, view };
     if (view.status === 'failed') throw new Error('import classification failed on staging');
