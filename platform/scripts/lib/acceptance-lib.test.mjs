@@ -99,7 +99,7 @@ test('evaluateTemplateResult flags failure, latency, grounding and credit defect
     ['status=failed (insufficient_grounded_evidence)'],
   );
   const issues = evaluateTemplateResult({
-    template: 'community_digest', status: 'generated', latencyMs: 11 * 60 * 1000,
+    template: 'community_digest', status: 'generated', latencyMs: 21 * 60 * 1000,
     metrics: { groundedRate: 0.2, groundedConclusions: 0 },
     creditRows: [{ ai_credits: '1' }, { ai_credits: '1' }],
   });

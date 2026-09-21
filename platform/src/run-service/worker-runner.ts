@@ -336,7 +336,7 @@ export class RunWorker {
 
     // Chunked synchronous classification; each chunk writes tags transactionally
     // so a mid-batch failure can be retried without duplicating rows (UNIQUE item+tag).
-    const CLASSIFY_CHUNK = 50;
+    const CLASSIFY_CHUNK = 25;
     // Commit only complete chunks. Partial results leave the same item IDs
     // pending, so bounded job retries reuse the original paid reservation.
     for (;;) {

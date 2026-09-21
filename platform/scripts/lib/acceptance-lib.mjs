@@ -167,7 +167,7 @@ export function buildAcceptanceDataset() {
 
 export const DEFAULT_THRESHOLDS = {
   minGroundedRate: 0.5,
-  maxLatencyMs: 10 * 60 * 1000,
+  maxLatencyMs: 20 * 60 * 1000,
   minGroundedConclusions: 1,
 };
 

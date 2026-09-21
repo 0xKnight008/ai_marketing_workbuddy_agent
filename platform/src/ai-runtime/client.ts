@@ -1,3 +1,10 @@
+// AI runtime call timeouts (ms). Tune for slow upstream LLM gateways:
+// the routing proxy may take several minutes per chunk depending on
+// model band and load. Defaults are 3-4x the worst observed latency.
+const AI_RUNTIME_CLASSIFY_TIMEOUT_MS = Number(process.env.AI_RUNTIME_CLASSIFY_TIMEOUT_MS ?? 900_000);
+const AI_RUNTIME_INSIGHT_TIMEOUT_MS = Number(process.env.AI_RUNTIME_INSIGHT_TIMEOUT_MS ?? 1_200_000);
+const AI_RUNTIME_TOPICS_TIMEOUT_MS = Number(process.env.AI_RUNTIME_TOPICS_TIMEOUT_MS ?? 900_000);
+
 export interface AiRuntimeClientOptions {
   baseUrl: string;
   internalToken: string;
@@ -46,7 +53,7 @@ export class AiRuntimeClient {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-internal-token': this.options.internalToken },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(AI_RUNTIME_CLASSIFY_TIMEOUT_MS),
     });
     if (!response.ok) throw new Error(`AI runtime classify failed: ${response.status}`);
     return await response.json() as Record<string, unknown>;
@@ -59,7 +66,7 @@ export class AiRuntimeClient {
       headers: { 'content-type': 'application/json', 'x-internal-token': this.options.internalToken },
       body: JSON.stringify(payload),
       // 证据包最大 ~64 条 × 600 字 + 标签样本，flagship 档位生成可能显著更慢。
-      signal: AbortSignal.timeout(180_000),
+      signal: AbortSignal.timeout(AI_RUNTIME_INSIGHT_TIMEOUT_MS),
     });
     if (!response.ok) throw new Error(`AI runtime insight report failed: ${response.status}`);
     return await response.json() as Record<string, unknown>;
@@ -71,7 +78,7 @@ export class AiRuntimeClient {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-internal-token': this.options.internalToken },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(AI_RUNTIME_TOPICS_TIMEOUT_MS),
     });
     if (!response.ok) throw new Error(`AI runtime topics propose failed: ${response.status}`);
     return await response.json() as Record<string, unknown>;
@@ -83,7 +90,7 @@ export class AiRuntimeClient {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-internal-token': this.options.internalToken },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(AI_RUNTIME_TOPICS_TIMEOUT_MS),
     });
     if (!response.ok) throw new Error(`AI runtime topics assign failed: ${response.status}`);
     return await response.json() as Record<string, unknown>;

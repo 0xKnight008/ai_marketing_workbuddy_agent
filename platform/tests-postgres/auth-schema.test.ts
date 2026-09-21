@@ -155,12 +155,12 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
       assert.equal((await client.query('SELECT count(*)::int AS n FROM import_item WHERE batch_id=$1 AND classified_at IS NOT NULL', [batch.id])).rows[0].n, 0);
       assert.equal((await client.query('SELECT count(*)::int AS n FROM import_item WHERE batch_id=$1 AND sentiment IS NOT NULL', [batch.id])).rows[0].n, 0);
       await worker.runOne();
-      assert.equal(modelCalls, 11, 'one incomplete call, then ten complete chunks');
+      assert.equal(modelCalls, 21, 'one incomplete call, then twenty complete chunks');
       assert.equal((await client.query("SELECT count(*)::int AS n FROM import_item WHERE batch_id=$1 AND sentiment->>'label'='neutral' AND sentiment->>'evidence'=text", [batch.id])).rows[0].n, 500);
       assert.equal((await client.query('SELECT status FROM import_batch WHERE id=$1', [batch.id])).rows[0].status, 'classified');
       assert.equal((await client.query('SELECT count(*)::int AS n FROM import_item WHERE batch_id=$1 AND classified_at IS NOT NULL', [batch.id])).rows[0].n, 500);
       const charges = await client.query('SELECT count(*)::int AS n, sum(ai_credits)::int AS credits FROM task_event WHERE subject_id=$1', [batch.id]);
-      assert.deepEqual(charges.rows[0], { n: 10, credits: 10 });
+      assert.deepEqual(charges.rows[0], { n: 20, credits: 20 });
       const coverage = await client.query("SELECT payload FROM audit_event WHERE event_type='import.classified' AND payload->>'batchId'=$1", [batch.id]);
       assert.equal(coverage.rows[0].payload.items, 500);
       assert.equal(coverage.rows[0].payload.tagCoverageRate, 1, 'two tags per item must not inflate the denominator');
