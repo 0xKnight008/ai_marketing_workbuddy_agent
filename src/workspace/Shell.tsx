@@ -10,15 +10,18 @@ export function WorkspaceShell({ section, navigate, name, email, pending, usage,
   const [menu,setMenu]=useState(false); const [search,setSearch]=useState(false); const [query,setQuery]=useState('');
   const menuButton=useRef<HTMLButtonElement>(null); const sidebar=useRef<HTMLElement>(null); const heading=useRef<HTMLHeadingElement>(null);
   const previous=useRef(section);
+  const restoreMenuFocus=useRef(false);
+  function closeMenu(){restoreMenuFocus.current=true;setMenu(false);}
+  useEffect(()=>{if(!menu&&restoreMenuFocus.current){restoreMenuFocus.current=false;menuButton.current?.focus();}},[menu]);
   useEffect(()=>{ if(previous.current!==section){ heading.current?.focus(); previous.current=section; } },[section]);
   useEffect(()=>{ const key=(e:KeyboardEvent)=>{if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();setSearch(true);}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[]);
-  useEffect(()=>{if(!menu)return; const old=document.body.style.overflow;document.body.style.overflow='hidden';const panel=sidebar.current;panel?.querySelector<HTMLButtonElement>('button')?.focus();const key=(e:KeyboardEvent)=>{if(e.key==='Escape'){setMenu(false);menuButton.current?.focus();}if(e.key==='Tab'&&panel){const items=Array.from(panel.querySelectorAll<HTMLElement>('button,a,select')).filter(el=>!el.hasAttribute('disabled'));if(e.shiftKey&&document.activeElement===items[0]){e.preventDefault();items.at(-1)?.focus();}else if(!e.shiftKey&&document.activeElement===items.at(-1)){e.preventDefault();items[0]?.focus();}}};window.addEventListener('keydown',key);return()=>{document.body.style.overflow=old;window.removeEventListener('keydown',key);};},[menu]);
+  useEffect(()=>{if(!menu)return; const old=document.body.style.overflow;document.body.style.overflow='hidden';const panel=sidebar.current;panel?.querySelector<HTMLButtonElement>('button')?.focus();const key=(e:KeyboardEvent)=>{if(e.key==='Escape'){closeMenu();}if(e.key==='Tab'&&panel){const items=Array.from(panel.querySelectorAll<HTMLElement>('button,a,select')).filter(el=>!el.hasAttribute('disabled'));if(e.shiftKey&&document.activeElement===items[0]){e.preventDefault();items.at(-1)?.focus();}else if(!e.shiftKey&&document.activeElement===items.at(-1)){e.preventDefault();items[0]?.focus();}}};window.addEventListener('keydown',key);return()=>{document.body.style.overflow=old;window.removeEventListener('keydown',key);};},[menu]);
   function go(s:Section){setMenu(false);navigate(s);}
   return <div className="workspace-v6">
     <a className="skip-link" href="#workspace-content">{w('Skip to content','Saltar al contenido','跳至主要内容')}</a>
-    {menu&&<div className="workspace-scrim" onClick={()=>{setMenu(false);menuButton.current?.focus();}} />}
+    {menu&&<div className="workspace-scrim" onClick={()=>{closeMenu();}} />}
     <aside ref={sidebar} className={`workspace-sidebar ${menu?'is-open':''}`} aria-label={w('Workspace navigation','Navegación del espacio','工作区导航')}>
-      <button className="mobile-only close-menu" onClick={()=>{setMenu(false);menuButton.current?.focus();}} aria-label={w('Close navigation','Cerrar navegación','关闭导航')}><X/></button>
+      <button className="mobile-only close-menu" onClick={()=>{closeMenu();}} aria-label={w('Close navigation','Cerrar navegación','关闭导航')}><X/></button>
       <a className="workspace-brand" href="/"><Sprout aria-hidden="true"/><span>Piggybot<small>{w('Your thoughtful work buddy','Tu compañero de trabajo','你的贴心工作伙伴')}</small></span></a>
       <div className="workspace-name"><strong>{name}</strong><small>{w('Your workspace','Tu espacio de trabajo','你的工作区')}</small></div>
       <nav>{sections.map(id=>{const Icon=icons[id];return <button key={id} data-nav={id} aria-current={section===id?'page':undefined} onClick={()=>go(id)}><Icon size={18} aria-hidden="true"/><span>{labels[id]}</span>{id==='review'&&pending>0&&<b>{pending}</b>}</button>;})}</nav>
