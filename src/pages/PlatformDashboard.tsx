@@ -169,6 +169,7 @@ function PlatformWorkspace() {
   const [auditEvents, setAuditEvents] = useState<AuditEventView[]>([]);
   const [usage, setUsage] = useState<UsageView | null>(null);
   const [message, setMessage] = useState('');
+  const [workspaceError, setWorkspaceError] = useState('');
   const [loading, setLoading] = useState(false);
   const [connecting, setConnecting] = useState('');
   const [telegram, setTelegram] = useState<{ code: string; expiresAt: string; instructions: string[] } | null>(null);
@@ -216,7 +217,7 @@ function PlatformWorkspace() {
     setSessionError('');
     setPipelines([]); setAccounts([]); setApprovals([]); setTaskEvents([]); setAuditEvents([]); setUsage(null);
     setSavedPipeline(null); setWizardStep(null); setRun(null); setReferralUrl('');
-    setInsights([]); setInsightDetail(null); setImportBatches([]); setImportDetail(null); setImportContent(''); setImportLabel(''); setTopicData({run:null,topics:[]}); setTopicDetail(null);
+    setWorkspaceError(''); setMessage(''); setInsights([]); setInsightDetail(null); setImportBatches([]); setImportDetail(null); setImportContent(''); setImportLabel(''); setTopicData({run:null,topics:[]}); setTopicDetail(null);
   }, []);
 
   const loadMe = useCallback(async (currentToken: string) => {
@@ -279,9 +280,9 @@ function PlatformWorkspace() {
         const data = await topicsResponse.json() as TopicListView;
         if (data && Array.isArray(data.topics)) setTopicData({ run: data.run ?? null, topics: data.topics });
       }
-      if (requests.some((response) => !response.ok)) setMessage('Some workspace data could not be loaded. Refresh to retry; missing results may be incomplete.');
+      setWorkspaceError(requests.some((response) => !response.ok) ? 'Some workspace data could not be loaded. Refresh to retry; missing results may be incomplete.' : '');
     } catch {
-      setMessage('Piggybot could not reach the workspace service. Please try again.');
+      setWorkspaceError('Piggybot could not reach the workspace service. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -781,10 +782,11 @@ function PlatformWorkspace() {
         {section === 'review' && <ApprovalQueue approvals={approvals} onDecision={decideApproval} />}
         {section === 'reports' && !insightDetail && <ReportLibrary reports={insights} onOpen={id => void loadInsightDetail(id)} />}
         {(section === 'reports' || section === 'insights') && insightDetail && <section className="workspace-card"><button onClick={() => { setInsightDetail(null); history.pushState(null, '', `#${section}`); }}>{section === 'insights' ? w('Back to insights', 'Volver a análisis', '返回洞察') : w('Back to reports', 'Volver a informes', '返回报告')}</button><h2 className="mt-4">{insightDetail.title}</h2><DeliveryPanel report={insightDetail} accounts={accounts} onDeliver={(id,input) => deliverInsight(id,input)} /><InsightReportBody report={insightDetail} /></section>}
+        {workspaceError && <div className="mb-6 rounded-xl border border-sky-deep/20 bg-sky-pale p-4 text-sm text-sky-deep" role="alert">{t(workspaceError)} <button className="ml-3 underline" onClick={() => void loadWorkspace()}>{t('Retry')}</button></div>}
         {message && <div className="mb-6 rounded-xl border border-sky-deep/20 bg-sky-pale p-4 text-sm text-sky-deep" role="status">{t(message)} <button className="ml-3 underline" onClick={() => { setMessage(''); void loadWorkspace(); }}>{t('Retry')}</button></div>}
         {section === 'pipelines' && <PipelinesSection templates={templates} pipelines={pipelines} usage={usage} loading={loading} onNew={() => { setDraft(freshDraft()); setSavedPipeline(null); setReadiness(null); setWizardStep('start'); }} onTemplate={startTemplate} onContinue={continuePipeline} onActivity={() => setSection('activity')} />}
         {section === 'imports' && <ImportsSection batches={importBatches} label={importLabel} setLabel={setImportLabel} band={importBand} setBand={setImportBand} content={importContent} setContent={setImportContent} busy={importBusy} detail={importDetail} onPasteImport={() => void createImport('paste', importContent)} onDiscordImport={(id) => void createImport('discord', id)} onCsvFile={(file) => void importCsvFile(file)} onOpenDetail={(id) => void loadImportDetail(id)} onCloseDetail={() => setImportDetail(null)} googleConnection={googleConnection} sheetId={googleSheetId} setSheetId={setGoogleSheetId} sheetName={googleSheetName} setSheetName={setGoogleSheetName} onConnectGoogle={() => void connectGoogleSheets()} onDisconnectGoogle={() => void disconnectGoogleSheets()} onGoogleImport={() => void importGoogleSheet()} />}
-        {section === 'insights' && <div hidden={Boolean(insightDetail)}><InsightsSection outputLanguage={outputLanguage} setOutputLanguage={setOutputLanguage} reports={insights} batches={importBatches.filter((batch) => batch.status === 'classified')} template={insightTemplate} setTemplate={setInsightTemplate} band={insightBand} setBand={setInsightBand} selectedBatchIds={insightBatchIds} setSelectedBatchIds={setInsightBatchIds} busy={insightBusy} detail={null} accounts={accounts} onGenerate={() => void createInsight()} onOpenDetail={(id) => void loadInsightDetail(id)} onCloseDetail={() => setInsightDetail(null)} onDeliver={(id, input) => deliverInsight(id, input)} /></div>}
+        {section === 'insights' && <div hidden={Boolean(insightDetail)}><InsightsSection outputLanguage={outputLanguage} setOutputLanguage={setOutputLanguage} reports={insights} batches={importBatches.filter((batch) => batch.status === 'classified')} template={insightTemplate} setTemplate={setInsightTemplate} band={insightBand} setBand={setInsightBand} selectedBatchIds={insightBatchIds} setSelectedBatchIds={setInsightBatchIds} busy={insightBusy} detail={null} accounts={accounts} onGenerate={() => void createInsight()} onOpenDetail={(id) => void loadInsightDetail(id)} onDeliver={(id, input) => deliverInsight(id, input)} /></div>}
         {section === 'notifications' && <NotificationCenter apiBase={gatewayUrl} accounts={accounts} />}
         {section === 'topics' && <TopicsSection data={topicData} band={topicBand} setBand={setTopicBand} busy={topicBusy} detail={topicDetail} hasClassifiedItems={importBatches.some((batch) => batch.status === 'classified')} onStart={() => void startTopicRun()} onOpenDetail={(id) => void loadTopicItems(id)} onCloseDetail={() => setTopicDetail(null)} />}
         {section === 'accounts' && <><AccountsSection accounts={accounts.filter(account => !['snapchat', 'whatsapp'].includes(account.platform))} connecting={connecting} onConnect={connectSocial} onRefresh={() => void refreshAccounts(true)} />{telegram && <section className="mt-6 rounded-xl border border-ink/20 p-6"><h3 className="text-lg font-semibold">{t("Connect Telegram")}</h3><p className="my-3">{t("Code:")} <strong>{telegram.code}</strong> {t("· Expires:")} {new Date(telegram.expiresAt).toLocaleString()}</p><ol className="space-y-2">{telegram.instructions.map((instruction, index) => <li key={index}>{instruction}</li>)}</ol><p className="mt-4">{t("After the bot confirms, select Sync account health above to verify the connection.")}</p><button onClick={() => setTelegram(null)} className="mt-3 underline">{t("Dismiss code")}</button></section>}</>}
