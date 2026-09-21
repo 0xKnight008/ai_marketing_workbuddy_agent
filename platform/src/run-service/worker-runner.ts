@@ -341,13 +341,32 @@ export class RunWorker {
     // pending, so bounded job retries reuse the original paid reservation.
     for (;;) {
       const items = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+        // Renew the job lease before each chunk: a single classify chunk can
+        // take several minutes on slow upstream LLMs, well past the 5-minute
+        // claim_next_job lease window. Without this, a concurrent worker can
+        // re-claim the same job and race on import_batch state transitions.
+        await tx.query(
+          "UPDATE job SET locked_at = now() WHERE id = $1 AND workspace_id = $2 AND status = 'running'",
+          [job.id, job.workspaceId],
+        );
+
         const batch = await tx.query<{ status: string; modelBand: string }>(
           `UPDATE import_batch SET status = 'classifying'
             WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND status IN ('pending', 'classifying')
             RETURNING status, model_band AS "modelBand"`,
           [batchId],
         );
-        if (!batch.rows[0]) throw new Error('import batch not found or already terminal');
+        if (!batch.rows[0]) {
+          // The batch is already terminal (classified or failed), most likely
+          // because another worker finished it after our lease expired. Mark
+          // this job succeeded and exit instead of throwing, so we do not
+          // trigger failJob and overwrite the batch status with 'failed'.
+          await tx.query(
+            "UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2",
+            [job.id, job.workspaceId],
+          );
+          return { deferred: true as const };
+        }
         const pending = await tx.query<{ id: string; text: string; author: string | null; platform: string }>(
           `SELECT i.id, i.text, i.author, i.platform
              FROM import_item i
