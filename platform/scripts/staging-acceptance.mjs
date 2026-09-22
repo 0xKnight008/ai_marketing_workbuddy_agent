@@ -199,8 +199,9 @@ async function main() {
   // completed batch instead of aborting on timeout.
   const batchState = await pollUntil('import classification', 240 * 60 * 1000, async () => {
     const view = await api(baseUrl, token, 'GET', `/api/imports/${batch.id}`);
-    if (view.status === 'classified') return { done: true, view };
-    if (view.status === 'failed') throw new Error('import classification failed on staging');
+    // The imports API wraps the batch: { batch: { status }, items: [...] }.
+    if (view.batch?.status === 'classified') return { done: true, view };
+    if (view.batch?.status === 'failed') throw new Error('import classification failed on staging');
     return { done: false };
   });
   console.log(`    batch ${batch.id} classified (${batchState.view.itemCount} items)`);
