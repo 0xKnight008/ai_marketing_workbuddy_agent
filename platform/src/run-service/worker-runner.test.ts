@@ -281,8 +281,8 @@ test('insight.generate stores citation-verified report and drops hallucinated re
         return { rows: items as unknown as Row[], rowCount: items.length };
       }
       if (sql.includes("UPDATE insight_report") && sql.includes("'generated'")) {
-        persistedReport = JSON.parse(String(values?.[2])) as Record<string, unknown>;
-        persistedDropped = Number(values?.[3]);
+        persistedReport = JSON.parse(String(values?.[1])) as Record<string, unknown>;
+        persistedDropped = Number(values?.[2]);
         if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }] as unknown as Row[], rowCount: 1 };
       if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: 0, supplierSpendMicros: 0 }] as unknown as Row[], rowCount: 1 };
       if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }] as unknown as Row[], rowCount: 1 };
@@ -407,9 +407,9 @@ for (const taskCount of [1, 3]) test(`daily_ops enforces cardinality after groun
         return { rows: [{ template: 'comment_insights', title: 'Weekly', summary: 'Fans want merch badly.' }] as unknown as Row[], rowCount: 1 };
       }
       void values;
-      if (sql.includes("SET status = 'failed', error = $3")) failedError = String(values?.[2]);
+      if (sql.includes("SET status = 'failed', error = $2")) failedError = String(values?.[1]);
       if (sql.includes("UPDATE job SET status = 'succeeded'")) succeededJob = true;
-      if (sql.includes("SET status = 'generated', report")) storedReport = JSON.parse(String(values?.[2]));
+      if (sql.includes("SET status = 'generated', report")) storedReport = JSON.parse(String(values?.[1]));
       if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }] as unknown as Row[], rowCount: 1 };
       if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: 0, supplierSpendMicros: 0 }] as unknown as Row[], rowCount: 1 };
       if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }] as unknown as Row[], rowCount: 1 };
@@ -482,7 +482,7 @@ function insightDeliveryWorker(options: {
         return { rows: [{ id: 'acc-1', workspaceId: 'workspace-1', status: 'connected', capabilities: ['publish'], externalAccountId: 'ext-discord-1' }] as unknown as Row[], rowCount: 1 };
       }
       if (sql.startsWith('UPDATE insight_report SET delivery = delivery ||')) {
-        options.deliveryPatches.push(JSON.parse(String(values?.[2])));
+        options.deliveryPatches.push(JSON.parse(String(values?.[1])));
         if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }] as unknown as Row[], rowCount: 1 };
       if (sql.includes('AS "taskUsed"')) return { rows: [{ taskUsed: 0, aiCreditsUsed: 0, supplierSpendMicros: 0 }] as unknown as Row[], rowCount: 1 };
       if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }] as unknown as Row[], rowCount: 1 };
@@ -953,7 +953,7 @@ test('insight.generate fails the report when no conclusion is grounded in verbat
       if (sql.includes('FROM import_item')) {
         return { rows: [{ id: 'aaaa-1', platform: 'youtube', author: null, text: 'take my money please', metrics: {}, tags: [] }] as unknown as Row[], rowCount: 1 };
       }
-      if (sql.includes("UPDATE insight_report") && sql.includes("'failed'")) { failedErrors.push(String(values?.[2])); }
+      if (sql.includes("UPDATE insight_report") && sql.includes("'failed'")) { failedErrors.push(String(values?.[1])); }
       if (sql.includes("UPDATE insight_report") && sql.includes("'generated'")) { generated = true; }
       return { rows: [] as Row[], rowCount: 1 };
     },
