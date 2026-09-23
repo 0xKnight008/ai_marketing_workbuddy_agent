@@ -742,9 +742,9 @@ export class RunWorker {
         : `template_acceptance_failed: ${acceptanceIssues.join('; ')}. Add relevant sources or revise the brief; no filler was generated.`;
       await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
         await tx.query(
-          `UPDATE insight_report SET status = 'failed', error = $3
+          `UPDATE insight_report SET status = 'failed', error = $2
              WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND status = 'generating'`,
-          [reportId, job.workspaceId, error],
+          [reportId, error],
         );
         await tx.query(
           'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
@@ -763,9 +763,9 @@ export class RunWorker {
     await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
       await tx.query(
         `UPDATE insight_report
-            SET status = 'generated', report = $3::jsonb, dropped_citations = $4, generated_at = now()
+            SET status = 'generated', report = $2::jsonb, dropped_citations = $3, generated_at = now()
           WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND status = 'generating'`,
-        [reportId, job.workspaceId, JSON.stringify({
+        [reportId, JSON.stringify({
           ...cleaned,
           _language: ['en', 'es', 'zh'].includes(String(job.payload.language)) ? job.payload.language : 'auto',
           _evidence: prepared.pack.refMap,
@@ -971,9 +971,9 @@ export class RunWorker {
 
     await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
       await tx.query(
-        `UPDATE insight_report SET delivery = delivery || $3::jsonb
-          WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND delivery->>'status' = 'approved' AND delivery->>'approvalId' = $4`,
-        [reportId, job.workspaceId, JSON.stringify({ status: 'delivered', deliveredAt: new Date().toISOString() }), prepared.delivery.approvalId],
+        `UPDATE insight_report SET delivery = delivery || $2::jsonb
+          WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND delivery->>'status' = 'approved' AND delivery->>'approvalId' = $3`,
+        [reportId, JSON.stringify({ status: 'delivered', deliveredAt: new Date().toISOString() }), prepared.delivery.approvalId],
       );
       await tx.query(
         'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
