@@ -34,6 +34,15 @@ describe('Egg production gateway', () => {
   after(async () => { await app.close(); });
   afterEach(() => { mm.restore(); });
 
+  it('renders actionable Google Business location guidance without echoing callback state', async () => {
+    const { HttpError } = require('../src/http/errors');
+    mm(app.platform.service, 'completeZernioOAuth', async () => { throw new HttpError(409, 'google_business_no_locations', 'Use your business owner account.'); });
+    const result = await app.httpRequest().get('/api/zernio/callback?state=private-test-state&error=no_google_locations').expect(409)
+      .expect('Cache-Control', 'no-store').expect('Referrer-Policy', 'no-referrer');
+    assert.match(result.text, /No Google Business locations found/);
+    assert.doesNotMatch(result.text, /private-test-state/);
+  });
+
   it('loads saved-draft selection through the production CommonJS loader', () => {
     // Deliberately require: tsx tests alone do not exercise Egg's ts-node loader.
     const { reportDrafts } = require('../src/contracts/report-drafts');

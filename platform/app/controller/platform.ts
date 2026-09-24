@@ -262,7 +262,19 @@ export default class PlatformController extends Controller {
   }
 
   async zernioCallback(): Promise<void> {
-    const result = await this.app.platform.service.completeZernioOAuth(this.ctx.query as Record<string, unknown>);
+    let result;
+    try {
+      result = await this.app.platform.service.completeZernioOAuth(this.ctx.query as Record<string, unknown>);
+    } catch (error) {
+      if (!(error instanceof HttpError) || error.code !== 'google_business_no_locations') throw error;
+      this.ctx.status = 409;
+      this.ctx.type = 'html';
+      this.ctx.set('Cache-Control', 'no-store');
+      this.ctx.set('Referrer-Policy', 'no-referrer');
+      this.ctx.set('Content-Security-Policy', "default-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+      this.ctx.body = `<!doctype html><html lang="en"><meta charset="utf-8"><title>Google Business location required</title><h1>No Google Business locations found</h1><p>${escapeHtml(error.message)}</p><p><a href="https://business.google.com/" rel="noreferrer">Check Google Business Profile</a></p><p>Then return to Piggybot Accounts and reconnect. No account was connected by this attempt.</p></html>`;
+      return;
+    }
     this.ctx.type = 'html';
     this.ctx.set('Cache-Control', 'no-store');
     this.ctx.set('Referrer-Policy', 'no-referrer');
