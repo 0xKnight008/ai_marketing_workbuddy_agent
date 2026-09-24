@@ -524,12 +524,17 @@ export class PlatformService {
     | { kind: 'connected' }
     | { kind: 'selection'; platform: ZernioPlatform; choices: Array<{ label: string; detail?: string; token: string }> }
   > {
-    if (typeof query.error === 'string') throw new HttpError(400, 'zernio_connection_denied');
     const provider = this.zernioClient();
     if (typeof query.state !== 'string') throw new HttpError(400, 'invalid_request');
     const state = provider.verifyState(query.state);
     const mappedProfileId = await this.zernioProfile(state.workspaceId);
     if (mappedProfileId !== state.profileId) throw new HttpError(403, 'zernio_tenant_mismatch');
+    if (typeof query.error === 'string') {
+      if (state.platform === 'googlebusiness' && query.error === 'no_google_locations') {
+        throw new HttpError(409, 'google_business_no_locations', 'No eligible Google Business Profile locations were returned. Sign in with the Google account that owns or manages your business location, confirm access in Google Business Profile, then reconnect. Google Sheets authorization is separate.');
+      }
+      throw new HttpError(400, 'zernio_connection_denied');
+    }
     const callback = provider.parseHeadlessCallback(query);
     if (callback) {
       if (callback.profileId !== state.profileId || callback.platform !== state.platform) throw new HttpError(403, 'zernio_tenant_mismatch');
