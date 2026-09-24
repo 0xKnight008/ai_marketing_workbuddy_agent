@@ -137,7 +137,10 @@ export class CustomerBillingService {
     const binding = await this.database.withWorkspace(actor.workspaceId, (tx) => this.binding(tx));
     if (!binding.customerId) throw new HttpError(409, 'stripe_customer_not_linked');
     const site = this.config.PUBLIC_SITE_URL.replace(/\/$/, '');
+    // Top-ups use standard card Checkout regardless of the account's Managed Payments default.
+    // Scope this opt-out to this session; do not change subscription or account-wide settings.
     const body = new URLSearchParams({ mode: 'payment', customer: binding.customerId, 'line_items[0][price]': priceId, 'line_items[0][quantity]': '1',
+      'managed_payments[enabled]': 'false',
       'payment_method_types[0]': 'card', 'metadata[workspaceId]': actor.workspaceId, 'metadata[purpose]': 'ai_credit_topup',
       'payment_intent_data[metadata][workspaceId]': actor.workspaceId, 'payment_intent_data[metadata][purpose]': 'ai_credit_topup',
       success_url: `${site}/app?section=dashboard&topup_session={CHECKOUT_SESSION_ID}`, cancel_url: `${site}/app?section=dashboard&topup=cancelled` });

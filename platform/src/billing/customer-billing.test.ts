@@ -71,6 +71,35 @@ test('misconfigured price stops checkout creation', async (t) => {
   await assert.rejects(fixture().service.startTopup(actor), /credit_topup_price_invalid/); assert.equal(mock.mock.callCount(), 1);
 });
 
+for (const status of ['active', 'trialing']) test(`top-up opts out of account-default Managed Payments for ${status} owners`, async t => {
+  const f = fixture(status);
+  const calls: string[] = [];
+  t.mock.method(globalThis, 'fetch', async (url: unknown, options?: RequestInit) => {
+    calls.push(String(url));
+    if (String(url) === 'https://api.stripe.com/v1/prices/price_topup') {
+      assert.equal(options?.method, 'GET');
+      return Response.json({ active: true, type: 'one_time', currency: 'usd', custom_unit_amount: { minimum: 1000, maximum: 100000 } });
+    }
+    assert.equal(String(url), 'https://api.stripe.com/v1/checkout/sessions');
+    assert.equal(options?.method, 'POST');
+    const body = new URLSearchParams(String(options?.body));
+    // Model the reported Stripe rejection when the account default is enabled.
+    if (body.get('managed_payments[enabled]') !== 'false') {
+      return Response.json({ error: { type: 'invalid_request_error', message: 'Unsupported parameter: payment_method_types' } }, { status: 400 });
+    }
+    assert.equal(body.get('payment_method_types[0]'), 'card');
+    assert.equal(body.get('mode'), 'payment');
+    assert.equal(body.get('customer'), 'cus_owner');
+    assert.equal(body.get('line_items[0][price]'), 'price_topup');
+    assert.equal(body.get('payment_intent_data[metadata][purpose]'), 'ai_credit_topup');
+    assert.equal(body.get('metadata[workspaceId]'), workspaceId);
+    return Response.json({ url: 'https://checkout.stripe.com/c/pay/standard' });
+  });
+  assert.deepEqual(await f.service.startTopup(actor), { url: 'https://checkout.stripe.com/c/pay/standard' });
+  assert.equal(calls.length, 2, 'only read the Price and create Checkout; never mutate account settings');
+  assert.equal(f.state().balance, 0, 'creating a session does not grant credits');
+});
+
 test('trial owners can top up without changing trial status or expiry', async t => {
   const f = fixture('trialing');
   const overview = await f.service.overview(actor) as { canTopup: boolean; usage: { subscriptionStatus: string }; topupUnavailableReason: string | null };
@@ -90,6 +119,7 @@ test('upgrade deep link uses only the current workspace subscription and does no
   });
   await fixture('trialing', 'sub_owned').service.portal(actor, { action: 'upgrade', subscriptionId: 'sub_attacker' });
   assert.equal(calls[0]!.get('customer'), 'cus_owner');
+  assert.equal(calls[0]!.has('managed_payments[enabled]'), false, 'top-up opt-out must not leak to the subscription portal');
   assert.equal(calls[0]!.get('flow_data[type]'), 'subscription_update');
   assert.equal(calls[0]!.get('flow_data[subscription_update][subscription]'), 'sub_owned');
   await assert.rejects(fixture().service.portal(actor, { action: 'upgrade' }), /stripe_subscription_not_linked/);
