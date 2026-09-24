@@ -8,6 +8,7 @@ import { renderReportDigest } from './delivery';
 import { detectUrgentRisks, renderEveningRecap, renderUrgentAlert, renderWeeklyReady } from './notification-content';
 import { reportActions } from './feedback';
 import { isoWeekStart } from './weekly-history';
+import { notificationContentError } from './notification-limits';
 
 /**
  * Module 4 (定时运营交付闭环): standing-delivery rules and the notification
@@ -72,20 +73,23 @@ async function insertEvent(tx: TenantTransaction, input: {
   channel: string; target: string; targetLabel: string; subject: string; content: string;
   reportId?: string; payload?: Record<string, unknown>; error?: string;
 }): Promise<string | null> {
+  const contentError = notificationContentError(input.channel, input.content);
   const result = await tx.query<{ id: string }>(
     `INSERT INTO notification_event (workspace_id, kind, status, dedup_key, channel, target, target_label, subject, content, report_id, payload, error)
      VALUES (current_setting('app.workspace_id')::uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11)
      ON CONFLICT (workspace_id, dedup_key) DO NOTHING
      RETURNING id`,
-    [input.kind, input.status, input.dedupKey, input.channel, input.target, input.targetLabel,
-     input.subject, input.content, input.reportId ?? null, JSON.stringify(input.payload ?? {}), input.error ?? null]);
+    [input.kind, contentError ? 'failed' : input.status, input.dedupKey, input.channel, input.target, input.targetLabel,
+     input.subject, input.content, input.reportId ?? null, JSON.stringify(input.payload ?? {}), input.error ?? contentError]);
   return result.rows[0]?.id ?? null;
 }
 
 async function enqueueSendJob(tx: TenantTransaction, workspaceId: string, eventId: string): Promise<void> {
   await tx.query(
-    `INSERT INTO job (workspace_id, kind, payload) VALUES ($1, 'notification.send', $2)`,
-    [workspaceId, { eventId }]);
+    `INSERT INTO job (workspace_id, kind, payload)
+     SELECT $1::uuid, 'notification.send', $2::jsonb FROM notification_event
+     WHERE id = $3 AND workspace_id = $1 AND status = 'queued'`,
+    [workspaceId, { eventId }, eventId]);
 }
 
 const dateKey = (iso: string) => iso.slice(0, 10);
@@ -282,6 +286,8 @@ export class ScheduledNotificationService {
               kind: 'weekly_report', status: 'pending_approval', dedupKey: `weekly_report:${weekKey}`,
               subject: `[Piggybot] ${row.title}`.slice(0, 200), content: digest,
             });
+            // An oversized report is failed, not awaiting approval. Do not announce it as ready.
+            if (notificationContentError(rule.channel, digest)) continue;
             const ready = renderWeeklyReady({ title: row.title, template: row.template });
             await emit(rule, {
               kind: 'weekly_ready', status: 'queued', dedupKey: `weekly_ready:${weekKey}`,
