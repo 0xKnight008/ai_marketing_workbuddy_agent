@@ -3,6 +3,7 @@ import { templateAcceptanceIssues } from '../insight-service/template-acceptance
 import { rankReviewReport } from '../insight-service/review-ranking';
 
 import { z } from 'zod';
+import { notificationContentError } from '../insight-service/notification-limits';
 
 import { actionPlanSchema, type ActionPlan, type AiRuntimeEvent } from '../contracts/ai-runtime-event';
 import { classifyResultSchema, type TagAssignment } from '../contracts/tagging';
@@ -821,6 +822,12 @@ export class RunWorker {
       const row = result.rows[0];
       if (!row) throw new Error('notification event not found');
       if (row.status !== 'queued') return { skipped: true as const };
+      const contentError = notificationContentError(row.channel, row.content);
+      if (contentError) {
+        await tx.query(`UPDATE notification_event SET status = 'failed', error = $2
+          WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND status = 'queued'`, [eventId, contentError]);
+        return { skipped: true as const };
+      }
       return { skipped: false as const, ...row };
     });
     if (prepared.skipped) {
@@ -835,7 +842,7 @@ export class RunWorker {
       await sendReportEmail(this.options.email, {
         to: prepared.target,
         subject: prepared.subject,
-        text: prepared.content.slice(0, 12000),
+        text: prepared.content,
         idempotencyKey: `notification/${eventId}`,
       });
     } else {
@@ -855,7 +862,7 @@ export class RunWorker {
         type: 'social.create_post' as const,
         platform: 'discord',
         accountId: account.externalAccountId,
-        content: prepared.content.slice(0, 1900),
+        content: prepared.content,
         hashtags: [] as string[],
         mode: 'publish_now' as const,
         idempotencyKey: `notification:${eventId}`,

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Database, TenantTransaction } from '../foundation/database';
 import { NotificationService, ScheduledNotificationService } from './notifications';
+import { renderReportDigest } from './delivery';
 
 type QueryHandler = (sql: string, values: unknown[]) => { rows: unknown[]; rowCount: number };
 
@@ -64,6 +65,27 @@ const generatedReport = {
   generatedAt: '2026-09-17T07:01:00.000Z',
   report: { summary: 'Fans want a poll', tasks: [{ title: 'Prepare poll', priority: 'high', suggestedAction: 'Post it' }] },
 };
+
+for (const kind of ['morning_push', 'weekly_report']) test(`oversized ${kind} Discord digest is stored failed without delivery or ready announcement`, async () => {
+  const report = { summary: 'Summary', tasks: Array.from({ length: 5 }, () => ({ title: 'x'.repeat(200), suggestedAction: 'y'.repeat(220) })) };
+  const statements: Array<{ sql: string; values: unknown[] }> = [];
+  const service = new ScheduledNotificationService(mockDatabase(sql => {
+    if (sql.includes('FROM insight_report')) return { rows: [{ ...generatedReport, report }], rowCount: 1 };
+    if (sql.includes('FROM notification_rule')) return { rows: [{ kind, channel: 'discord', connected_account_id: 'account', weekly_template: 'daily_ops', weekly_delivery_mode: 'approval' }], rowCount: 1 };
+    if (sql.includes('FROM connected_account')) return { rows: [{ platform: 'discord', status: 'connected', capabilities: ['publish'], displayName: 'channel' }], rowCount: 1 };
+    if (sql.includes('INSERT INTO notification_event')) return { rows: [{ id: 'event' }], rowCount: 1 };
+    return { rows: [], rowCount: 0 };
+  }, statements));
+  await service.planForReport('workspace', crypto.randomUUID());
+  const saved = statements.find(entry => entry.sql.includes('INSERT INTO notification_event'))!;
+  assert.equal(saved.values[1], 'failed');
+  assert.equal(saved.values[7], renderReportDigest({ ...generatedReport, template: 'daily_ops', report }));
+  assert.equal(saved.values[10], 'notification_discord_content_too_long_use_email');
+  const enqueue = statements.find(entry => entry.sql.includes('INSERT INTO job'));
+  if (kind === 'morning_push') assert.match(enqueue!.sql, /status = 'queued'/);
+  else assert.equal(enqueue, undefined);
+  assert.equal(statements.filter(entry => entry.sql.includes('INSERT INTO notification_event')).length, 1);
+});
 
 test('planForReport creates a dedup-keyed morning push and enqueues its send job', async () => {
   const statements: Array<{ sql: string; values: unknown[] }> = [];
