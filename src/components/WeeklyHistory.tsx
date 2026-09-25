@@ -93,7 +93,7 @@ export function WeeklyHistory({ apiBase, onOpenReport }: { apiBase: string; onOp
 
   return <section aria-label={t("Weekly execution history")} className="sketch bg-paper-card p-6 shadow-paint-sm">
     <h2 className="font-display text-3xl">{t("Weekly execution history")}</h2>
-    <p className="mt-2 text-sm text-ink-soft">{t("Decisions attributed to the ISO week (UTC, Monday-start) in which you recorded them — including completions of actions from older reports. Seal a week to freeze it forever; sealed weeks power week-over-week comparison. No AI credits or outbound messages are used.")}</p>
+    <p className="mt-2 text-sm text-ink-soft">{t("Weekly counts use recorded status changes (UTC, Monday-start), not later note or effect edits. Each action uses its last status change within that week. Effects reflect what was recorded at that transition. Older sealed snapshots keep their original basis; different bases are not compared. No AI credits or outbound messages are used.")}</p>
     <div className="mt-3 flex flex-wrap gap-2">
       <button type="button" disabled={busy} onClick={load} className="rounded border px-4 py-2 text-sm">{busy ? t("Loading history…") : history ? t("Refresh weekly history") : t("Load weekly history")}</button>
       {history && !history.current.sealed && <button type="button" disabled={sealing} onClick={seal} className="rounded bg-sky-deep px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{sealing ? t("Sealing…") : t("Seal this week")}</button>}

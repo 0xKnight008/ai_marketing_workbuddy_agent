@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Database, TenantTransaction } from '../foundation/database';
-import { computeWeekExecution, isoWeekStart, WeeklyHistoryService, type HistorySource } from './weekly-history';
+import { computeWeekExecution, isoWeekStart, WEEKLY_HISTORY_BASIS, WeeklyHistoryService, type HistorySource } from './weekly-history';
 
 const MONDAY = new Date('2026-09-07T00:00:00.000Z'); // ISO week Monday (UTC)
 
@@ -73,6 +73,27 @@ function mockDatabase(handler: QueryHandler, statements: string[] = []): Databas
 const owner = { workspaceId: 'workspace-1', actorId: '11111111-1111-4111-8111-111111111111', role: 'owner' as const };
 const viewer = { ...owner, role: 'viewer' as const };
 
+test('history sources use immutable status changes, ignore note edits and keep tenant/time boundaries', async () => {
+  const statements: string[] = [];
+  const service = new WeeklyHistoryService(mockDatabase((sql, values) => {
+    if (sql.includes('FROM insight_report')) {
+      assert.match(sql, /FROM audit_event/);
+      assert.match(sql, /IS DISTINCT FROM/);
+      assert.match(sql, /created_at >= \$1::timestamptz AND created_at < \$2::timestamptz/);
+      assert.match(sql, /DISTINCT ON/);
+      assert.match(sql, /i.workspace_id = current_setting/);
+      assert.equal(values[0], MONDAY.toISOString());
+      // Immutable audit result: a later note edit of this report is not a transition.
+      return { rows: [source('2026-08-10T00:00:00.000Z')], rowCount: 1 };
+    }
+    return { rows: [], rowCount: 0 };
+  }, statements));
+  const result = await service.history(owner, new Date('2026-09-10T00:00:00Z'));
+  assert.equal(result.basis, 'status_transition_in_window');
+  assert.equal(result.current.totals.completed, 1);
+  assert.ok(!statements.some(sql => sql.includes('jsonb_each(action_feedback)')));
+});
+
 test('seal freezes the week, writes an audit event, and rejects re-sealing with 409', async () => {
   let conflict = false;
   let auditPayload: unknown = null;
@@ -103,7 +124,8 @@ test('seal validates role, Monday alignment, and future weeks', async () => {
 test('history marks a sealed current week and compares only consecutive snapshots', async () => {
   const snapshot = (weekStart: string, weekEnd: string, completed: number) => ({
     id: `snap-${weekStart}`, week_start: weekStart, week_end: weekEnd, created_at: `${weekEnd}T00:00:00.000Z`,
-    payload: { totals: { events: completed + 1, planned: 0, adopted: completed, completed, dismissed: 1, effects: { improved: completed, unchanged: 0, worse: 0, unknown: 0 }, knownEffects: completed, adoptionRate: 0.5, completionRate: 0.5, improvementRate: 1 } },
+    // New snapshots are comparable only with the new event-based current window.
+    payload: { basis: WEEKLY_HISTORY_BASIS, totals: { events: completed + 1, planned: 0, adopted: completed, completed, dismissed: 1, effects: { improved: completed, unchanged: 0, worse: 0, unknown: 0 }, knownEffects: completed, adoptionRate: 0.5, completionRate: 0.5, improvementRate: 1 } },
   });
   const database = mockDatabase((sql) => {
     if (sql.includes('FROM insight_report')) return { rows: [source('2026-09-01T00:00:00.000Z')], rowCount: 1 };
@@ -130,7 +152,8 @@ test('snapshotDetail returns the frozen payload and 404s when the week was never
   const payload = { weekStart: '2026-08-31T00:00:00.000Z', totals: { events: 3 }, templates: [], completedActions: [] };
   let rows: unknown[] = [{ id: 'snap-1', week_start: '2026-08-31', week_end: '2026-09-07', created_at: '2026-09-07T01:00:00.000Z', payload }];
   const service = new WeeklyHistoryService(mockDatabase(() => ({ rows, rowCount: rows.length })));
-  const detail = await service.snapshotDetail(owner, '2026-08-31') as { totals: { events: number }; sealedAt: string };
+  const detail = await service.snapshotDetail(owner, '2026-08-31') as { totals: { events: number }; sealedAt: string; basis: string };
+  assert.equal(detail.basis, 'feedback_updated_in_window');
   assert.equal(detail.totals.events, 3);
   assert.equal(detail.sealedAt, '2026-09-07T01:00:00.000Z');
   rows = [];
