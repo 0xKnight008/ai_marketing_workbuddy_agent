@@ -19,6 +19,23 @@ function mockDatabase(handler: QueryHandler, statements: Array<{ sql: string; va
 const owner = { workspaceId: 'workspace-1', actorId: 'user-1', role: 'owner' as const };
 const viewer = { ...owner, role: 'viewer' as const };
 
+for (const role of ['editor', 'viewer'] as const) test(`${role} cannot approve a weekly notification or touch its database state`, async () => {
+  const service = new NotificationService(mockDatabase(() => assert.fail('unauthorized approval reached the database')));
+  await assert.rejects(service.approveEvent({ ...owner, role }, crypto.randomUUID()),
+    { statusCode: 403, code: 'notification_approval_forbidden' });
+});
+
+for (const role of ['owner', 'admin', 'approver'] as const) test(`${role} can approve a pending weekly notification`, async () => {
+  const statements: Array<{ sql: string; values: unknown[] }> = [];
+  const service = new NotificationService(mockDatabase(sql => {
+    if (sql.includes("SET status = 'queued'")) return { rows: [{ id: 'event' }], rowCount: 1 };
+    return { rows: [], rowCount: 1 };
+  }, statements));
+  assert.equal((await service.approveEvent({ ...owner, role }, crypto.randomUUID())).status, 'queued');
+  assert.ok(statements.some(entry => entry.sql.includes('INSERT INTO job')));
+  assert.ok(statements.some(entry => entry.values[2] === 'notification.delivery_approved'));
+});
+
 test('putRule validates target shape and weekly config, then upserts with audit', async () => {
   const service = new NotificationService(mockDatabase(() => ({ rows: [], rowCount: 0 })));
   await assert.rejects(service.putRule(viewer, 'morning_push', { channel: 'email' }), /Forbidden: viewer lacks workflow:run/);
