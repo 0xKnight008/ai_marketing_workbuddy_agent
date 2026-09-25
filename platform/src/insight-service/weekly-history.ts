@@ -9,12 +9,11 @@ import { reportActions } from './feedback';
 /**
  * Module 3 (历史周复盘): execution-time weekly statistics with immutable
  * snapshots. Unlike the live weekly review (current-state, rewritten by every
- * feedback edit), history attributes each action to the ISO week its latest
- * feedback was recorded in — so actions from older reports completed this
- * week count here — and a sealed snapshot never changes afterwards.
+ * feedback edit), history reads immutable status-transition audit records.
+ * Notes/effect edits cannot move a completion into a different week.
  */
 
-export const WEEKLY_HISTORY_BASIS = 'feedback_updated_in_window' as const;
+export const WEEKLY_HISTORY_BASIS = 'status_transition_in_window' as const;
 const SNAPSHOT_LIST_LIMIT = 12;
 const REPORT_SCAN_LIMIT = 500;
 
@@ -52,6 +51,7 @@ export interface ExecutedAction {
 }
 
 export interface WeekExecution {
+  basis?: string;
   weekStart: string; weekEnd: string;
   templates: Array<{
     template: InsightTemplate; label: string;
@@ -83,7 +83,7 @@ function rates(counts: { events: number; adopted: number; completed: number }, e
 }
 
 /**
- * Attributes actions to the window by their latest feedback `updatedAt`.
+ * Attributes actions by the server audit timestamp supplied by loadWindowSources.
  * Entries without a parseable timestamp cannot be attributed honestly and
  * are skipped; keys not present in the immutable report body are ignored.
  */
@@ -140,6 +140,7 @@ export function computeWeekExecution(rows: HistorySource[], weekStart: Date): We
       .map(action => ({ ...action, reportId: report.id, reportTitle: report.title, template: group.template }))));
   completedActions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   return {
+    basis: WEEKLY_HISTORY_BASIS,
     weekStart: weekStart.toISOString(), weekEnd: isoWeekEnd(weekStart).toISOString(),
     templates, totals, completedActions,
   };
@@ -163,17 +164,25 @@ function comparison(current: WeekTotals, previous: WeekTotals | null) {
 
 async function loadWindowSources(tx: TenantTransaction, start: Date, end: Date): Promise<HistorySource[]> {
   const result = await tx.query<HistorySource>(
-    `SELECT id, title, template, generated_at::text AS "generatedAt", report, action_feedback AS feedback
-       FROM insight_report
-      WHERE workspace_id = current_setting('app.workspace_id')::uuid AND status = 'generated'
-        AND action_feedback <> '{}'::jsonb
-        AND EXISTS (
-          SELECT 1 FROM jsonb_each(action_feedback) AS entry(key, value)
-           WHERE COALESCE(entry.value->>'updatedAt', '') ~ '^\\d{4}-\\d{2}-\\d{2}T'
-             AND (entry.value->>'updatedAt')::timestamptz >= $1::timestamptz
-             AND (entry.value->>'updatedAt')::timestamptz < $2::timestamptz
-        )
-      ORDER BY created_at DESC, id DESC LIMIT ${REPORT_SCAN_LIMIT + 1}`,
+    `WITH transitions AS (
+       SELECT DISTINCT ON (payload->>'reportId', payload->>'actionKey')
+         payload->>'reportId' AS report_id, payload->>'actionKey' AS action_key,
+         (payload->'feedback') || jsonb_build_object('updatedAt', created_at) AS feedback
+       FROM audit_event
+       WHERE workspace_id = current_setting('app.workspace_id')::uuid
+         AND event_type = 'insight.action_feedback'
+         AND created_at >= $1::timestamptz AND created_at < $2::timestamptz
+         AND payload->'feedback'->>'status' IN ('planned', 'adopted', 'completed', 'dismissed')
+         AND (payload->'previous'->>'status') IS DISTINCT FROM (payload->'feedback'->>'status')
+       ORDER BY payload->>'reportId', payload->>'actionKey', created_at DESC, id DESC
+     ), per_report AS (
+       SELECT report_id, jsonb_object_agg(action_key, feedback) AS feedback
+       FROM transitions GROUP BY report_id
+     )
+     SELECT i.id, i.title, i.template, i.generated_at::text AS "generatedAt", i.report, e.feedback
+       FROM insight_report i JOIN per_report e ON e.report_id = i.id::text
+      WHERE i.workspace_id = current_setting('app.workspace_id')::uuid AND i.status = 'generated'
+      ORDER BY i.created_at DESC, i.id DESC LIMIT ${REPORT_SCAN_LIMIT + 1}`,
     [start.toISOString(), end.toISOString()]);
   // Never silently omit reports while displaying apparently complete totals.
   if (result.rows.length > REPORT_SCAN_LIMIT) throw new HttpError(422, 'weekly_review_too_many_reports');
@@ -199,15 +208,16 @@ export class WeeklyHistoryService {
       const sealedCurrent = rows.some(row => row.week_start === currentStart.toISOString().slice(0, 10));
       const weeks = rows.map((row, index) => {
         const older = rows[index + 1];
-        const consecutive = older && Date.parse(row.week_start) - Date.parse(older.week_start) === 7 * 86_400_000;
+        const consecutive = older && row.payload.basis === older.payload.basis && Date.parse(row.week_start) - Date.parse(older.week_start) === 7 * 86_400_000;
         return {
           weekStart: row.week_start, weekEnd: row.week_end, sealedAt: row.created_at,
+          basis: row.payload.basis ?? 'feedback_updated_in_window',
           totals: row.payload.totals,
           comparison: consecutive ? comparison(row.payload.totals, older.payload.totals) : null,
         };
       });
       const latest = rows[0];
-      const currentComparison = latest && latest.week_end === current.weekStart.slice(0, 10)
+      const currentComparison = latest && latest.payload.basis === WEEKLY_HISTORY_BASIS && latest.week_end === current.weekStart.slice(0, 10)
         ? comparison(current.totals, latest.payload.totals) : null;
       return {
         basis: WEEKLY_HISTORY_BASIS,
@@ -227,7 +237,7 @@ export class WeeklyHistoryService {
           WHERE workspace_id = current_setting('app.workspace_id')::uuid AND week_start = $1::date`, [weekStart]);
       const row = result.rows[0];
       if (!row) throw new HttpError(404, 'weekly_review_snapshot_not_found');
-      return { basis: WEEKLY_HISTORY_BASIS, ...row.payload, weekStart: row.week_start, weekEnd: row.week_end, sealedAt: row.created_at };
+      return { ...row.payload, basis: row.payload.basis ?? 'feedback_updated_in_window', weekStart: row.week_start, weekEnd: row.week_end, sealedAt: row.created_at };
     });
   }
 
