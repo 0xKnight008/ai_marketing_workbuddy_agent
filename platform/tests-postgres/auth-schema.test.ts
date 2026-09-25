@@ -131,7 +131,10 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
         database: {
           withWorkspace: database.withWorkspace.bind(database),
           claimNextJob: async () => {
-            const job = await client.query(`UPDATE job SET status='running', attempt=attempt+1
+            // Mirror claim_next_job(): withJobLease fences on worker/attempt
+            // and an unexpired locked_at, so the claim must set all of them.
+            const job = await client.query(`UPDATE job SET status='running', attempt=attempt+1,
+              locked_at=now(), locked_by='import-integrity-regression'
               WHERE kind='import.classify' AND payload->>'batchId'=$1 AND status='queued'
               RETURNING id, attempt`, [batch.id]);
             return job.rows[0] && { ...job.rows[0], workspaceId: owner.workspaceId, runId: null, kind: 'import.classify', payload: { batchId: batch.id } };

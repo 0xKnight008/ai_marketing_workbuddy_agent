@@ -20,6 +20,7 @@ import { assertExecutableAction, type ConnectedAccountView } from '../connector-
 import type { TenantTransaction } from '../foundation/database';
 import { ingestAiRuntimeEvent } from './repository';
 import { SupplierUnavailableError } from '../zernio/client';
+import { JobLeaseLost, withJobLease } from './job-lease';
 
 export interface ClaimedJob {
   id: string;
@@ -84,6 +85,19 @@ export class RunWorker {
   async runOne(): Promise<boolean> {
     const job = await this.options.database.claimNextJob(this.options.workerName);
     if (!job) return false;
+    if (['import.classify', 'insight.generate', 'topics.cluster'].includes(job.kind)) {
+      try {
+        await withJobLease(this.options.database, job, this.options.workerName, database =>
+          new RunWorker({ ...this.options, database }).executeClaimed(job));
+      } catch (error) {
+        // An old claimant must never retry/fail/complete the new owner's job.
+        if (!(error instanceof JobLeaseLost)) throw error;
+      }
+    } else await this.executeClaimed(job);
+    return true;
+  }
+
+  private async executeClaimed(job: ClaimedJob): Promise<void> {
     try {
       if (job.kind === 'prepare_ai_run') await this.executePrepare(job);
       else if (job.kind === 'reconcile_ai_run') await this.reconcileAiRun(job);
@@ -98,10 +112,10 @@ export class RunWorker {
       else if (job.kind === 'notification.send') await this.sendNotification(job);
       else throw new Error(`Unsupported job: ${job.kind}`);
     } catch (error) {
+      if (error instanceof JobLeaseLost) throw error;
       if (error instanceof SupplierUnavailableError) await this.deferForSupplier(job, error);
       else await this.failJob(job, error);
     }
-    return true;
   }
 
   async drain(maxJobs: number): Promise<number> {
@@ -342,14 +356,7 @@ export class RunWorker {
     // pending, so bounded job retries reuse the original paid reservation.
     for (;;) {
       const items = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
-        // Renew the job lease before each chunk: a single classify chunk can
-        // take several minutes on slow upstream LLMs, well past the 5-minute
-        // claim_next_job lease window. Without this, a concurrent worker can
-        // re-claim the same job and race on import_batch state transitions.
-        await tx.query(
-          "UPDATE job SET locked_at = now() WHERE id = $1 AND workspace_id = $2 AND status = 'running'",
-          [job.id, job.workspaceId],
-        );
+        // withJobLease renews during the remote call and fences this transaction.
 
         const batch = await tx.query<{ status: string; modelBand: string }>(
           `UPDATE import_batch SET status = 'classifying'
