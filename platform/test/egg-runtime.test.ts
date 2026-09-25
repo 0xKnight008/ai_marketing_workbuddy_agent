@@ -34,6 +34,16 @@ describe('Egg production gateway', () => {
   after(async () => { await app.close(); });
   afterEach(() => { mm.restore(); });
 
+  for (const role of ['editor', 'viewer'] as const) it(`rejects ${role} notification approval with 403 before database access`, async () => {
+    const { NotificationService } = require('../src/insight-service/notifications');
+    const service = new NotificationService({ withWorkspace: async () => assert.fail('must not access database') });
+    mm(app.platform.service, 'approveNotificationEvent', (actor: unknown, id: unknown) => service.approveEvent(actor, id));
+    const token = issueAccessToken({ actorId: '11111111-1111-4111-8111-111111111111',
+      workspaceId: '22222222-2222-4222-8222-222222222222', role, exp: Math.floor(Date.now() / 1000) + 300 }, process.env.AUTH_TOKEN_SECRET!);
+    await app.httpRequest().post('/api/notifications/events/11111111-1111-4111-8111-111111111111/approve')
+      .set('authorization', `Bearer ${token}`).send({}).expect(403).expect({ error: 'notification_approval_forbidden' });
+  });
+
   it('renders actionable Google Business location guidance without echoing callback state', async () => {
     const { HttpError } = require('../src/http/errors');
     mm(app.platform.service, 'completeZernioOAuth', async () => { throw new HttpError(409, 'google_business_no_locations', 'Use your business owner account.'); });

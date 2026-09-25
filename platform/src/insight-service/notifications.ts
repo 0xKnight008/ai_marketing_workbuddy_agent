@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { ActorContext } from '../contracts/domain';
 import { INSIGHT_TEMPLATES, INSIGHT_TEMPLATE_LABELS, type InsightTemplate } from '../contracts/insights';
 import type { Database, TenantTransaction } from '../foundation/database';
-import { requirePermission } from '../foundation/rbac';
+import { can, requirePermission } from '../foundation/rbac';
 import { HttpError } from '../http/errors';
 import { renderReportDigest } from './delivery';
 import { detectUrgentRisks, renderEveningRecap, renderUrgentAlert, renderWeeklyReady } from './notification-content';
@@ -182,7 +182,7 @@ export class NotificationService {
 
   /** Weekly approval delivery: a human releases the frozen digest. */
   async approveEvent(actor: ActorContext, eventId: unknown) {
-    requirePermission(actor.role, 'workflow:run');
+    if (!can(actor.role, 'approval:decide')) throw new HttpError(403, 'notification_approval_forbidden');
     const id = z.string().uuid().parse(eventId);
     return this.database.withWorkspace(actor.workspaceId, async tx => {
       const result = await tx.query<{ id: string }>(
