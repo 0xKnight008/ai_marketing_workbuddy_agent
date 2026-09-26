@@ -21,6 +21,7 @@ import { ImportService } from '../src/import-service/service';
 import { RunWorker } from '../src/run-service/worker-runner';
 import { InsightFeedbackService } from '../src/insight-service/feedback';
 import { WeeklyReviewService } from '../src/insight-service/weekly-review';
+import { referralIntegrityRegression } from './referral-integrity';
 
 test('migration 0013 upgrades missing auth columns and enables register/login/me on PostgreSQL', async (t) => {
   const url = process.env.TEST_DATABASE_URL;
@@ -57,6 +58,7 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
 
     for (const name of names.filter((name) => name >= '0013')) await migrate(name);
     await assertAuthSchema(database);
+    await t.test('referral concurrency, refund races, money boundaries and attribution ordering', () => referralIntegrityRegression(client, database));
     await t.test('admin links redeem atomically once, expire and revoke without workspace privileges', async () => {
       const email = 'admin@example.invalid';
       const config = { PLATFORM_ADMIN_EMAILS: email } as GatewayConfig;

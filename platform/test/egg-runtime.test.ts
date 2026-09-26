@@ -262,11 +262,31 @@ describe('Egg production gateway', () => {
     .expect(401)
     .expect({ error: 'unauthorized' }));
 
+  for (const [cookie, explicit, expected] of [
+    ['ABCDEFGH', undefined, 'ABCDEFGH'],
+    ['ABCDEFGH', 'JKLMNPQR', 'JKLMNPQR'],
+    ['invalid-code', undefined, undefined],
+  ]) it(`checkout consumes validated referral cookie ${cookie}, explicit=${explicit ?? 'none'}`, async () => {
+    mm(app.platform.service, 'createStripeCheckout', async (_actor: unknown, body: { referralCode?: string }) => {
+      assert.equal(body.referralCode, expected);
+      return { id: 'cs_test_cookie', url: 'https://checkout.stripe.com/test' };
+    });
+    await app.httpRequest().post('/api/billing/checkout-session')
+      .set('authorization', `Bearer ${ownerToken}`).set('Cookie', `piggy_ref=${cookie}`)
+      .send({ plan: 'creator', ...(explicit ? { referralCode: explicit } : {}) }).expect(200);
+  });
+
   it('retains the exact Stripe body and rejects an unsigned webhook', () => app.httpRequest()
     .post('/webhooks/stripe')
     .send({ id: 'evt_untrusted', type: 'checkout.session.completed' })
     .expect(401)
     .expect({ error: 'stripe_signature_missing' }));
+
+  it('reads referral context only with a session and never caches it', async () => {
+    await app.httpRequest().get('/api/referral/context').expect(401);
+    await app.httpRequest().get('/api/referral/context').set('authorization', `Bearer ${ownerToken}`)
+      .set('Cookie', 'piggy_ref=ABCDEFGH').expect('Cache-Control', 'no-store').expect(200, { referralCode: 'ABCDEFGH' });
+  });
 
   it('exposes one-time activation exchange and rejects an invalid ticket', () => app.httpRequest()
     .post('/api/activation/exchange')

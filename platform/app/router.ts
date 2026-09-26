@@ -66,6 +66,7 @@ export default (app: Application) => {
   router.post('/api/billing/credit-topup/confirm', controller.platform.confirmCreditTopup);
   router.post('/api/referral/link', controller.platform.referralLink);
   router.get('/api/referral/summary', controller.platform.referralSummary);
+  router.get('/api/referral/context', controller.platform.referralContext);
   router.post('/api/billing/entitlements', controller.platform.updateBillingEntitlements);
   router.post('/api/admin/auth/request', controller.platform.requestAdminLink);
   router.post('/api/admin/auth/exchange', controller.platform.exchangeAdminLink);
