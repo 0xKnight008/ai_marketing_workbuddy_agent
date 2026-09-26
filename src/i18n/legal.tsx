@@ -185,7 +185,7 @@ const termsEn: LegalDoc = {
     {
       heading: "4. Referral program",
       paragraphs: [
-        "Eligible users may earn referral credits (currently 20% of a referred customer's first payment, as shown on the activation page). Credits are issued automatically, apply only to future Piggybot invoices, have no cash value, and may be adjusted or clawed back in cases of refund, chargeback, self-referral, fraud or abuse. We may modify or end the program with notice.",
+        "Eligible referrers earn 20% account credit on eligible first-year USD payments, rounded down to whole cents, capped at $2,000 per rolling 12 months and held for 30 days. Any refund, including a partial refund, cancels the full associated reward. Referees receive no additional reward. Credits apply only to future Piggybot invoices, have no cash value, and may be withheld or reversed for self-referral, fraud or abuse. We may modify or end the program with notice.",
       ],
     },
     {
@@ -445,7 +445,7 @@ const termsZh: LegalDoc = {
     {
       heading: "4. 推荐计划",
       paragraphs: [
-        "符合条件的用户可获得推荐奖励（当前为被推荐客户首笔付款的 20%，以激活页所示为准）。奖励自动发放，仅可抵扣未来的 Piggybot 账单，无现金价值；如发生退款、拒付、自我推荐、欺诈或滥用，我们可能调整或追回奖励。我们可在通知后修改或终止该计划。",
+        "推荐人可获得被推荐客户首年符合条件的美元付款的 20% 账单抵扣奖励，向下取整到美分，滚动 12 个月上限为 2,000 美元，等待期为 30 天。任何退款（包括部分退款）均撤销对应整笔奖励。被推荐人无额外奖励。奖励仅抵扣未来 Piggybot 账单，无现金价值；自我推荐、欺诈或滥用可能导致奖励被暂停或追回。我们可在通知后修改或终止该计划。",
       ],
     },
     {

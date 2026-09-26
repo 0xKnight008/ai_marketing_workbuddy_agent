@@ -217,7 +217,11 @@ export default class PlatformController extends Controller {
   }
 
   async createStripeCheckout(): Promise<void> {
-    this.ctx.body = await this.app.platform.service.createStripeCheckout(this.actor(), this.ctx.request.body);
+    const body = this.ctx.request.body;
+    const cookie = this.ctx.cookies.get('piggy_ref', { signed: false });
+    this.ctx.body = await this.app.platform.service.createStripeCheckout(this.actor(), {
+      ...body, referralCode: body?.referralCode ?? (/^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$/.test(cookie ?? '') ? cookie : undefined),
+    });
   }
 
   async reconcileStripeCheckout(): Promise<void> {
@@ -313,7 +317,13 @@ export default class PlatformController extends Controller {
   async creditTopup(): Promise<void> { this.ctx.body = await this.app.platform.service.customerBilling.startTopup(this.actor()); }
   async confirmCreditTopup(): Promise<void> { this.ctx.body = await this.app.platform.service.customerBilling.confirmTopup(this.actor(), this.ctx.request.body); }
   async referralLink(): Promise<void> { this.ctx.body = await this.app.platform.service.referralLink(this.actor()); }
-  async referralSummary(): Promise<void> { this.ctx.body = await this.app.platform.service.referralSummary(this.actor()); }
+  async referralContext(): Promise<void> {
+    this.actor();
+    this.ctx.set('Cache-Control', 'no-store');
+    const code = this.ctx.cookies.get('piggy_ref', { signed: false });
+    this.ctx.body = { referralCode: /^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$/.test(code ?? '') ? code : undefined };
+  }
+  async referralSummary(): Promise<void> { this.ctx.body = await this.app.platform.service.referralSummary(this.actor(), this.ctx.query); }
   async updateBillingEntitlements(): Promise<void> {
     this.ctx.set('Cache-Control', 'no-store');
     this.ctx.body = await this.app.platform.service.updateBillingEntitlements(

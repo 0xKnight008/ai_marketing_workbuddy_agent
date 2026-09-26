@@ -98,6 +98,7 @@ function AdminConsole({ email, logout, expired }: { email: string; logout: () =>
   const [newsletterOffset, setNewsletterOffset] = useState(0);
   const [jobs, setJobs] = useState<JobView[]>([]);
   const [referrals, setReferrals] = useState<ReferralView[]>([]);
+  const [referralOffset, setReferralOffset] = useState(0);
   const [plans, setPlans] = useState<Record<string, UsageView['plan']>>({});
   const [credits, setCredits] = useState<Record<string, string>>({});
 
@@ -133,7 +134,7 @@ function AdminConsole({ email, logout, expired }: { email: string; logout: () =>
     } else if (nextTab === 'feedback') setFeedback(result as FeedbackView[]);
     else if (nextTab === 'newsletter') { setNewsletter(result as NewsletterView[]); setNewsletterOffset(offset); }
     else if (nextTab === 'jobs') setJobs(result as JobView[]);
-    else setReferrals(result as ReferralView[]);
+    else { setReferrals(result as ReferralView[]); setReferralOffset(offset); }
     setMessage(`${(result as unknown[]).length} ${nextTab} record(s) loaded.`);
   }
 
@@ -186,6 +187,7 @@ function AdminConsole({ email, logout, expired }: { email: string; logout: () =>
         {tab === 'feedback' && <FeedbackTable rows={feedback} disabled={loading} update={(ticket, status) => mutate(`/api/admin/feedback/${ticket.ticketNo}`, { status }, `${ticket.ticketNo} moved to ${status}.`)} />}
         {tab === 'jobs' && <JobsTable rows={jobs} disabled={loading} replay={(job) => mutate(`/api/admin/jobs/${job.id}/replay`, { workspaceId: job.workspaceId }, `Requeued ${job.kind}.`)} />}
         {tab === 'referrals' && <ReferralTable rows={referrals} disabled={loading} reverse={(entry) => mutate(`/api/admin/referrals/${entry.ledgerId}/void`, { workspaceId: entry.workspaceId }, `Referral credit ${entry.status === 'available' ? 'reversal queued' : 'voided'}.`)} />}
+        {tab === 'referrals' && <div className="mt-4 flex gap-4"><button disabled={loading || !referralOffset} onClick={() => void load('referrals', Math.max(0, referralOffset - 100))}>Previous</button><span>Page {referralOffset / 100 + 1}</span><button disabled={loading || referrals.length < 100} onClick={() => void load('referrals', referralOffset + 100)}>Next</button></div>}
       </section>
     </main>
   );

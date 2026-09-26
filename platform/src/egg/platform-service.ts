@@ -303,7 +303,7 @@ export class PlatformService {
       const result = await this.database.withWorkspace(hydrated.workspaceId, async (tx) => {
         const applied = await activateStripeSubscription(tx, hydrated);
         const referralCode = referralCodeFromWebhook(rawBody);
-        if (applied.applied && referralCode) {
+        if (referralCode) {
           await tx.query('SELECT attribute_referral($1, $2::uuid, $3)', [referralCode, hydrated.workspaceId, 'checkout']);
         }
         if (applied.applied) {
@@ -321,10 +321,11 @@ export class PlatformService {
 
     const invoice = stripeInvoicePaidFromWebhook(rawBody);
     if (invoice) {
-      await this.database.withWorkspace(invoice.workspaceId, (tx) => tx.query(
-        'SELECT accrue_referral_credit($1, $2::uuid, $3::bigint, $4)',
-        [invoice.invoiceId, invoice.workspaceId, invoice.paidMicros, invoice.currency],
-      ));
+      await this.database.withWorkspace(invoice.workspaceId, async tx => {
+        if (invoice.referralCode) await tx.query('SELECT attribute_referral($1,$2::uuid,$3)', [invoice.referralCode, invoice.workspaceId, 'invoice']);
+        await tx.query('SELECT accrue_referral_credit($1, $2::uuid, $3::bigint, $4)',
+          [invoice.invoiceId, invoice.workspaceId, invoice.paidMicros, invoice.currency]);
+      });
       return { received: true, activated: false };
     }
 
@@ -374,6 +375,7 @@ export class PlatformService {
       const current = await tx.query<{ subscriptionId: string | null }>(`SELECT stripe_subscription_id AS "subscriptionId" FROM workspace_billing WHERE workspace_id = current_setting('app.workspace_id')::uuid FOR UPDATE`);
       if (current.rows[0]?.subscriptionId && current.rows[0].subscriptionId !== activation.subscriptionId) throw new HttpError(409, 'stripe_subscription_mismatch');
       await activateStripeSubscription(tx, activation);
+      if (activation.referralCode) await tx.query('SELECT attribute_referral($1,$2::uuid,$3)', [activation.referralCode, activation.workspaceId, 'checkout-return']);
       return usageSnapshot(tx);
     });
   }
@@ -426,9 +428,10 @@ export class PlatformService {
     return { ...link, url: `${this.config.PUBLIC_SITE_URL.replace(/\/$/, '')}/r/${link.code}` };
   }
 
-  async referralSummary(actor: ActorContext): Promise<unknown> {
+  async referralSummary(actor: ActorContext, query: unknown = {}): Promise<unknown> {
     requirePermission(actor.role, 'referral:view');
-    return this.database.withWorkspace(actor.workspaceId, referralSummary);
+    const { offset } = z.object({ offset: z.coerce.number().int().min(0).max(1000000).default(0) }).parse(query);
+    return this.database.withWorkspace(actor.workspaceId, tx => referralSummary(tx, offset));
   }
 
   async updateBillingEntitlements(actor: ActorContext, adminToken: string | undefined, body: unknown): Promise<unknown> {

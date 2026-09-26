@@ -23,6 +23,7 @@ interface StripeEvent {
 }
 
 export interface StripeActivationEvent {
+  referralCode?: string;
   eventId: string;
   eventType: string;
   workspaceId: string;
@@ -46,7 +47,7 @@ export interface StripeSubscriptionStatusEvent {
   paymentGraceEndsAt?: string;
 }
 
-export interface StripeInvoicePaidEvent { invoiceId: string; workspaceId: string; paidMicros: number; currency: string; }
+export interface StripeInvoicePaidEvent { invoiceId: string; workspaceId: string; paidMicros: number; currency: string; referralCode?: string; }
 
 export function stripeInvoicePaidFromWebhook(rawBody: string): StripeInvoicePaidEvent | undefined {
   const event = stripeEventFromWebhook(rawBody);
@@ -57,8 +58,10 @@ export function stripeInvoicePaidFromWebhook(rawBody: string): StripeInvoicePaid
   const invoiceId = stringValue(invoice.id);
   const amountPaid = typeof invoice.amount_paid === 'number' && Number.isInteger(invoice.amount_paid) ? invoice.amount_paid : undefined;
   const currency = stringValue(invoice.currency) ?? 'usd';
-  if (!workspaceId || !invoiceId || !amountPaid || amountPaid <= 0) return undefined;
-  return { invoiceId, workspaceId, paidMicros: amountPaid * 10_000, currency };
+  if (!workspaceId || !invoiceId || !amountPaid || amountPaid <= 0 || currency !== 'usd'
+    || !Number.isSafeInteger(amountPaid * 10_000)) return undefined;
+  const code = referralCodeValue(recordValue(details?.metadata ?? invoice.metadata)?.referral_code);
+  return { invoiceId, workspaceId, paidMicros: amountPaid * 10_000, currency, ...(code ? { referralCode: code } : {}) };
 }
 
 interface StripeSubscription {
@@ -114,6 +117,7 @@ export async function createStripeCheckoutSession(config: GatewayConfig, input: 
   body.set('metadata[plan]', input.plan);
   body.set('metadata[billingInterval]', billingInterval);
   if (input.referralCode) body.set('metadata[referral_code]', input.referralCode);
+  if (input.referralCode) body.set('subscription_data[metadata][referral_code]', input.referralCode);
   body.set('subscription_data[metadata][workspaceId]', input.workspaceId);
   body.set('subscription_data[metadata][plan]', input.plan);
   body.set('subscription_data[metadata][billingInterval]', billingInterval);
@@ -271,6 +275,7 @@ export async function retrieveCheckoutActivation(config: GatewayConfig, sessionI
   if (subscription.status !== 'active' && !(subscription.status === 'trialing' && Date.parse(subscription.trialEndsAt ?? '') > Date.now())) throw new HttpError(409, 'stripe_subscription_not_entitled');
   return {
     eventId: `checkout-return:${sessionId}`, eventType: 'checkout.session.reconciled',
+    referralCode: referralCodeValue(recordValue(session.metadata)?.referral_code),
     workspaceId: actor.workspaceId, actorId: metadata.actorId, plan: metadata.plan,
     subscriptionId, customerId: subscription.customerId, priceId: subscription.priceId,
     subscriptionStatus: subscription.status, trialEndsAt: subscription.trialEndsAt, trialStartsAt: subscription.trialStartsAt,
@@ -329,4 +334,8 @@ function normalizedSubscriptionStatus(status: string): string {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value ? value : undefined;
+}
+
+function referralCodeValue(value: unknown): string | undefined {
+  return typeof value === 'string' && /^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$/.test(value) ? value : undefined;
 }

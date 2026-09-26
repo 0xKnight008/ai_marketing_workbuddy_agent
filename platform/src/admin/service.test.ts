@@ -130,6 +130,7 @@ test('pending referral credits can be voided only inside their owning workspace'
   const ledgerId = '77777777-7777-4777-8777-777777777777';
   const database = scopedDatabase(targetWorkspaceId, (sql, values) => {
     queries.push({ sql, values });
+    if (sql.includes('SELECT status FROM referral_credit_ledger')) return [{ status: 'void' }];
     if (sql.includes('FROM referral_credit_ledger')) return [{ stripeInvoiceId: 'in_123', status: 'pending' }];
     return [];
   });
@@ -137,8 +138,7 @@ test('pending referral credits can be voided only inside their owning workspace'
   const result = await new AdminService(config, database).voidReferral(actor, adminToken, ledgerId, { workspaceId: targetWorkspaceId });
 
   assert.deepEqual(result, { id: ledgerId, status: 'void' });
-  assert.ok(queries.some(({ sql }) => sql.includes("SET status = 'void'")));
-  assert.ok(queries.some(({ sql }) => sql.includes("status IN ('queued', 'dead_lettered')")));
+  assert.ok(queries.some(({ sql }) => sql.includes('queue_referral_clawback')));
   assert.ok(queries.some(({ values }) => values?.[2] === 'admin.referral_credit_reversed'));
 });
 

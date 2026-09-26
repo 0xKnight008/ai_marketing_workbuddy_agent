@@ -6,6 +6,7 @@ import { clearSessionAccessToken, readSessionAccessToken, storeSessionAccessToke
 import { checkoutAuthPath, requiresReauthentication } from '../lib/auth-navigation';
 import { selectedBillingInterval } from '../lib/billing-interval';
 import { confirmCheckout, confirmationCopy } from '../lib/checkout-confirmation';
+import { checkoutReferral } from '../lib/referral-context';
 
 const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
 const publicCheckoutEnabled = import.meta.env.VITE_PUBLIC_CHECKOUT_ENABLED === 'true';
@@ -106,7 +107,7 @@ export default function Activation({ lang }: { lang: Lang }) {
       const response = await fetch(`${gatewayUrl}/api/billing/checkout-session`, {
         method: 'POST',
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ plan, billingInterval, referralCode }),
+        body: JSON.stringify({ plan, billingInterval, referralCode: await checkoutReferral(referralCode, token) }),
       });
       if (requiresReauthentication(response.status)) {
         clearSessionAccessToken();

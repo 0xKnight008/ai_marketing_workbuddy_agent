@@ -11,7 +11,7 @@ import { HttpError } from '../http/errors';
 import { adminPrincipal } from './email-login';
 
 const feedbackStatusSchema = z.enum(['new', 'replied', 'closed']);
-const referralStatusSchema = z.enum(['pending', 'available', 'void', 'clawed_back']);
+const referralStatusSchema = z.enum(['pending', 'issuing', 'available', 'void', 'reversal_pending', 'clawed_back']);
 const searchSchema = z.object({ q: z.string().trim().max(200).default('') });
 
 interface WorkspaceDirectoryRow {
@@ -248,8 +248,9 @@ export class AdminService {
     const parsed = z.object({
       q: z.string().trim().max(200).default(''),
       status: referralStatusSchema.optional(),
+      offset: z.coerce.number().int().min(0).max(1000000).default(0),
     }).parse(query ?? {});
-    const directory = await this.workspaceDirectory(parsed.q);
+    const directory = await this.workspaceDirectory(parsed.q, true);
     const workspaceNames = new Map(directory.map((workspace) => [workspace.id, workspace.name]));
     const entries = await Promise.all(directory.map(async (workspace) => this.database.withWorkspace(workspace.id, async (tx) => {
       const result = await tx.query<Omit<AdminReferralRow, 'workspaceName' | 'referredWorkspaceName'>>(`
@@ -262,15 +263,17 @@ export class AdminService {
           LEFT JOIN referral_credit_ledger l ON l.attribution_id = a.id
          WHERE a.referrer_workspace_id = current_setting('app.workspace_id')::uuid
            AND ($1::text IS NULL OR l.status = $1)
-         ORDER BY a.attributed_at DESC
-         LIMIT 100`, [parsed.status ?? null]);
+         ORDER BY a.attributed_at DESC, a.id, l.id
+         LIMIT $2`, [parsed.status ?? null, parsed.offset + 100]);
       return result.rows.map((entry) => ({
         ...entry,
         workspaceName: workspace.name,
         referredWorkspaceName: workspaceNames.get(entry.referredWorkspaceId) ?? entry.referredWorkspaceId,
       }));
     })));
-    return entries.flat().sort((left, right) => right.attributedAt.localeCompare(left.attributedAt)).slice(0, 100);
+    return entries.flat().sort((left, right) => right.attributedAt.localeCompare(left.attributedAt)
+      || left.attributionId.localeCompare(right.attributionId)
+      || (left.ledgerId ?? '').localeCompare(right.ledgerId ?? '')).slice(parsed.offset, parsed.offset + 100);
   }
 
   async voidReferral(
@@ -286,31 +289,12 @@ export class AdminService {
       const locked = await tx.query<{ stripeInvoiceId: string; status: string }>(`
         SELECT stripe_invoice_id AS "stripeInvoiceId", status
           FROM referral_credit_ledger
-         WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid
-         FOR UPDATE`, [id]);
+         WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid`, [id]);
       const ledger = locked.rows[0];
       if (!ledger) throw new HttpError(404, 'referral_credit_not_found');
-      let status: string;
-      if (ledger.status === 'pending') {
-        const running = await tx.query<{ id: string }>(`
-          SELECT id FROM job
-           WHERE workspace_id = current_setting('app.workspace_id')::uuid
-             AND kind = 'issue_referral_credit' AND payload->>'invoiceId' = $1 AND status = 'running'
-           FOR UPDATE`, [ledger.stripeInvoiceId]);
-        if (running.rows[0]) throw new HttpError(409, 'referral_credit_in_progress');
-        await tx.query("UPDATE referral_credit_ledger SET status = 'void' WHERE id = $1", [id]);
-        await tx.query(`UPDATE job
-          SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now()
-          WHERE workspace_id = current_setting('app.workspace_id')::uuid
-            AND kind = 'issue_referral_credit' AND payload->>'invoiceId' = $1
-            AND status IN ('queued', 'dead_lettered')`, [ledger.stripeInvoiceId]);
-        status = 'void';
-      } else if (ledger.status === 'available') {
-        await tx.query('SELECT queue_referral_clawback($1)', [ledger.stripeInvoiceId]);
-        status = 'clawed_back';
-      } else {
-        throw new HttpError(409, 'referral_credit_not_reversible');
-      }
+      await tx.query("SELECT queue_referral_clawback($1)", [ledger.stripeInvoiceId]);
+      const current = await tx.query<{ status: string }>("SELECT status FROM referral_credit_ledger WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid", [id]);
+      const status = current.rows[0]!.status;
       await this.audit(tx, workspaceId, actor, 'admin.referral_credit_reversed', {
         ledgerId: id,
         stripeInvoiceId: ledger.stripeInvoiceId,
@@ -329,7 +313,7 @@ export class AdminService {
     if (!configured || !adminToken || !safeEqual(configured, adminToken)) throw new HttpError(403, 'platform_admin_required');
   }
 
-  private async workspaceDirectory(q: string): Promise<WorkspaceDirectoryRow[]> {
+  private async workspaceDirectory(q: string, all = false): Promise<WorkspaceDirectoryRow[]> {
     return this.database.withAdmin(async (tx) => {
       const result = await tx.query<WorkspaceDirectoryRow>(`
         SELECT w.id, w.name, w.slug, MIN(u.email::text) FILTER (WHERE m.role = 'owner') AS "ownerEmail",
@@ -341,7 +325,7 @@ export class AdminService {
                 OR u.email::text ILIKE '%' || $1 || '%')
          GROUP BY w.id, w.name, w.slug, w.created_at
          ORDER BY w.created_at DESC
-         LIMIT 100`, [q]);
+         LIMIT $2`, [q, all ? null : 100]);
       return result.rows;
     });
   }
