@@ -10,7 +10,10 @@
     "check:lockfile-registries": "node scripts/check-lockfile-registries.mjs",
     "test:subscribe": "node --test server/subscribe-server.test.mjs",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "seo:generate": "node scripts/generate-seo.mjs",
+    "prebuild": "npm run seo:generate",
+    "prebuild:ci": "npm run seo:generate"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
