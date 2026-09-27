@@ -158,6 +158,7 @@ export function Footer() {
             <span>{f.copyright}</span>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
+            <a href="https://discord.gg/sJjA3Nr6Bx" target="_blank" rel="noopener noreferrer" className="font-bold text-[#A8B4CC] hover:text-sun">Discord Community</a>
             <a href="/app" className="font-bold text-sun hover:text-[#FDF6E4] transition-colors">{t.nav.console}</a>
             <a href={lang === 'en' ? '/privacy' : `/${lang}/privacy`} className="font-bold text-[#A8B4CC] hover:text-sun">{f.legal.privacy}</a>
             <a href={lang === 'en' ? '/terms' : `/${lang}/terms`} className="font-bold text-[#A8B4CC] hover:text-sun">{f.legal.terms}</a>

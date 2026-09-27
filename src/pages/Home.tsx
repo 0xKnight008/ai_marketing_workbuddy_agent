@@ -29,7 +29,7 @@ export default function Home({ lang }: { lang: Lang }) {
     setMeta('meta[name="description"]', content.metaDescription);
     setMeta('meta[property="og:title"]', content.docTitle);
     setMeta('meta[property="og:description"]', content.ogDescription);
-    setMeta('meta[property="og:url"]', `${window.location.origin}${window.location.pathname}`);
+    // Preserve the canonical URL emitted in the static HTML (including /en/ aliases).
     window.scrollTo(0, 0);
   }, [lang]);
 

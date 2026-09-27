@@ -1,4 +1,5 @@
 import React from "react";
+import SEO from "./seo.json";
 
 export type Lang = "zh" | "en" | "es";
 
@@ -137,9 +138,9 @@ export interface SiteContent {
 
 const zh: SiteContent = {
   htmlLang: "zh-CN",
-  docTitle: "Piggybot — 你的营销运营数字分身",
-  metaDescription: "Piggybot 是你在营销运营领域的数字分身。说一句人话，精灵分身就会把内容生成、审批、多平台发布、评论私信、线索同步串成自动化工作流。",
-  ogDescription: "说一句人话，精灵分身替你打理营销运营。",
+  docTitle: SEO.zh.title,
+  metaDescription: SEO.zh.description,
+  ogDescription: SEO.zh.description,
   nav: {
     links: [
       { label: "精灵能力", href: "#features" },
@@ -529,9 +530,9 @@ const zh: SiteContent = {
 
 const en: SiteContent = {
   htmlLang: "en",
-  docTitle: "Piggybot — Your Digital Twin for Marketing Ops",
-  metaDescription: "Piggybot is your digital twin for marketing operations. Describe what you need in plain language and turn content, approvals, publishing, messages, leads and reports into automated workflows.",
-  ogDescription: "Say the word and let AI sprites run your marketing operations.",
+  docTitle: SEO.en.title,
+  metaDescription: SEO.en.description,
+  ogDescription: SEO.en.description,
   nav: {
     links: [
       { label: "Features", href: "#features" },
@@ -921,9 +922,9 @@ const en: SiteContent = {
 
 const es: SiteContent = {
   htmlLang: "es",
-  docTitle: "Piggybot — Tu gemelo digital para las operaciones de marketing",
-  metaDescription: "Piggybot es tu gemelo digital para las operaciones de marketing. Describe lo que necesitas en lenguaje natural y convierte contenido, aprobaciones, publicaciones, mensajes, leads e informes en flujos automatizados.",
-  ogDescription: "Dilo con tus propias palabras y deja que los duendes de IA gestionen tu marketing.",
+  docTitle: SEO.es.title,
+  metaDescription: SEO.es.description,
+  ogDescription: SEO.es.description,
   nav: {
     links: [
       { label: "Funciones", href: "#features" },

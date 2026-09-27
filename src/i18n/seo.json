@@ -1,0 +1,14 @@
+{
+  "en": {
+    "title": "Piggybot | AI Marketing Automation & Social Media Workflows",
+    "description": "Build AI marketing workflows with Piggybot. Automate content creation, approvals, social media publishing, inbox management, CRM lead sync and reporting."
+  },
+  "zh": {
+    "title": "Piggybot | AI 营销自动化与社交媒体工作流",
+    "description": "Piggybot 是无代码 AI 营销自动化平台。用自然语言创建工作流，串联内容生成、团队审批、多平台社交媒体发布、统一收件箱、CRM 线索同步与增长报告，让创作者和营销团队集中管理日常运营。"
+  },
+  "es": {
+    "title": "Piggybot | Automatización de marketing con IA y redes sociales",
+    "description": "Crea flujos de marketing con IA en Piggybot. Automatiza contenido, aprobaciones, publicaciones en redes sociales, mensajes, leads en tu CRM e informes."
+  }
+}

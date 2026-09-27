@@ -62,9 +62,7 @@ function FeaturesMenu({ label, mobile = false, onNavigate }: { label: string; mo
 /** Route every locale to its own static entry point. */
 function langHref(current: Lang, target: Lang): string {
   if (current === target) return "#top";
-  const segs = window.location.pathname.split("/").filter(Boolean);
-  const isLocalePath = segs.some((segment) => segment === "zh" || segment === "en" || segment === "es");
-  return isLocalePath ? `../${target}/` : `./${target}/`;
+  return target === "en" ? "/" : `/${target}/`;
 }
 
 export function Nav() {
