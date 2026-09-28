@@ -77,6 +77,17 @@ test('account sync always sends profileId and normalizes current Zernio account 
   assert.equal(authorization, 'Bearer team-api-key');
 });
 
+test('disconnect uses the provider account ID and treats an absent account as already disconnected', async () => {
+  for (const status of [200, 404]) {
+    await client(async (input, init) => {
+      assert.equal(String(input), 'https://zernio.example/api/v1/accounts/provider%2Faccount');
+      assert.equal(init?.method, 'DELETE');
+      return Response.json({}, { status });
+    }).disconnectAccount('provider/account', 'workspace');
+  }
+  await assert.rejects(client(async () => Response.json({}, { status: 403 })).disconnectAccount('account', 'workspace'), SupplierUnavailableError);
+});
+
 test('revoked and disabled accounts never regain connected status or supplier-supplied capabilities', async () => {
   const provider = client(async input => {
     assert.ok(!String(input).endsWith('/health'));

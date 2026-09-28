@@ -54,6 +54,7 @@ export default (app: Application) => {
   router.get('/api/zernio/callback', controller.platform.zernioCallback);
   router.post('/api/zernio/select', controller.platform.selectZernio);
   router.post('/api/zernio/sync', controller.platform.syncZernio);
+  router.post('/api/zernio/accounts/:accountId/disconnect', controller.platform.disconnectZernio);
   router.get('/api/zernio/accounts', controller.platform.connectedAccounts);
   router.get('/api/approval-requests', controller.platform.approvals);
   router.get('/api/runs/:runId', controller.platform.run);

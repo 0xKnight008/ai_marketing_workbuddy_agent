@@ -68,3 +68,26 @@ empty snapshots and unhealthy accounts return a 202 pending page without a
 success message or popup success event. The page directs the user to Accounts →
 Sync account health; missing-target snapshots are not persisted over existing
 connections. Both Egg and the legacy gateway follow this contract.
+
+## Step 4 — Disconnect and explicit reconnect (R8)
+
+Migration `0035_zernio_disconnect.sql` adds a local disconnect marker. Owners and
+admins can disconnect through Accounts with confirmation. The server resolves
+the account inside the authenticated workspace and its Zernio profile before
+calling DELETE `/v1/accounts/{id}`. Local status/capabilities are blocked first,
+so supplier failure does not leave new jobs enabled. Retrying disconnect is safe;
+provider 404 means already absent. The UI does not claim remote success on errors.
+
+A delayed sync cannot re-enable a locally disconnected row. Only a verified
+OAuth callback/selection for that exact provider account clears the marker;
+ordinary callbacks must include the provider accountId rather than matching an
+arbitrary old account on the same platform. The existing worker gates reject
+new submissions for disconnected rows. Already submitted/scheduled posts are
+not cancelled by disconnect; review/cancel those separately in the supplier.
+
+This step also fixes JSONB capability parameter encoding (`JSON.stringify` rather
+than the pg driver's native array encoding). The real PostgreSQL auth-schema CI
+suite now exercises permission persistence, cross-tenant/role rejection, provider
+failure, stale sync suppression, and explicit reconnection against actual SQL.
+Run migrations before the new server code. No production provider calls were
+made during local testing.

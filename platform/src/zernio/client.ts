@@ -318,6 +318,12 @@ export class ZernioClient {
     return string(account.accountId) ?? string(account._id) ?? string(selected.accountId);
   }
 
+  async disconnectAccount(accountId: string, workspaceId: string): Promise<void> {
+    const response = await this.request(`/v1/accounts/${encodeURIComponent(accountId)}`, { method: 'DELETE' }, 1, workspaceId);
+    // Already absent is the desired final state, including retries after a timeout.
+    if (!response.ok && response.status !== 404) throw new SupplierUnavailableError('Zernio disconnect has not been confirmed');
+  }
+
   async listAccounts(profileId: string, workspaceId?: string): Promise<ZernioAccount[]> {
     const response = await this.request(`/v1/accounts?${new URLSearchParams({ profileId })}`, {}, 2, workspaceId);
     if (!response.ok) throw new Error(`Zernio account sync failed: ${response.status}`);

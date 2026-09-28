@@ -299,6 +299,7 @@ export default class PlatformController extends Controller {
   }
 
   async syncZernio(): Promise<void> { this.ctx.body = await this.app.platform.service.syncZernio(this.actor()); }
+  async disconnectZernio(): Promise<void> { this.ctx.body = await this.app.platform.service.disconnectZernioAccount(this.actor(), this.ctx.params.accountId); }
   async approvals(): Promise<void> { this.ctx.body = await this.app.platform.service.pendingApprovals(this.actor()); }
 
   async run(): Promise<void> {

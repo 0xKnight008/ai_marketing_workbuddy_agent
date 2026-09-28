@@ -34,6 +34,11 @@ describe('Egg production gateway', () => {
   after(async () => { await app.close(); });
   afterEach(() => { mm.restore(); });
 
+  it('requires authentication before disconnecting a social account', async () => {
+    await app.httpRequest().post('/api/zernio/accounts/11111111-1111-4111-8111-111111111111/disconnect')
+      .send({}).expect(401);
+  });
+
   for (const role of ['editor', 'viewer'] as const) it(`rejects ${role} notification approval with 403 before database access`, async () => {
     const { NotificationService } = require('../src/insight-service/notifications');
     const service = new NotificationService({ withWorkspace: async () => assert.fail('must not access database') });

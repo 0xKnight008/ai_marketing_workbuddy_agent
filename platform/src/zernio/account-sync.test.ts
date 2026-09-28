@@ -25,8 +25,10 @@ test('sync persists verified health states and clears stale capabilities in the 
   assert.deepEqual(await service.syncZernio({ workspaceId: 'workspace', actorId: 'actor', role: 'owner' }), { synced: 4 });
   for (const [i, account] of accounts.entries()) {
     assert.equal(writes[i]?.values?.[6], account.status);
-    assert.deepEqual(writes[i]?.values?.[3], account.capabilities);
-    assert.match(writes[i]!.sql, /status = EXCLUDED.status/);
+    assert.deepEqual(JSON.parse(String(writes[i]?.values?.[3])), account.capabilities);
+    assert.match(writes[i]!.sql, /ELSE EXCLUDED.status END/);
+    assert.match(writes[i]!.sql, /locally_disconnected/);
+    assert.equal(writes[i]?.values?.[7], null);
   }
   assert.match(writes[4]!.sql, /status = 'disconnected'/);
   for (const account of accounts) {
