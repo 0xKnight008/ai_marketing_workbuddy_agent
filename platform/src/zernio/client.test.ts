@@ -67,13 +67,59 @@ test('account sync always sends profileId and normalizes current Zernio account 
   let authorization: string | null = null;
   let received: Request | URL | string | undefined;
   const provider = client(async (input, init) => {
+    if (String(input).endsWith('/account-a/health')) return Response.json({ accountId: 'account-a', status: 'healthy', tokenStatus: { valid: true }, permissions: { canPost: true, canFetchAnalytics: true } });
     received = input;
     authorization = new Headers(init?.headers).get('authorization');
     return new Response(JSON.stringify({ accounts: [{ _id: 'account-a', displayName: 'Main Page', platform: 'facebook' }] }), { status: 200 });
   });
-  assert.deepEqual(await provider.listAccounts('profile-a', 'workspace-a'), [{ externalId: 'account-a', displayName: 'Main Page', capabilities: [], platform: 'facebook' }]);
+  assert.deepEqual(await provider.listAccounts('profile-a', 'workspace-a'), [{ externalId: 'account-a', displayName: 'Main Page', capabilities: ['publish', 'schedule', 'analytics'], status: 'connected', platform: 'facebook' }]);
   assert.equal(new URL(String(received)).searchParams.get('profileId'), 'profile-a');
   assert.equal(authorization, 'Bearer team-api-key');
+});
+
+test('revoked and disabled accounts never regain connected status or supplier-supplied capabilities', async () => {
+  const provider = client(async input => {
+    assert.ok(!String(input).endsWith('/health'));
+    return Response.json({ accounts: [
+      { _id: 'revoked', displayName: 'Revoked', needsReconnection: true, capabilities: ['publish'] },
+      { _id: 'disabled', displayName: 'Disabled', enabled: false },
+      { _id: 'inactive', displayName: 'Inactive', isActive: false },
+    ] });
+  });
+  const accounts = await provider.listAccounts('profile-a');
+  assert.deepEqual(accounts.map(a => a.status), ['expired', 'disconnected', 'disconnected']);
+  assert.ok(accounts.every(a => a.capabilities.length === 0));
+});
+
+test('health checks fail closed and do not invent posting permissions', async () => {
+  for (const [health, expectedStatus, capabilities] of [
+    [{ status: 'healthy', tokenStatus: { valid: true }, permissions: { canPost: false, canFetchAnalytics: true } }, 'connected', ['analytics']],
+    [{ status: 'warning', tokenStatus: { valid: false }, permissions: { canPost: true } }, 'expired', []],
+    [{ status: 'error', tokenStatus: { valid: true }, permissions: { canPost: true } }, 'disconnected', []],
+    [{ status: 'healthy', permissions: { canPost: true } }, 'syncing', []],
+    [{ accountId: 'foreign', status: 'healthy', tokenStatus: { valid: true }, permissions: { canPost: true } }, 'syncing', []],
+  ] as const) {
+    const provider = client(async input => String(input).endsWith('/health')
+      ? Response.json({ accountId: 'account-a', ...health })
+      : Response.json({ accounts: [{ _id: 'account-a', displayName: 'Page' }] }));
+    const [account] = await provider.listAccounts('profile-a');
+    assert.equal(account?.status, expectedStatus);
+    assert.deepEqual(account?.capabilities, capabilities);
+  }
+  for (const status of [401, 404, 503]) {
+    const provider = client(async input => String(input).endsWith('/health')
+      ? Response.json({}, { status })
+      : Response.json({ accounts: [{ _id: 'account-a', displayName: 'Page' }] }));
+    const [account] = await provider.listAccounts('profile-a');
+    assert.equal(account?.status, status === 404 ? 'disconnected' : 'syncing');
+    assert.deepEqual(account?.capabilities, []);
+  }
+});
+
+test('malformed account snapshots cannot be treated as an empty successful sync', async () => {
+  for (const value of [{}, { accounts: [{}] }]) {
+    await assert.rejects(client(async () => Response.json(value)).listAccounts('profile-a'), /Invalid Zernio account/);
+  }
 });
 
 test('headless callbacks accept Zernio step spelling variants', () => {

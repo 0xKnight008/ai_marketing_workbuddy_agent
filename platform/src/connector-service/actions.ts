@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-const actionCapabilities = {
+export const actionCapabilities = {
   'social.create_post': 'publish',
   'social.schedule_post': 'schedule',
   'social.get_analytics': 'analytics',
