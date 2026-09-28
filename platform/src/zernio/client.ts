@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { postBody, postResult, type ZernioPostResult } from './posts';
 
 export const ZERNIO_PLATFORMS = [
   'facebook', 'instagram', 'linkedin', 'pinterest', 'googlebusiness', 'snapchat',
@@ -354,14 +355,28 @@ export class ZernioClient {
     return accounts;
   }
 
-  async executeAction(idempotencyKey: string, action: Record<string, unknown>, workspaceId?: string): Promise<Record<string, unknown>> {
-    const response = await this.request('/v1/actions', {
+  async executeAction(idempotencyKey: string, action: Record<string, unknown>, workspaceId?: string): Promise<ZernioPostResult> {
+    if (!idempotencyKey || idempotencyKey.length > 255) throw new Error('Invalid Zernio idempotency key');
+    const response = await this.request('/v1/posts', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'idempotency-key': idempotencyKey },
-      body: JSON.stringify(action),
+      body: JSON.stringify(postBody(action)),
     }, 2, workspaceId);
+    if (response.status === 409) {
+      const conflict = object(await response.json());
+      if (conflict.code === 'idempotency_conflict') throw new SupplierUnavailableError('Zernio post is still processing');
+      throw new Error('Zernio post conflict requires review');
+    }
     if (!response.ok) throw new Error(`Zernio action failed: ${response.status}`);
-    return await response.json() as Record<string, unknown>;
+    return postResult(await response.json(), action, response.status);
+  }
+
+  async getActionResult(postId: string, action: Record<string, unknown>, workspaceId?: string): Promise<ZernioPostResult> {
+    const response = await this.request(`/v1/posts/${encodeURIComponent(postId)}`, {}, 2, workspaceId);
+    if (!response.ok) throw new Error(`Zernio post reconciliation failed: ${response.status}`);
+    const result = postResult(await response.json(), action);
+    if (result.postId !== postId) throw new Error('Zernio response post ID mismatch');
+    return result;
   }
 }
 
