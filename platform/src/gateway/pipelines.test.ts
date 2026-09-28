@@ -125,7 +125,7 @@ function pipelineTransaction(overrides: Partial<PipelineDefinition>, activate = 
         return { rows: [{ id: pipelineId, name: 'Launch repurposing', status: activate ? 'published' : 'draft', version: 1, updatedAt: '2026-09-04T00:00:00Z', definition } as Row], rowCount: 1 };
       }
       if (sql.includes('FROM connected_account')) {
-        return { rows: definition.targetAccountIds.map((id) => ({ id, status: 'connected', platform: 'linkedin', externalAccountId: `external-${id}`, capabilities: ['social.create_post'] } as Row)), rowCount: definition.targetAccountIds.length };
+        return { rows: definition.targetAccountIds.map((id) => ({ id, status: 'connected', platform: 'linkedin', externalAccountId: `external-${id}`, capabilities: ['publish', 'schedule'] } as Row)), rowCount: definition.targetAccountIds.length };
       }
       if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null } as Row], rowCount: 1 };
       if (sql.includes('INSERT INTO workflow_run')) return { rows: [{ id: 'run-1', status: 'pending', workflowId: pipelineId, createdAt: '2026-09-05' } as Row], rowCount: 1 };

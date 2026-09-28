@@ -556,7 +556,7 @@ export class PlatformService {
     }
     if (typeof query.profileId === 'string' && query.profileId !== state.profileId) throw new HttpError(403, 'zernio_tenant_mismatch');
     const accounts = await provider.listAccounts(state.profileId, state.workspaceId);
-    if (!accounts.some(account => account.platform === state.platform &&
+    if (!accounts.some(account => account.status === 'connected' && account.platform === state.platform &&
       (typeof query.accountId !== 'string' || account.externalId === query.accountId))) {
       throw new HttpError(409, 'zernio_account_not_connected');
     }
@@ -753,12 +753,12 @@ export class PlatformService {
       for (const account of accounts) {
         await tx.query(
           `INSERT INTO connected_account (workspace_id, provider, external_account_id, display_name, capabilities, status, last_synced_at, zernio_profile_id, platform)
-           VALUES ($1, 'zernio', $2, $3, $4, 'connected', now(), $5, $6)
+           VALUES ($1, 'zernio', $2, $3, $4, $7, now(), $5, $6)
            ON CONFLICT (workspace_id, provider, external_account_id) DO UPDATE
              SET display_name = EXCLUDED.display_name, capabilities = EXCLUDED.capabilities,
-                 status = 'connected', last_synced_at = now(), zernio_profile_id = EXCLUDED.zernio_profile_id,
+                 status = EXCLUDED.status, last_synced_at = now(), zernio_profile_id = EXCLUDED.zernio_profile_id,
                  platform = EXCLUDED.platform`,
-          [workspaceId, account.externalId, account.displayName, account.capabilities, profileId, account.platform ?? 'unknown'],
+          [workspaceId, account.externalId, account.displayName, account.capabilities, profileId, account.platform ?? 'unknown', account.status],
         );
       }
       await tx.query(

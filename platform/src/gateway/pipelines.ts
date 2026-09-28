@@ -8,6 +8,7 @@ import { isAnnouncementWorkflow } from '../contracts/workflow-definition';
 import { createDurableRun, type RunRecord } from '../run-service/repository';
 import { MODEL_BANDS, type ModelBand } from '../billing/plans';
 import { HttpError } from '../http/errors';
+import { actionCapabilities } from '../connector-service/actions';
 
 export const pipelineTemplates = [
   {
@@ -256,7 +257,7 @@ function announcementPlatform(platform: string): string { return platform === 't
 function canPublishAnnouncement(account: ConnectedAccountView): boolean {
   return account.status === 'connected' && Boolean(account.externalAccountId)
     && ['instagram', 'tiktok', 'youtube', 'linkedin', 'x'].includes(announcementPlatform(account.platform))
-    && account.capabilities.includes('social.create_post');
+    && account.capabilities.includes(actionCapabilities['social.create_post']);
 }
 
 async function loadPipeline(tx: TenantTransaction, workspaceId: string, pipelineId: string, lock = false): Promise<PipelineView> {

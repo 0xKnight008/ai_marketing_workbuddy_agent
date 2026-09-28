@@ -20,6 +20,7 @@ export interface ZernioAccount {
   externalId: string;
   displayName: string;
   capabilities: string[];
+  status: 'connected' | 'expired' | 'disconnected' | 'syncing';
   platform?: string;
 }
 
@@ -315,12 +316,42 @@ export class ZernioClient {
     const response = await this.request(`/v1/accounts?${new URLSearchParams({ profileId })}`, {}, 2, workspaceId);
     if (!response.ok) throw new Error(`Zernio account sync failed: ${response.status}`);
     const value = await response.json() as { accounts?: Array<Record<string, unknown>> };
-    return (value.accounts ?? []).flatMap((account) => {
+    if (!Array.isArray(value.accounts)) throw new SupplierUnavailableError('Invalid Zernio account list');
+    const accounts: ZernioAccount[] = [];
+    for (const account of value.accounts) {
       const externalId = string(account._id) ?? string(account.id) ?? string(account.accountId);
       const displayName = string(account.displayName) ?? string(account.name) ?? string(account.username);
-      if (!externalId || !displayName) return [];
-      return [{ externalId, displayName, capabilities: Array.isArray(account.capabilities) ? account.capabilities.filter((item): item is string => typeof item === 'string') : [], platform: string(account.platform) }];
-    });
+      // Reject partial/malformed snapshots rather than disconnecting omitted accounts.
+      if (!externalId || !displayName) throw new SupplierUnavailableError('Invalid Zernio account');
+      const normalized: ZernioAccount = { externalId, displayName, platform: string(account.platform), capabilities: [], status: 'syncing' };
+      if (account.needsReconnection === true) normalized.status = 'expired';
+      else if (account.isActive === false || account.enabled === false) normalized.status = 'disconnected';
+      else {
+        try {
+          const healthResponse = await this.request(`/v1/accounts/${encodeURIComponent(externalId)}/health`, {}, 1, workspaceId);
+          if (healthResponse.status === 404) normalized.status = 'disconnected';
+          else if (healthResponse.ok) {
+            const health = object(await healthResponse.json());
+            const token = object(health.tokenStatus);
+            const permissions = object(health.permissions);
+            if (health.accountId !== externalId) throw new Error('Mismatched account health');
+            if (token.valid === false) normalized.status = 'expired';
+            else if (health.status === 'error') normalized.status = 'disconnected';
+            else if (token.valid === true && ['healthy', 'warning'].includes(String(health.status))) {
+              normalized.status = 'connected';
+              if (permissions.canPost === true) normalized.capabilities.push('publish', 'schedule');
+              if (permissions.canFetchAnalytics === true) normalized.capabilities.push('analytics');
+            }
+          }
+        } catch {
+          // Persist an unavailable state instead of retaining stale publish permissions.
+          normalized.status = 'syncing';
+          normalized.capabilities = [];
+        }
+      }
+      accounts.push(normalized);
+    }
+    return accounts;
   }
 
   async executeAction(idempotencyKey: string, action: Record<string, unknown>, workspaceId?: string): Promise<Record<string, unknown>> {
