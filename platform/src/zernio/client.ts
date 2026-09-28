@@ -289,7 +289,7 @@ export class ZernioClient {
     return { context: enriched, options };
   }
 
-  async select(context: ZernioSelectionContext, option: ZernioSelectionOption): Promise<void> {
+  async select(context: ZernioSelectionContext, option: ZernioSelectionOption): Promise<string | undefined> {
     if (context.expiresAt <= Math.floor(this.now() / 1000)) throw new Error('Zernio selection session expired');
     const spec = selectionSpec(context.step);
     const common = { profileId: context.profileId, redirect_url: this.options.oauthRedirectUri };
@@ -311,6 +311,11 @@ export class ZernioClient {
       body: JSON.stringify(body),
     }, 1, context.workspaceId);
     if (!response.ok) throw new Error(`Zernio selection failed: ${response.status}`);
+    const selected = object(await response.json());
+    const account = object(selected.account);
+    if (account.platform && account.platform !== context.platform) throw new Error('Zernio selection platform mismatch');
+    // This is the Zernio account ID, not the native page/board/location ID.
+    return string(account.accountId) ?? string(account._id) ?? string(selected.accountId);
   }
 
   async listAccounts(profileId: string, workspaceId?: string): Promise<ZernioAccount[]> {

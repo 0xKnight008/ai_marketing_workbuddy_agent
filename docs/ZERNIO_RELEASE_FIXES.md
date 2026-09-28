@@ -57,3 +57,14 @@ remaining incomplete until published, and failure/partial responses not marking
 notifications sent. Restart the worker while pending and confirm the post ID is
 reused. No live-provider success is implied by local fixture tests. R5/R7 and
 R6/R8 remain separate follow-ups.
+
+## Step 3 — Confirm headless account selection (R6)
+
+Selection responses retain the Zernio account ID (not the native page/location
+ID). Before returning success, Piggybot checks that exact account in the scoped
+profile, with the expected platform and a connected health state. Visibility is
+checked up to three times without replaying the selection POST. Missing identity,
+empty snapshots and unhealthy accounts return a 202 pending page without a
+success message or popup success event. The page directs the user to Accounts →
+Sync account health; missing-target snapshots are not persisted over existing
+connections. Both Egg and the legacy gateway follow this contract.
