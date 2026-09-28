@@ -1,4 +1,6 @@
 import { z } from 'zod';
+// Cross-service contract: only V1 text destinations; mirrored by platform/src/zernio/social-platforms.ts.
+const supportsAnnouncement = (platform: string): boolean => ['linkedin', 'x', 'twitter'].includes(platform);
 
 /**
  * Structured schemas owned by ai-runtime (见架构文档 §9 数据归属)。
@@ -21,7 +23,7 @@ export const platformEnum = z.enum([
 export type Platform = z.infer<typeof platformEnum>;
 
 export const targetSchema = z.object({
-  platform: platformEnum,
+  platform: platformEnum.refine(supportsAnnouncement, 'V1 pipelines support text-only LinkedIn and X publishing; other connections are retained'),
   accountId: z.string().min(1),
 });
 export type Target = z.infer<typeof targetSchema>;
@@ -147,7 +149,7 @@ export type ComplianceReport = z.infer<typeof complianceReportSchema>;
 export const plannedActionSchema = z.object({
   stepOrder: z.number().int().positive(),
   type: z.literal('social.create_post'),
-  platform: platformEnum,
+  platform: platformEnum.refine(supportsAnnouncement, 'Publishing is unavailable for this platform in V1'),
   accountId: z.string(),
   content: z.string(),
   hashtags: z.array(z.string()).default([]),

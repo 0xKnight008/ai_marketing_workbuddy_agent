@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { announcementPlatform, supportsAnnouncement } from '../zernio/social-platforms';
 
 import type { ActorContext } from '../contracts/domain';
 import type { TenantTransaction } from '../foundation/database';
@@ -204,7 +205,7 @@ export async function inspectPipelineReadiness(tx: TenantTransaction, actor: Act
     { id: 'accounts', label: 'Destinations selected', passed: selectedIds.length > 0 && selectedIds.length <= 5, detail: 'Choose 1–5 destinations so the run also fits the energy-saving model limit.' },
     { id: 'account_health', label: 'Accounts are healthy', passed: selectedIds.length > 0 && connected === selectedIds.length, detail: selectedIds.length > 0 && connected === selectedIds.length ? 'Every selected account is connected.' : 'Reconnect or replace unavailable accounts before activation.' },
     { id: 'approval', label: 'Approval guardrail', passed: pipeline.definition.steps.some((step) => step.type === 'approval'), detail: 'Publishing remains behind the configured approval policy.' },
-    { id: 'capabilities', label: 'Publishing supported', passed: accounts.length === selectedIds.length && accounts.length > 0 && accounts.every(canPublishAnnouncement), detail: 'Every destination must support announcement generation and social.create_post.' },
+    { id: 'capabilities', label: 'Publishing supported', passed: accounts.length === selectedIds.length && accounts.length > 0 && accounts.every(canPublishAnnouncement), detail: 'V1 pipelines support text-only LinkedIn and X publishing. Media and other pipeline destinations are unavailable; connections are retained.' },
   ];
   return { ready: checks.every((check) => check.passed), checks };
 }
@@ -252,11 +253,9 @@ export async function activatePipeline(tx: TenantTransaction, actor: ActorContex
   return { ...row, definition: loaded.definition, run };
 }
 
-function announcementPlatform(platform: string): string { return platform === 'twitter' ? 'x' : platform; }
-
 function canPublishAnnouncement(account: ConnectedAccountView): boolean {
   return account.status === 'connected' && Boolean(account.externalAccountId)
-    && ['instagram', 'tiktok', 'youtube', 'linkedin', 'x'].includes(announcementPlatform(account.platform))
+    && supportsAnnouncement(account.platform)
     && account.capabilities.includes(actionCapabilities['social.create_post']);
 }
 

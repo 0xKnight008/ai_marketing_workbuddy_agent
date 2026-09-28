@@ -1,4 +1,10 @@
 {
+  "V1: text-only pipeline publishing": ["V1: publicación de texto en flujos", "V1：流水线仅支持纯文字发布"],
+  "V1: report and notification delivery only; pipeline publishing unavailable": ["V1: solo informes y notificaciones; sin publicación en flujos", "V1：仅支持报告和通知交付，不支持流水线发布"],
+  "Connection available; media publishing is not supported in V1": ["Conexión disponible; publicación multimedia no compatible con V1", "可连接账号；V1 暂不支持媒体发布"],
+  "Connection available; pipeline publishing is not supported in V1": ["Conexión disponible; publicación en flujos no compatible con V1", "可连接账号；V1 暂不支持流水线发布"],
+  "V1 pipelines publish text only to LinkedIn and X. Other accounts stay connected; media publishing is unavailable.": ["Los flujos V1 publican solo texto en LinkedIn y X. Las demás cuentas siguen conectadas; multimedia no disponible.", "V1 流水线仅支持 LinkedIn 和 X 纯文字发布。其他账号保留连接，媒体发布暂不开放。"],
+  "Unavailable destination — deselect before activation.": ["Destino no disponible: desmárcalo antes de activar.", "此发布目标暂不可用，请在激活前取消选择。"],
   "Retry": [
     "Reintentar",
     "重试"

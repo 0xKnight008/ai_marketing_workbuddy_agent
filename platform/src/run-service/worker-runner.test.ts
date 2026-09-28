@@ -5,6 +5,29 @@ import type { QueryResultRow } from 'pg';
 import type { TenantTransaction } from '../foundation/database';
 import { RunWorker, validatedClassifications, validatedTopicAssignments, validatedTopicTaxonomy, type ClaimedJob, type RunWorkerDatabase } from './worker-runner';
 
+test('legacy approved media actions are blocked before database or supplier work', async () => {
+  const worker = Object.create(RunWorker.prototype) as { executeApprovedActions(job: ClaimedJob): Promise<void> };
+  for (const platform of ['instagram', 'tiktok', 'youtube', 'pinterest', 'discord']) {
+    await assert.rejects(worker.executeApprovedActions({ id: 'job', workspaceId: 'workspace', runId: 'run', kind: 'execute_approved_actions', attempt: 1,
+      payload: { actionPlan: { summary: 'Legacy approved post', requiresApproval: false, actions: [{ stepOrder: 1, type: 'social.create_post', platform, accountId: 'account', content: 'Caption only', idempotencyKey: 'old-action', requiresApproval: false }] } },
+    }), /Pipeline publishing is unavailable/);
+  }
+});
+
+test('legacy media prepare jobs are rejected before reserving AI credits', async () => {
+  let queries = 0;
+  const worker = Object.create(RunWorker.prototype);
+  worker.options = { database: { withWorkspace: async (_id: string, operation: (tx: unknown) => unknown) => operation({
+    query: async () => {
+      queries++;
+      assert.equal(queries, 1, 'must not reach billing queries');
+      return { rows: [{ id: 'run', input: { targets: [{ platform: 'instagram' }] }, definition: { steps: [{ type: 'ai.prepare_announcement' }, { type: 'approval' }, { type: 'social.schedule_post' }] } }] };
+    },
+  }) } };
+  await assert.rejects(worker.executePrepare({ runId: 'run', workspaceId: 'workspace' }), /Pipeline publishing is unavailable/);
+  assert.equal(queries, 1);
+});
+
 test('500 known-answer classifications require complete indexes and verbatim evidence', () => {
   const items = Array.from({ length: 500 }, (_, i) => ({ text: `Comment ${i}: I want to buy it` }));
   for (let offset = 0; offset < 500; offset += 50) {

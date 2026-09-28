@@ -169,7 +169,7 @@ const zh: SiteContent = {
       "Piggybot 是你在营销运营领域的数字分身。不用写代码，说一句人话，分身们就会把「内容生成 → 审批 → 多平台发布 → 评论私信 → 线索入库 → 复盘报告」串成一条自己流动的小河。",
     ctaPrimary: "免费召唤精灵",
     ctaSecondary: "看工作流剧场",
-    chips: ["15+ 社交平台一站连通", "6 大广告平台", "4 大场景模板", "每个动作都可审批"],
+    chips: ["14 个社交平台连接入口", "6 大广告平台", "4 大场景模板", "每个动作都可审批"],
     scroll: "向下滚动，进入精灵村",
   },
   marquee: [
@@ -397,9 +397,9 @@ const zh: SiteContent = {
     badge: "精灵集市 · Integrations",
     pre: "一座集市，",
     hi: "连接你的所有工具",
-    subtitle: "一次授权，连通 15+ 社交平台，对接细节全部藏在幕后；你的自有 AI agent 也可以通过 MCP 调用这些能力。",
+    subtitle: "提供 14 个社交平台连接入口，各平台需分别授权。V1 流水线仅支持 LinkedIn 与 X 的纯文字发布；其他平台保留连接，媒体发布暂不开放。",
     socialTitle: "社交与广告平台",
-    socialSub: "发布 / 定时 / 分析 / 评论 / 私信，一次连接全搞定",
+    socialSub: "连接与发布能力分开标注；V1 媒体发布暂不开放",
     adsLabel: "广告能力：",
     saasTitle: "SaaS 连接器",
     saasSub: "少而精的高价值连接：CRM、表格、IM、文档、通用扩展",
@@ -497,7 +497,7 @@ const zh: SiteContent = {
       },
       {
         q: "支持哪些平台？",
-        a: "覆盖 Instagram、TikTok、YouTube、X、LinkedIn、Facebook 等 15+ 社交平台，以及 Meta / Google / TikTok 等 6 大广告平台；SaaS 侧支持 HubSpot、Salesforce、Sheets、Slack、飞书、Notion 等连接器，一次授权即可连通。",
+        a: "提供 Instagram、TikTok、YouTube、X、LinkedIn、Facebook 等 14 个社交平台连接入口。V1 流水线支持 LinkedIn 和 X 纯文字发布，Discord 支持报告与通知交付。其余连接不代表已开放发布；媒体发布暂不支持，Snapchat 和 WhatsApp 未开放。",
       },
       {
         q: "和 Zapier 有什么不同？",
@@ -561,7 +561,7 @@ const en: SiteContent = {
       "Piggybot is your digital twin for marketing operations. No code — just say the word, and your sprites turn “content → approval → multi-platform publishing → comments & DMs → leads into CRM → recap reports” into a little river that flows by itself.",
     ctaPrimary: "Summon Your Sprites",
     ctaSecondary: "See Workflows in Action",
-    chips: ["15+ social platforms, one connection", "6 major ad networks", "4 ready-made playbooks", "Every action approvable"],
+    chips: ["14 social connection options", "6 major ad networks", "4 ready-made playbooks", "Every action approvable"],
     scroll: "Scroll down to Sprite Village",
   },
   marquee: [
@@ -789,9 +789,9 @@ const en: SiteContent = {
     badge: "Sprite Market · Integrations",
     pre: "One market,",
     hi: "connects all your tools",
-    subtitle: "Authorize once to connect 15+ social platforms — all plumbing stays behind the scenes; your own AI agents can call these powers via MCP too.",
+    subtitle: "14 social connection options, authorized separately. V1 pipelines publish text only to LinkedIn and X. Other connections are retained; media publishing is not yet available.",
     socialTitle: "Social & Ad Platforms",
-    socialSub: "Publish / schedule / analytics / comments / DMs — one connection does it all",
+    socialSub: "Connection and publishing support are listed separately; V1 media publishing is unavailable",
     adsLabel: "Ads:",
     saasTitle: "SaaS Connectors",
     saasSub: "Few but mighty: CRM, sheets, IM, docs and universal hooks",
@@ -889,7 +889,7 @@ const en: SiteContent = {
       },
       {
         q: "Which platforms are supported?",
-        a: "15+ social platforms including Instagram, TikTok, YouTube, X, LinkedIn and Facebook, plus 6 ad networks (Meta / Google / TikTok and more); SaaS connectors include HubSpot, Salesforce, Sheets, Slack, Notion and more — one authorization connects them all.",
+        a: "14 social connection options include Instagram, TikTok, YouTube, X, LinkedIn and Facebook. V1 pipelines publish text to LinkedIn and X; Discord supports report and notification delivery. Connection does not imply publishing support. Media publishing, Snapchat and WhatsApp are not available in V1.",
       },
       {
         q: "How is this different from Zapier?",
@@ -953,7 +953,7 @@ const es: SiteContent = {
       "Piggybot es tu gemelo digital para las operaciones de marketing. Sin código: solo dilo en palabras simples y tus duendes convertirán «contenido → aprobación → publicación multiplataforma → comentarios y mensajes → leads al CRM → informes» en un riachuelo que fluye solo.",
     ctaPrimary: "Invoca a tus duendes",
     ctaSecondary: "Ver el teatro de flujos",
-    chips: ["15+ redes sociales, una conexión", "6 plataformas de anuncios", "4 guías listas para usar", "Cada acción aprobable"],
+    chips: ["14 opciones de conexión social", "6 plataformas de anuncios", "4 guías listas para usar", "Cada acción aprobable"],
     scroll: "Baja a la Aldea de los Duendes",
   },
   marquee: [
@@ -1181,9 +1181,9 @@ const es: SiteContent = {
     badge: "Mercado de duendes · Integraciones",
     pre: "Un mercado,",
     hi: "conecta todas tus herramientas",
-    subtitle: "Autoriza una vez y conecta más de 15 plataformas sociales — la fontanería queda entre bastidores; tus propios agentes de IA también pueden invocar estos poderes vía MCP.",
+    subtitle: "14 opciones de conexión social, con autorización independiente. Los flujos V1 publican solo texto en LinkedIn y X. Las demás conexiones se conservan; la publicación multimedia aún no está disponible.",
     socialTitle: "Redes sociales y anuncios",
-    socialSub: "Publicar / programar / analizar / comentarios / mensajes — una conexión lo hace todo",
+    socialSub: "Conexión y publicación se indican por separado; multimedia no está disponible en V1",
     adsLabel: "Anuncios:",
     saasTitle: "Conectores SaaS",
     saasSub: "Pocos pero potentes: CRM, hojas de cálculo, mensajería, documentos e integraciones universales",
@@ -1281,7 +1281,7 @@ const es: SiteContent = {
       },
       {
         q: "¿Qué plataformas son compatibles?",
-        a: "Más de 15 plataformas sociales como Instagram, TikTok, YouTube, X, LinkedIn y Facebook, además de 6 redes de anuncios (Meta / Google / TikTok y más); conectores SaaS como HubSpot, Salesforce, Sheets, Slack, Notion y más — una sola autorización los conecta todos.",
+        a: "14 opciones de conexión incluyen Instagram, TikTok, YouTube, X, LinkedIn y Facebook. Los flujos V1 publican texto en LinkedIn y X; Discord permite entregar informes y notificaciones. Conectar no implica poder publicar. Multimedia, Snapchat y WhatsApp no están disponibles en V1.",
       },
       {
         q: "¿En qué se diferencia de Zapier?",

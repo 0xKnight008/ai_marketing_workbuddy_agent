@@ -106,7 +106,7 @@ test('activation requires healthy accounts and publishes a ready draft', async (
   assert.equal(result.run.status, 'pending');
 });
 
-function pipelineTransaction(overrides: Partial<PipelineDefinition>, activate = false): TenantTransaction {
+function pipelineTransaction(overrides: Partial<PipelineDefinition>, activate = false, platform = 'linkedin'): TenantTransaction {
   const definition: PipelineDefinition = {
     kind: 'pipeline',
     source: { type: 'template', templateId: 'repurpose' },
@@ -125,7 +125,7 @@ function pipelineTransaction(overrides: Partial<PipelineDefinition>, activate = 
         return { rows: [{ id: pipelineId, name: 'Launch repurposing', status: activate ? 'published' : 'draft', version: 1, updatedAt: '2026-09-04T00:00:00Z', definition } as Row], rowCount: 1 };
       }
       if (sql.includes('FROM connected_account')) {
-        return { rows: definition.targetAccountIds.map((id) => ({ id, status: 'connected', platform: 'linkedin', externalAccountId: `external-${id}`, capabilities: ['publish', 'schedule'] } as Row)), rowCount: definition.targetAccountIds.length };
+        return { rows: definition.targetAccountIds.map((id) => ({ id, status: 'connected', platform, externalAccountId: `external-${id}`, capabilities: ['publish', 'schedule'] } as Row)), rowCount: definition.targetAccountIds.length };
       }
       if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', purchasedCredits: 0, subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null } as Row], rowCount: 1 };
       if (sql.includes('INSERT INTO workflow_run')) return { rows: [{ id: 'run-1', status: 'pending', workflowId: pipelineId, createdAt: '2026-09-05' } as Row], rowCount: 1 };
@@ -136,6 +136,18 @@ function pipelineTransaction(overrides: Partial<PipelineDefinition>, activate = 
     },
   } as TenantTransaction;
 }
+
+test('healthy connections do not bypass the V1 pipeline platform scope', async () => {
+  for (const platform of ['instagram', 'tiktok', 'youtube', 'pinterest', 'facebook', 'discord', 'telegram', 'googlebusiness', 'threads', 'bluesky', 'reddit', 'slack']) {
+    const tx = pipelineTransaction({}, false, platform);
+    const readiness = await inspectPipelineReadiness(tx, actor, pipelineId);
+    assert.equal(readiness.checks.find(check => check.id === 'capabilities')?.passed, false, platform);
+    await assert.rejects(activatePipeline(tx, actor, pipelineId), /not ready/);
+  }
+  for (const platform of ['linkedin', 'x', 'twitter']) {
+    assert.equal((await inspectPipelineReadiness(pipelineTransaction({}, false, platform), actor, pipelineId)).ready, true);
+  }
+});
 
 test('activation queues the configured announcement once and returns the same run on retry', async () => {
   const base = pipelineTransaction({ targetAccountIds: [accountId], tone: 'warm', language: 'es' }, true);

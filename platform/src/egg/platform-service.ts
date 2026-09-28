@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import { z } from 'zod';
+import { CONNECTION_PLATFORMS } from '../zernio/social-platforms';
 import { createReplyStore, deliverDiscordReplies, supportReplyConfiguration } from '../../../server/feedback-delivery.mjs';
 
 import { AdminService } from '../admin/service';
@@ -511,7 +512,7 @@ export class PlatformService {
   async connectUrl(actor: ActorContext, requestedPlatform: unknown): Promise<string> {
     requirePermission(actor.role, 'connection:manage');
     const platform = z.enum(ZERNIO_PLATFORMS).parse(requestedPlatform) as ZernioPlatform;
-    if (['snapchat', 'whatsapp', 'telegram'].includes(platform)) throw new HttpError(400, 'zernio_platform_unavailable');
+    if (platform === 'telegram' || !CONNECTION_PLATFORMS.some(([id]) => id === platform)) throw new HttpError(400, 'zernio_platform_unavailable');
     const profileId = await this.ensureZernioProfile(actor.workspaceId);
     return this.zernioClient().connectUrl(actor.workspaceId, profileId, platform);
   }
