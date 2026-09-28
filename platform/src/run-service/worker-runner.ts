@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { supportsAnnouncement } from '../zernio/social-platforms';
 import { templateAcceptanceIssues } from '../insight-service/template-acceptance';
 import { rankReviewReport } from '../insight-service/review-ranking';
 
@@ -139,6 +140,9 @@ export class RunWorker {
       const found = result.rows[0];
       if (!found) throw new Error('Run not found');
       if (!isAnnouncementWorkflow(found.definition)) throw new Error('Workflow execution is not supported');
+      if (Array.isArray(found.input.targets) && found.input.targets.some((target) => !supportsAnnouncement(String(target?.platform)))) {
+        throw new Error('Pipeline publishing is unavailable for this platform in V1; connection is retained');
+      }
       // 对话框档位选择：run input 可携带 modelBand（eco/standard/flagship），
       // 合法且在品牌策略允许范围内时优先于默认档位。
       const requestedBand = z.enum(MODEL_BANDS).safeParse(found.input?.modelBand);
@@ -235,6 +239,7 @@ export class RunWorker {
     let pending: ZernioPostPending | undefined;
     for (const action of actionPlan.actions) {
       const submitted = hasSubmittedPost(job, action);
+      if (!submitted && !supportsAnnouncement(action.platform)) throw new Error('Pipeline publishing is unavailable for this platform in V1; connection is retained');
       const operation = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
         const run = await tx.query<{ status: string }>('SELECT status FROM workflow_run WHERE id = $1 AND workspace_id = $2', [job.runId, job.workspaceId]);
         if (!run.rows[0] || !['queued', 'running'].includes(run.rows[0].status)) throw new Error('Run is not ready for action execution');

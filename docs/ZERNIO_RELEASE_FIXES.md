@@ -91,3 +91,29 @@ suite now exercises permission persistence, cross-tenant/role rejection, provide
 failure, stale sync suppression, and explicit reconnection against actual SQL.
 Run migrations before the new server code. No production provider calls were
 made during local testing.
+
+## Step 5 — Explicit V1 publishing scope (R5 / R7)
+
+Product decision: retain connections, defer unsupported media publishing.
+The shared `platform/src/zernio/social-platforms.ts` catalogue now drives
+the 14 Accounts connection options and the product publishing gates. V1
+announcement pipelines support LinkedIn/X text only. Discord remains a separate
+report/notification delivery path, not an announcement destination. Instagram,
+TikTok, YouTube and Pinterest media publishing is disabled; all other existing
+connection-only destinations remain visible with explicit scope labels.
+
+The builder disables unavailable destinations while allowing old selections to
+be removed. Server readiness/activation, AI target/action schemas, worker execution
+and the provider adapter independently enforce the scope. Legacy approved but
+unsubmitted unsupported jobs cannot bypass the restriction. Legacy media prepare
+jobs are rejected before reserving AI credits. AI schemas mirror the contract
+with a cross-service regression test, without coupling the ESM runtime loader to
+the CommonJS server. Already-submitted
+posts retain read-only outcome reconciliation; this release does not cancel them.
+
+Website Chinese/English/Spanish copy now states 14 connection options and the
+limited V1 publishing scope instead of promising 15+ fully publishable platforms.
+Connections/credentials are not removed and no new migration is needed for this
+step. The prior disconnect step still requires migration 0035. Live staging
+OAuth and posting acceptance remains required; passing local tests is not a claim
+that all 14 platforms have been exercised with real accounts.

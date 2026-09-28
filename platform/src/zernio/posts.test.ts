@@ -63,3 +63,12 @@ test('transport retries reuse the exact body and idempotency key', async () => {
   assert.equal(requests[0]?.body, requests[1]?.body);
   assert.equal(new Headers(requests[1]?.headers).get('idempotency-key'), 'stable-key');
 });
+
+test('unsupported media and connection-only actions are blocked before provider requests', async () => {
+  const provider = client(async () => assert.fail('unsupported publishing must not call the provider'));
+  for (const platform of ['instagram', 'tiktok', 'youtube', 'pinterest', 'facebook', 'threads', 'slack', 'telegram']) {
+    await assert.rejects(provider.executeAction('key', { ...action, platform }), /unavailable/);
+  }
+  await assert.rejects(provider.executeAction('key', { ...action, mediaItems: [] }), /Media publishing/);
+  assert.equal(postBody({ ...action, platform: 'discord', hashtags: [] }).content, action.content);
+});

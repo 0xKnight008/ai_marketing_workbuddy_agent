@@ -4,7 +4,8 @@ import test from 'node:test';
 
 const source = readFileSync(new URL('../src/pages/PlatformDashboard.tsx', import.meta.url), 'utf8');
 test('Accounts advertises the 14 current social destinations excluding requested removals', () => {
-  const catalog = source.slice(source.indexOf('const socialPlatforms ='), source.indexOf('function freshDraft'));
+  assert.match(source, /const socialPlatforms = CONNECTION_PLATFORMS/);
+  const catalog = readFileSync(new URL('../platform/src/zernio/social-platforms.ts', import.meta.url), 'utf8');
   for (const platform of ['facebook', 'instagram', 'linkedin', 'pinterest', 'googlebusiness', 'twitter', 'tiktok', 'youtube', 'threads', 'reddit', 'bluesky', 'discord', 'slack', 'telegram']) assert.ok(catalog.includes(`['${platform}'`));
   assert.doesNotMatch(catalog, /snapchat|whatsapp/);
 });

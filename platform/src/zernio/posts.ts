@@ -1,6 +1,10 @@
+import { supportsPostAction } from './social-platforms';
+
 /** Internal actions are not Zernio API bodies. Keep the translation explicit. */
 export function postBody(action: Record<string, unknown>): Record<string, unknown> {
   if (!['social.create_post', 'social.schedule_post'].includes(String(action.type))) throw new Error('Unsupported Zernio action');
+  if (!supportsPostAction(String(action.platform))) throw new Error('Publishing is unavailable for this platform in V1; connection is retained');
+  if (action.mediaItems !== undefined || action.platformSpecificData !== undefined) throw new Error('Media publishing is unavailable in V1');
   if (typeof action.accountId !== 'string' || !action.accountId || typeof action.platform !== 'string' || !action.platform
     || typeof action.content !== 'string' || !action.content.trim()) throw new Error('Invalid Zernio publish target or content');
   const mode = action.mode ?? (action.type === 'social.schedule_post' ? 'schedule' : 'publish_now');
