@@ -34,6 +34,16 @@ describe('Egg production gateway', () => {
   after(async () => { await app.close(); });
   afterEach(() => { mm.restore(); });
 
+  it('distinguishes upstream X connection billing restrictions from customer credits', async () => {
+    const { SupplierBillingError } = require('../src/zernio/client');
+    mm(app.platform.service, 'connectUrl', async () => { throw new SupplierBillingError('private provider detail', 'twitter_passthrough'); });
+    const response = await app.httpRequest().get('/api/zernio/connect?platform=twitter')
+      .set('authorization', `Bearer ${ownerToken}`).expect(402);
+    assert.equal(response.body.error, 'zernio_connection_billing_restricted');
+    assert.match(response.body.message, /AI credits are not checked for connecting/);
+    assert.doesNotMatch(response.text, /private provider detail/);
+  });
+
   it('requires authentication before disconnecting a social account', async () => {
     await app.httpRequest().post('/api/zernio/accounts/11111111-1111-4111-8111-111111111111/disconnect')
       .send({}).expect(401);

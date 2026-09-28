@@ -40,6 +40,7 @@ import { createDurableRun, decideApproval, ingestAiRuntimeEvent } from '../run-s
 import {
   ZERNIO_PLATFORMS,
   ZernioClient,
+  SupplierBillingError,
   type ZernioAccount,
   type ZernioPlatform,
   type ZernioSelectionContext,
@@ -517,7 +518,16 @@ export class PlatformService {
   }
 
   async startZernioConnection(actor: ActorContext, platform: unknown): Promise<unknown> {
-    if (platform !== 'telegram') return { url: await this.connectUrl(actor, platform) };
+    // Connecting is account management, not a billable automation. Never gate
+    // OAuth on customer credits; provider restrictions must remain distinguishable.
+    if (platform !== 'telegram') {
+      try { return { url: await this.connectUrl(actor, platform) }; }
+      catch (error) {
+        if (error instanceof SupplierBillingError) throw new HttpError(402, 'zernio_connection_billing_restricted',
+          'Zernio could not start this connection because of a provider-side billing restriction. Piggybot AI credits are not checked for connecting. Contact Piggybot support; topping up AI credits will not resolve this connection error.');
+        throw error;
+      }
+    }
     requirePermission(actor.role, 'connection:manage');
     const profileId = await this.ensureZernioProfile(actor.workspaceId);
     return { telegram: await this.zernioClient().telegramCode(actor.workspaceId, profileId) };

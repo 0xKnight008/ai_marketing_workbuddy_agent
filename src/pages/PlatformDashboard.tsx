@@ -359,7 +359,9 @@ function PlatformWorkspace() {
     try {
       const response = await fetch(`${gatewayUrl}/api/zernio/connect?platform=${encodeURIComponent(platform)}`, { headers: headers(), cache: 'no-store' });
       const result = await response.json().catch(() => ({})) as { url?: string; error?: string; telegram?: typeof telegram };
-      if (!response.ok) throw new Error(result.error === 'zernio_x_billing_required'
+      if (!response.ok) throw new Error(result.error === 'zernio_connection_billing_restricted'
+        ? 'Zernio blocked the connection. Connecting does not require Piggybot AI credits. Contact support to check the upstream account; topping up AI credits will not fix this error.'
+        : result.error === 'zernio_x_billing_required'
         ? 'X connection requires a payment method on the platform’s Zernio account. Contact Piggybot support; buying AI credits will not resolve this.'
         : result.error === 'zernio_billing_required' ? 'The platform’s Zernio account has a billing or capacity restriction. Contact support.'
         : 'The connection could not be started. Check your session and connector configuration, then retry.');

@@ -1,4 +1,8 @@
 {
+  "Zernio blocked the connection. Connecting does not require Piggybot AI credits. Contact support to check the upstream account; topping up AI credits will not fix this error.": [
+    "Zernio bloqueó la conexión. Conectar no requiere créditos de IA de Piggybot. Contacta con soporte para revisar la cuenta del proveedor; recargar créditos de IA no solucionará este error.",
+    "Zernio 阻止了连接。连接账户不要求 Piggybot AI credits。请联系支持检查上游账户；充值 AI credits 无法解决此连接错误。"
+  ],
   "Retry": [
     "Reintentar",
     "重试"

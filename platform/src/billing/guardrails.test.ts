@@ -40,6 +40,12 @@ function usageTransaction(taskUsed: number, supplierSpendMicros = 0, subscriptio
   return { inserted, tx };
 }
 
+test('X publishing remains paused when trial credits are exhausted, without charging', async () => {
+  const { tx, inserted } = usageTransaction(0, 0, 'trialing', new Date(Date.now() + 86400000).toISOString(), 30);
+  assert.equal((await projectedActionUsage(tx, { actionType: 'social.create_post', platform: 'x', payload: { content: 'Hello' } })).status, 'paused');
+  assert.equal(inserted.length, 0);
+});
+
 test('charges Eco credits when a Standard request is degraded', async () => {
   const { inserted, tx } = usageTransaction(2_000);
   const reservation = await reserveAiRun(tx, ['standard'], 'run-1');
@@ -158,4 +164,3 @@ test('reserveAiRun replays an already-paid attempt instead of pausing on empty b
   assert.equal(reservation.band, 'standard'); // 复用首次计费时的档位，不因余额变化降档
   assert.equal(reservation.credits, 6);
 });
-
