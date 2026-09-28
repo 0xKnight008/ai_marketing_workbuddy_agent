@@ -27,7 +27,7 @@ for (const length of [1900, 1901]) test(`worker preserves exact Discord text or 
   }, aiRuntime: {
     prepareAnnouncement: async () => { throw new Error('unexpected'); }, getAnnouncementRun: async () => { throw new Error('unexpected'); },
     classifyItems: async () => { throw new Error('unexpected'); }, generateInsightReport: async () => { throw new Error('unexpected'); },
-  }, zernio: { executeAction: async (_key, action) => { sent.push(action.content); } } });
+  }, zernio: { executeAction: async (_key, action) => { sent.push(action.content); return { postId: 'post-1', status: 'published', platform: 'discord', accountId: action.accountId }; } } });
   await worker.runOne();
   assert.deepEqual(sent, length === 1900 ? [content] : []);
   assert.equal(statements.some(sql => sql.includes("notification_event SET status = 'failed'")), length > 1900);

@@ -589,7 +589,7 @@ test('insight.deliver posts to Discord through the connected Zernio account', as
   const worker = insightDeliveryWorker({
     statements, auditEvents, deliveryPatches,
     delivery: { ...DELIVERY_SNAPSHOT, channel: 'discord', target: 'acc-1', targetLabel: 'Piggy Discord' },
-    zernio: { executeAction: async (key, action) => { executed.push({ key, action }); return { posted: true }; } },
+    zernio: { executeAction: async (key, action) => { executed.push({ key, action }); return { postId: 'post-1', status: 'published', platform: 'discord', accountId: action.accountId }; } },
   });
   await (worker as unknown as { deliverInsight: (job: ClaimedJob) => Promise<void> }).deliverInsight(deliveryJob());
   assert.equal(executed.length, 1);
@@ -601,6 +601,21 @@ test('insight.deliver posts to Discord through the connected Zernio account', as
   assert.equal(action.content, DELIVERY_SNAPSHOT.content);
   assert.ok(action.content.length <= 1_900);
   assert.ok(auditEvents.includes('insight.delivered'));
+});
+
+for (const status of ['pending', 'failed']) test(`insight.deliver does not report ${status} posts as delivered`, async () => {
+  const statements: string[] = [];
+  const auditEvents: unknown[] = [];
+  const deliveryPatches: unknown[] = [];
+  const worker = insightDeliveryWorker({
+    statements, auditEvents, deliveryPatches,
+    delivery: { ...DELIVERY_SNAPSHOT, channel: 'discord', target: 'acc-1', targetLabel: 'Piggy Discord' },
+    zernio: { executeAction: async (_key, action) => ({ postId: 'post-1', status, platform: 'discord', accountId: action.accountId }) },
+  });
+  await assert.rejects((worker as unknown as { deliverInsight: (job: ClaimedJob) => Promise<void> }).deliverInsight(deliveryJob()));
+  assert.equal(deliveryPatches.length, 0);
+  assert.equal(auditEvents.includes('insight.delivered'), false);
+  assert.equal(statements.some(sql => sql.includes("UPDATE job SET status = 'succeeded'")), false);
 });
 
 test('insight.deliver dead-letters mark the delivery failed with an audit event', async () => {

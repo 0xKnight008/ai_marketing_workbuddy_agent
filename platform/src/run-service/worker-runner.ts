@@ -22,6 +22,7 @@ import { ingestAiRuntimeEvent } from './repository';
 import { SupplierUnavailableError } from '../zernio/client';
 import { JobLeaseLost, withJobLease } from './job-lease';
 import { settleReferral } from '../referral/settlement';
+import { hasSubmittedPost, publishConfirmed, ZernioPostPending } from './zernio-publication';
 
 export interface ClaimedJob {
   id: string;
@@ -57,6 +58,7 @@ export interface RunWorkerAiRuntime {
 
 export interface RunWorkerZernio {
   executeAction(idempotencyKey: string, action: ActionPlan['actions'][number], workspaceId?: string): Promise<unknown>;
+  getActionResult?(postId: string, action: ActionPlan['actions'][number], workspaceId?: string): Promise<unknown>;
 }
 
 export interface RunWorkerOptions {
@@ -86,7 +88,7 @@ export class RunWorker {
   async runOne(): Promise<boolean> {
     const job = await this.options.database.claimNextJob(this.options.workerName);
     if (!job) return false;
-    if (['import.classify', 'insight.generate', 'topics.cluster'].includes(job.kind)) {
+    if (['import.classify', 'insight.generate', 'topics.cluster', 'execute_approved_actions', 'notification.send', 'insight.deliver'].includes(job.kind)) {
       try {
         await withJobLease(this.options.database, job, this.options.workerName, database =>
           new RunWorker({ ...this.options, database }).executeClaimed(job));
@@ -230,23 +232,28 @@ export class RunWorker {
     if (actionPlan.blockedByCompliance) {
       throw new Error('Refusing to execute an action plan blocked by compliance');
     }
+    let pending: ZernioPostPending | undefined;
     for (const action of actionPlan.actions) {
+      const submitted = hasSubmittedPost(job, action);
       const operation = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
         const run = await tx.query<{ status: string }>('SELECT status FROM workflow_run WHERE id = $1 AND workspace_id = $2', [job.runId, job.workspaceId]);
         if (!run.rows[0] || !['queued', 'running'].includes(run.rows[0].status)) throw new Error('Run is not ready for action execution');
-        const guardrail = await projectedActionUsage(tx, { actionType: action.type, platform: action.platform, payload: action });
-        if (guardrail.status === 'paused') {
-          await this.pauseForBilling(tx, job, guardrail, 'publish');
-          return { halted: true };
-        }
-        if (guardrail.status === 'approval_required') {
-          const event = await tx.query<{ id: string }>('INSERT INTO run_event (workspace_id, run_id, event_key, event_type, payload) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (run_id, event_key) DO NOTHING RETURNING id', [job.workspaceId, job.runId, `billing:${job.runId}:approval_required`, 'billing.approval_required', guardrail]);
-          if (event.rows[0]) {
-            await tx.query("UPDATE workflow_run SET status = 'waiting_approval' WHERE id = $1 AND workspace_id = $2", [job.runId, job.workspaceId]);
-            await tx.query('INSERT INTO approval_request (workspace_id, run_id, status, requested_action) VALUES ($1, $2, \'pending\', $3)', [job.workspaceId, job.runId, actionPlan]);
-            await tx.query('INSERT INTO audit_event (workspace_id, run_id, event_type, payload) VALUES ($1, $2, $3, $4)', [job.workspaceId, job.runId, 'billing.approval_required', guardrail]);
-            await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
+        // Checking an already submitted post is not a new billable publish.
+        if (!submitted) {
+          const guardrail = await projectedActionUsage(tx, { actionType: action.type, platform: action.platform, payload: action });
+          if (guardrail.status === 'paused') {
+            await this.pauseForBilling(tx, job, guardrail, 'publish');
             return { halted: true };
+          }
+          if (guardrail.status === 'approval_required') {
+            const event = await tx.query<{ id: string }>('INSERT INTO run_event (workspace_id, run_id, event_key, event_type, payload) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (run_id, event_key) DO NOTHING RETURNING id', [job.workspaceId, job.runId, `billing:${job.runId}:approval_required`, 'billing.approval_required', guardrail]);
+            if (event.rows[0]) {
+              await tx.query("UPDATE workflow_run SET status = 'waiting_approval' WHERE id = $1 AND workspace_id = $2", [job.runId, job.workspaceId]);
+              await tx.query('INSERT INTO approval_request (workspace_id, run_id, status, requested_action) VALUES ($1, $2, \'pending\', $3)', [job.workspaceId, job.runId, actionPlan]);
+              await tx.query('INSERT INTO audit_event (workspace_id, run_id, event_type, payload) VALUES ($1, $2, $3, $4)', [job.workspaceId, job.runId, 'billing.approval_required', guardrail]);
+              await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
+              return { halted: true };
+            }
           }
         }
         const stepKey = `action:${action.stepOrder}`;
@@ -256,6 +263,7 @@ export class RunWorker {
         const stepRun = step.rows[0];
         if (!stepRun) throw new Error('Action step was not created');
         if (stepRun.status === 'succeeded') return undefined;
+        if (submitted) return { stepRunId: stepRun.id, connected: undefined, action };
 
         const account = await tx.query<{ id: string; workspaceId: string; status: ConnectedAccountView['status']; capabilities: string[] }>(
           `SELECT a.id, a.workspace_id AS "workspaceId", a.status, a.capabilities
@@ -272,19 +280,29 @@ export class RunWorker {
       if ('halted' in operation) return;
       const { zernio } = this.options;
       if (!zernio) throw new Error('Zernio action execution is not configured');
-      const account: ConnectedAccountView = {
-        id: operation.connected.id,
-        workspaceId: operation.connected.workspaceId,
-        status: operation.connected.status,
-        capabilities: operation.connected.capabilities,
-      };
-      assertExecutableAction({ workspaceId: job.workspaceId, runId: job.runId, stepId: operation.stepRunId, attempt: 1, account, type: operation.action.type, payload: operation.action });
-      const result = await zernio.executeAction(operation.action.idempotencyKey, operation.action, job.workspaceId);
+      if (operation.connected) {
+        const account: ConnectedAccountView = {
+          id: operation.connected.id,
+          workspaceId: operation.connected.workspaceId,
+          status: operation.connected.status,
+          capabilities: operation.connected.capabilities,
+        };
+        assertExecutableAction({ workspaceId: job.workspaceId, runId: job.runId, stepId: operation.stepRunId, attempt: 1, account, type: operation.action.type, payload: operation.action });
+      }
+      let result;
+      try {
+        result = await publishConfirmed(this.options.database, zernio, job, operation.action);
+      } catch (error) {
+        if (!(error instanceof ZernioPostPending)) throw error;
+        pending = error;
+        continue; // Submit the other approved targets without waiting for this schedule.
+      }
       await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
         await tx.query("UPDATE step_run SET status = 'succeeded', output = $2, finished_at = now() WHERE id = $1 AND workspace_id = $3", [operation.stepRunId, result, job.workspaceId]);
         await recordSuccessfulAction(tx, { runId: job.runId!, stepRunId: operation.stepRunId, actionType: operation.action.type, platform: operation.action.platform, payload: operation.action });
       });
     }
+    if (pending) throw pending;
     await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
       await tx.query("UPDATE workflow_run SET status = 'succeeded', finished_at = now() WHERE id = $1 AND workspace_id = $2 AND status IN ('queued', 'running')", [job.runId, job.workspaceId]);
       await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
@@ -830,7 +848,7 @@ export class RunWorker {
         type: action.type,
         payload: action,
       });
-      await zernio.executeAction(action.idempotencyKey, action, job.workspaceId);
+      await publishConfirmed(this.options.database, zernio, job, action);
     }
 
     await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
@@ -926,7 +944,7 @@ export class RunWorker {
         type: action.type,
         payload: action,
       });
-      await zernio.executeAction(action.idempotencyKey, action, job.workspaceId);
+      await publishConfirmed(this.options.database, zernio, job, action);
     }
 
     await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
