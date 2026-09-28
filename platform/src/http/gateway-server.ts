@@ -214,6 +214,10 @@ app.post('/api/zernio/sync', async (request) => {
 });
 
 app.get('/api/zernio/accounts', async (request) => platformService.connectedAccounts(actorFrom(request)));
+app.post('/api/zernio/accounts/:accountId/disconnect', async (request) => {
+  const { accountId } = z.object({ accountId: z.string().uuid() }).parse(request.params);
+  return platformService.disconnectZernioAccount(actorFrom(request), accountId);
+});
 
 app.get('/api/approval-requests', async (request) => {
   const actor = actorFrom(request);

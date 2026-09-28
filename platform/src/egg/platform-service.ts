@@ -556,11 +556,11 @@ export class PlatformService {
     }
     if (typeof query.profileId === 'string' && query.profileId !== state.profileId) throw new HttpError(403, 'zernio_tenant_mismatch');
     const accounts = await provider.listAccounts(state.profileId, state.workspaceId);
-    if (!accounts.some(account => account.status === 'connected' && account.platform === state.platform &&
-      (typeof query.accountId !== 'string' || account.externalId === query.accountId))) {
+    if (typeof query.accountId !== 'string' || !accounts.some(account => account.status === 'connected' && account.platform === state.platform &&
+      account.externalId === query.accountId)) {
       throw new HttpError(409, 'zernio_account_not_connected');
     }
-    await this.storeZernioAccounts(state.workspaceId, state.profileId, accounts);
+    await this.storeZernioAccounts(state.workspaceId, state.profileId, accounts, typeof query.accountId === 'string' ? query.accountId : undefined);
     return { kind: 'connected' };
   }
 
@@ -576,7 +576,7 @@ export class PlatformService {
       const accounts = await provider.listAccounts(context.profileId, context.workspaceId);
       const selected = accounts.find(account => account.externalId === selectedId && account.platform === context.platform);
       if (selected) {
-        await this.storeZernioAccounts(context.workspaceId, context.profileId, accounts);
+        await this.storeZernioAccounts(context.workspaceId, context.profileId, accounts, selected.status === 'connected' ? selectedId : undefined);
         return { kind: selected.status === 'connected' ? 'connected' : 'pending' };
       }
       if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 250));
@@ -591,6 +591,26 @@ export class PlatformService {
     const accounts = await this.zernioClient().listAccounts(profileId, actor.workspaceId);
     await this.storeZernioAccounts(actor.workspaceId, profileId, accounts);
     return { synced: accounts.length };
+  }
+
+  async disconnectZernioAccount(actor: ActorContext, requestedId: unknown): Promise<{ disconnected: true }> {
+    requirePermission(actor.role, 'connection:manage');
+    const accountId = z.string().uuid().parse(requestedId);
+    const account = await this.database.withWorkspace(actor.workspaceId, async tx => {
+      const result = await tx.query<{ externalId: string }>(
+        `SELECT a.external_account_id AS "externalId" FROM connected_account a
+         JOIN zernio_tenant t ON t.workspace_id = a.workspace_id AND t.profile_id = a.zernio_profile_id
+         WHERE a.id = $1 AND a.workspace_id = $2 AND a.provider = 'zernio' FOR UPDATE OF a`, [accountId, actor.workspaceId]);
+      if (!result.rows[0]) throw new HttpError(404, 'zernio_account_not_found');
+      await tx.query(`UPDATE connected_account SET locally_disconnected = true, status = 'disconnected',
+        capabilities = '[]'::jsonb, last_synced_at = now() WHERE id = $1 AND workspace_id = $2`, [accountId, actor.workspaceId]);
+      await tx.query('INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
+        [actor.workspaceId, 'zernio.disconnect_requested', { accountId, actorId: actor.actorId }]);
+      return result.rows[0];
+    });
+    // Keep the local block even if the supplier is unavailable. A retry is safe.
+    await this.zernioClient().disconnectAccount(account.externalId, actor.workspaceId);
+    return { disconnected: true };
   }
 
   async pendingApprovals(actor: ActorContext): Promise<unknown[]> {
@@ -760,17 +780,20 @@ export class PlatformService {
     }
   }
 
-  private async storeZernioAccounts(workspaceId: string, profileId: string, accounts: ZernioAccount[]): Promise<void> {
+  private async storeZernioAccounts(workspaceId: string, profileId: string, accounts: ZernioAccount[], reconnectedId?: string): Promise<void> {
     await this.database.withWorkspace(workspaceId, async (tx) => {
       for (const account of accounts) {
         await tx.query(
           `INSERT INTO connected_account (workspace_id, provider, external_account_id, display_name, capabilities, status, last_synced_at, zernio_profile_id, platform)
            VALUES ($1, 'zernio', $2, $3, $4, $7, now(), $5, $6)
            ON CONFLICT (workspace_id, provider, external_account_id) DO UPDATE
-             SET display_name = EXCLUDED.display_name, capabilities = EXCLUDED.capabilities,
-                 status = EXCLUDED.status, last_synced_at = now(), zernio_profile_id = EXCLUDED.zernio_profile_id,
+             SET display_name = EXCLUDED.display_name,
+                 capabilities = CASE WHEN connected_account.locally_disconnected AND connected_account.external_account_id IS DISTINCT FROM $8::text THEN '[]'::jsonb ELSE EXCLUDED.capabilities END,
+                 status = CASE WHEN connected_account.locally_disconnected AND connected_account.external_account_id IS DISTINCT FROM $8::text THEN 'disconnected' ELSE EXCLUDED.status END,
+                 locally_disconnected = connected_account.locally_disconnected AND connected_account.external_account_id IS DISTINCT FROM $8::text,
+                 last_synced_at = now(), zernio_profile_id = EXCLUDED.zernio_profile_id,
                  platform = EXCLUDED.platform`,
-          [workspaceId, account.externalId, account.displayName, account.capabilities, profileId, account.platform ?? 'unknown', account.status],
+          [workspaceId, account.externalId, account.displayName, JSON.stringify(account.capabilities), profileId, account.platform ?? 'unknown', account.status, reconnectedId ?? null],
         );
       }
       await tx.query(

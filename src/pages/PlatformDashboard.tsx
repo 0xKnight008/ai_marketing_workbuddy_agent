@@ -173,6 +173,7 @@ function PlatformWorkspace() {
   const [workspaceError, setWorkspaceError] = useState('');
   const [loading, setLoading] = useState(false);
   const [connecting, setConnecting] = useState('');
+  const [disconnecting, setDisconnecting] = useState('');
   const [telegram, setTelegram] = useState<{ code: string; expiresAt: string; instructions: string[] } | null>(null);
   useEffect(() => { setTelegram(null); }, [token]);
   const [feedbackCategory, setFeedbackCategory] = useState('other');
@@ -295,6 +296,21 @@ function PlatformWorkspace() {
     const response = await fetch(`${gatewayUrl}/api/zernio/accounts`, { headers: headers() });
     if (response.ok) setAccounts(await response.json() as ConnectedAccount[]);
   }, [headers, token]);
+
+  async function disconnectSocial(account: ConnectedAccount) {
+    if (!window.confirm(`Disconnect ${account.displayName}? New jobs will be blocked. Already submitted or scheduled posts are NOT cancelled; review them in Zernio separately.`)) return;
+    setDisconnecting(account.id);
+    try {
+      const response = await fetch(`${gatewayUrl}/api/zernio/accounts/${encodeURIComponent(account.id)}/disconnect`, { method: 'POST', headers: headers() });
+      if (!response.ok) throw new Error(response.status === 403 ? 'Only a workspace owner or admin can disconnect accounts.' : 'Supplier disconnect was not confirmed. Refresh account status and retry; do not assume the provider is unlinked.');
+      setMessage('Account disconnected. New jobs cannot use it. Already submitted posts must be managed separately.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Disconnect failed. Refresh account status and retry.');
+    } finally {
+      await refreshAccounts().catch(() => undefined);
+      setDisconnecting('');
+    }
+  }
 
   useEffect(() => {
     if (!token) return;
@@ -790,7 +806,7 @@ function PlatformWorkspace() {
         {section === 'insights' && <div hidden={Boolean(insightDetail)}><InsightsSection outputLanguage={outputLanguage} setOutputLanguage={setOutputLanguage} reports={insights} batches={importBatches.filter((batch) => batch.status === 'classified')} template={insightTemplate} setTemplate={setInsightTemplate} band={insightBand} setBand={setInsightBand} selectedBatchIds={insightBatchIds} setSelectedBatchIds={setInsightBatchIds} busy={insightBusy} detail={null} accounts={accounts} onGenerate={() => void createInsight()} onOpenDetail={(id) => void loadInsightDetail(id)} onDeliver={(id, input) => deliverInsight(id, input)} /></div>}
         {section === 'notifications' && <NotificationCenter apiBase={gatewayUrl} accounts={accounts} />}
         {section === 'topics' && <TopicsSection data={topicData} band={topicBand} setBand={setTopicBand} busy={topicBusy} detail={topicDetail} hasClassifiedItems={importBatches.some((batch) => batch.status === 'classified')} onStart={() => void startTopicRun()} onOpenDetail={(id) => void loadTopicItems(id)} onCloseDetail={() => setTopicDetail(null)} />}
-        {section === 'accounts' && <><AccountsSection accounts={accounts.filter(account => !['snapchat', 'whatsapp'].includes(account.platform))} connecting={connecting} onConnect={connectSocial} onRefresh={() => void refreshAccounts(true)} />{telegram && <section className="mt-6 rounded-xl border border-ink/20 p-6"><h3 className="text-lg font-semibold">{t("Connect Telegram")}</h3><p className="my-3">{t("Code:")} <strong>{telegram.code}</strong> {t("· Expires:")} {new Date(telegram.expiresAt).toLocaleString()}</p><ol className="space-y-2">{telegram.instructions.map((instruction, index) => <li key={index}>{instruction}</li>)}</ol><p className="mt-4">{t("After the bot confirms, select Sync account health above to verify the connection.")}</p><button onClick={() => setTelegram(null)} className="mt-3 underline">{t("Dismiss code")}</button></section>}</>}
+        {section === 'accounts' && <><AccountsSection accounts={accounts.filter(account => !['snapchat', 'whatsapp'].includes(account.platform))} connecting={connecting} onConnect={connectSocial} onRefresh={() => void refreshAccounts(true)} disconnecting={disconnecting} onDisconnect={['owner', 'admin'].includes(me?.role ?? '') ? disconnectSocial : undefined} />{telegram && <section className="mt-6 rounded-xl border border-ink/20 p-6"><h3 className="text-lg font-semibold">{t("Connect Telegram")}</h3><p className="my-3">{t("Code:")} <strong>{telegram.code}</strong> {t("· Expires:")} {new Date(telegram.expiresAt).toLocaleString()}</p><ol className="space-y-2">{telegram.instructions.map((instruction, index) => <li key={index}>{instruction}</li>)}</ol><p className="mt-4">{t("After the bot confirms, select Sync account health above to verify the connection.")}</p><button onClick={() => setTelegram(null)} className="mt-3 underline">{t("Dismiss code")}</button></section>}</>}
         {section === 'activity' && <ActivitySection approvals={approvals} taskEvents={taskEvents} auditEvents={auditEvents} runId={runId} setRunId={setRunId} run={run} onLoadRun={() => void loadRun()} onDecision={decideApproval} />}
         {section === 'settings' && <SettingsSection me={me} locked={locked} newPassword={newPassword} setNewPassword={setNewPassword} passwordStatus={t(passwordStatus)} onSavePassword={() => void savePassword()} onSignOut={signOut} feedbackCategory={feedbackCategory} setFeedbackCategory={setFeedbackCategory} feedbackMessage={feedbackMessage} setFeedbackMessage={setFeedbackMessage} feedbackStatus={t(feedbackStatus)} onFeedback={() => void sendFeedback()} referralUrl={referralUrl} referralStatus={t(referralStatus)} onReferral={() => void createReferralLink()} />}
         {section === 'settings' && me && <ReferralLedger key={me.workspace.id} gatewayUrl={gatewayUrl} headers={headers} />}
@@ -1158,8 +1174,23 @@ function ImportsSection({ batches, label, setLabel, band, setBand, content, setC
   </div>;
 }
 
-function AccountsSection({ accounts, connecting, onConnect, onRefresh }: { accounts: ConnectedAccount[]; connecting: string; onConnect: (platform: typeof socialPlatforms[number][0]) => void; onRefresh: () => void; }) {
-  return <div className="space-y-8"><section><div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><p className="font-hand text-lg text-sky-deep">{t("White-label connections")}</p><h2 className="font-display text-3xl">{t("Connected Accounts")}</h2><p className="mt-2 max-w-2xl text-sm text-ink-soft">{t("Authorize with the social network, then choose pages, organizations, boards, or phone numbers inside a Piggybot-branded flow.")}</p></div><button onClick={onRefresh} className="rounded-md border border-ink/25 px-4 py-2 text-sm font-medium hover:bg-sky-pale">{t("Sync account health")}</button></div>{accounts.length === 0 ? <EmptyState title={t("No connected accounts")} detail={t("Connect at least one destination before activating a pipeline.")} /> : <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{accounts.map((account) => <article key={account.id} className="sketch bg-paper-card p-5"><div className="flex items-start justify-between gap-4"><div><span className="text-xs font-semibold uppercase tracking-wide text-sky-deep">{platformLabel(account.platform)}</span><h3 className="mt-1 font-semibold">{account.displayName}</h3></div><StatusBadge status={account.status} /></div><p className="mt-4 text-xs text-ink-soft">{account.capabilities.length ? account.capabilities.join(' · ') : t("Capabilities update after the next sync.")}</p></article>)}</div>}</section><section><h3 className="text-lg font-semibold">{t("Add another destination")}</h3><div className="mt-4 flex flex-wrap gap-2">{socialPlatforms.map(([id, label]) => <button key={id} disabled={Boolean(connecting)} onClick={() => onConnect(id)} className="rounded-md border border-ink/30 bg-paper-card px-4 py-2 text-sm font-medium hover:bg-sky-pale disabled:opacity-50">{connecting === id ? t("Opening…") : `Connect ${label}`}</button>)}</div></section></div>;
+function AccountsSection({ accounts, connecting, onConnect, onRefresh, disconnecting, onDisconnect }: { accounts: ConnectedAccount[]; connecting: string; onConnect: (platform: typeof socialPlatforms[number][0]) => void; onRefresh: () => void; disconnecting: string; onDisconnect?: (account: ConnectedAccount) => Promise<void>; }) {
+  return <div className="space-y-8">
+    <section>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div><p className="font-hand text-lg text-sky-deep">{t("White-label connections")}</p><h2 className="font-display text-3xl">{t("Connected Accounts")}</h2><p className="mt-2 max-w-2xl text-sm text-ink-soft">{t("Authorize with the social network, then choose pages, organizations, boards, or phone numbers inside a Piggybot-branded flow.")}</p></div>
+        <button onClick={onRefresh} className="rounded-md border border-ink/25 px-4 py-2 text-sm font-medium hover:bg-sky-pale">{t("Sync account health")}</button>
+      </div>
+      {accounts.length === 0 ? <EmptyState title={t("No connected accounts")} detail={t("Connect at least one destination before activating a pipeline.")} /> : <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {accounts.map(account => <article key={account.id} className="sketch bg-paper-card p-5">
+          <div className="flex items-start justify-between gap-4"><div><span className="text-xs font-semibold uppercase tracking-wide text-sky-deep">{platformLabel(account.platform)}</span><h3 className="mt-1 font-semibold">{account.displayName}</h3></div><StatusBadge status={account.status} /></div>
+          <p className="mt-4 text-xs text-ink-soft">{account.capabilities.length ? account.capabilities.join(' · ') : t("Capabilities update after the next sync.")}</p>
+          {onDisconnect && <button disabled={Boolean(disconnecting) || Boolean(connecting)} onClick={() => void onDisconnect(account)} className="mt-4 rounded-md border border-ink/25 px-3 py-2 text-sm disabled:opacity-50">{disconnecting === account.id ? t("Disconnecting…") : t("Disconnect")}</button>}
+        </article>)}
+      </div>}
+    </section>
+    <section><h3 className="text-lg font-semibold">{t("Add another destination")}</h3><div className="mt-4 flex flex-wrap gap-2">{socialPlatforms.map(([id, label]) => <button key={id} disabled={Boolean(connecting) || Boolean(disconnecting)} onClick={() => onConnect(id)} className="rounded-md border border-ink/30 bg-paper-card px-4 py-2 text-sm font-medium hover:bg-sky-pale disabled:opacity-50">{connecting === id ? t("Opening…") : `Connect ${label}`}</button>)}</div></section>
+  </div>;
 }
 
 function ActivitySection({ approvals, taskEvents, auditEvents, runId, setRunId, run, onLoadRun, onDecision }: { approvals: ApprovalView[]; taskEvents: TaskEventView[]; auditEvents: AuditEventView[]; runId: string; setRunId: (value: string) => void; run: RunView | null; onLoadRun: () => void; onDecision: (id: string, decision: 'approved' | 'rejected') => Promise<boolean>; }) {
