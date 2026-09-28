@@ -142,7 +142,7 @@ test('WhatsApp headless selection keeps the connect token server-side and posts 
   };
   const selection = await provider.listSelections(context);
   assert.equal(selection.options[0]?.label, 'Support');
-  await provider.select(selection.context, selection.options[0]!);
+  assert.equal(await provider.select(selection.context, selection.options[0]!), 'account-a');
   assert.equal(calls[0]?.url.searchParams.get('profileId'), 'profile-a');
   assert.equal(new Headers(calls[0]?.init?.headers).get('x-connect-token'), 'connect-secret');
   const body = JSON.parse(String(calls[1]?.init?.body)) as Record<string, unknown>;

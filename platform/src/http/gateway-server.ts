@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { pendingConnectionPage } from '../zernio/connection-pages';
 
 import cors from '@fastify/cors';
 import Fastify, { type FastifyRequest } from 'fastify';
@@ -203,8 +204,8 @@ app.get('/api/zernio/callback', async (request, reply) => {
 
 app.post('/api/zernio/select', async (request, reply) => {
   const body = z.object({ selection: z.string().min(1) }).parse(request.body);
-  await platformService.selectZernioAccount(body.selection);
-  return reply.code(200).header('cache-control', 'no-store').header('referrer-policy', 'no-referrer').type('text/html').send(legacySuccessPage());
+  const result = await platformService.selectZernioAccount(body.selection);
+  return reply.code(result.kind === 'connected' ? 200 : 202).header('cache-control', 'no-store').header('referrer-policy', 'no-referrer').type('text/html').send(result.kind === 'connected' ? legacySuccessPage() : pendingConnectionPage());
 });
 
 app.post('/api/zernio/sync', async (request) => {

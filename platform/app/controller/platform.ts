@@ -1,4 +1,5 @@
 import { Controller } from 'egg';
+import { pendingConnectionPage } from '../../src/zernio/connection-pages';
 import { ADMIN_COOKIE, ADMIN_COOKIE_OPTIONS, adminPrincipal } from '../../src/admin/email-login';
 
 import { HttpError } from '../../src/http/errors';
@@ -288,12 +289,13 @@ export default class PlatformController extends Controller {
 
   async selectZernio(): Promise<void> {
     const body = (this.ctx.request.body ?? {}) as { selection?: unknown };
-    await this.app.platform.service.selectZernioAccount(body.selection);
+    const result = await this.app.platform.service.selectZernioAccount(body.selection);
+    this.ctx.status = result.kind === 'connected' ? 200 : 202;
     this.ctx.type = 'html';
     this.ctx.set('Cache-Control', 'no-store');
     this.ctx.set('Referrer-Policy', 'no-referrer');
     this.ctx.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'");
-    this.ctx.body = successPage();
+    this.ctx.body = result.kind === 'connected' ? successPage() : pendingConnectionPage();
   }
 
   async syncZernio(): Promise<void> { this.ctx.body = await this.app.platform.service.syncZernio(this.actor()); }

@@ -564,13 +564,25 @@ export class PlatformService {
     return { kind: 'connected' };
   }
 
-  async selectZernioAccount(token: unknown): Promise<void> {
+  async selectZernioAccount(token: unknown): Promise<{ kind: 'connected' | 'pending' }> {
     const { context, option } = this.openZernioSelection(z.string().min(1).parse(token));
     const mappedProfileId = await this.zernioProfile(context.workspaceId);
     if (mappedProfileId !== context.profileId) throw new HttpError(403, 'zernio_tenant_mismatch');
-    await this.zernioClient().select(context, option);
-    const accounts = await this.zernioClient().listAccounts(context.profileId, context.workspaceId);
-    await this.storeZernioAccounts(context.workspaceId, context.profileId, accounts);
+    const provider = this.zernioClient();
+    const selectedId = await provider.select(context, option);
+    if (!selectedId) return { kind: 'pending' };
+    // Only poll the read endpoint: selection tokens may be single-use.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const accounts = await provider.listAccounts(context.profileId, context.workspaceId);
+      const selected = accounts.find(account => account.externalId === selectedId && account.platform === context.platform);
+      if (selected) {
+        await this.storeZernioAccounts(context.workspaceId, context.profileId, accounts);
+        return { kind: selected.status === 'connected' ? 'connected' : 'pending' };
+      }
+      if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    // An eventually consistent empty snapshot must not disconnect existing accounts.
+    return { kind: 'pending' };
   }
 
   async syncZernio(actor: ActorContext): Promise<{ synced: number }> {
