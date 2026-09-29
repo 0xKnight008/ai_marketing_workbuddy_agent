@@ -167,6 +167,21 @@ describe('Egg production gateway', () => {
       .expect('Cache-Control', 'no-store').expect(200);
   });
 
+  it('authenticates and routes review reads and writes without caching', async () => {
+    const path = '/api/insights/11111111-1111-4111-8111-111111111111/review';
+    await app.httpRequest().get(path).expect(401);
+    await app.httpRequest().put(path).send({}).expect(401);
+    const view = { review: null, canEdit: true };
+    mm(app.platform.service, 'insightReview', async (actor: {role: string}, id: string, body?: unknown) => {
+      assert.equal(actor.role, 'owner');
+      assert.equal(id, '11111111-1111-4111-8111-111111111111');
+      if (body) assert.deepEqual(body, {reviewed:true,selectedKeys:[]});
+      return view;
+    });
+    await app.httpRequest().get(path).set('authorization', `Bearer ${ownerToken}`).expect('Cache-Control', 'no-store').expect(200).expect(view);
+    await app.httpRequest().put(path).set('authorization', `Bearer ${ownerToken}`).send({reviewed:true,selectedKeys:[]}).expect('Cache-Control', 'no-store').expect(200).expect(view);
+  });
+
   it('requires workspace authentication for execution feedback reads and writes', async () => {
     await app.httpRequest().get('/api/insights/11111111-1111-4111-8111-111111111111/actions').expect(401);
     await app.httpRequest().put('/api/insights/11111111-1111-4111-8111-111111111111/actions/tasks%3A0').send({ status: 'completed' }).expect(401);

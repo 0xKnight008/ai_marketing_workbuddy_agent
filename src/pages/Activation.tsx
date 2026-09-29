@@ -1,3 +1,4 @@
+import { audience, audienceWorkspace } from '../../platform/src/contracts/audience';
 import { ArrowRight, CheckCircle2, CreditCard, LoaderCircle, LockKeyhole, LogIn } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -44,6 +45,8 @@ function selectedPlan(): Plan {
 
 export default function Activation({ lang }: { lang: Lang }) {
   const t = copy[lang];
+  const persona = audience(new URLSearchParams(window.location.search).get('persona'));
+  const workspaceDestination = audienceWorkspace(persona, lang);
   const [plan, setPlan] = useState<Plan>(selectedPlan);
   // 年付入口已移至 Stripe 结账内的 upsell；这里只解析 URL 参数，
   // 让改版前外发的 ?billingInterval=year 链接继续生效。
@@ -91,12 +94,12 @@ export default function Activation({ lang }: { lang: Lang }) {
         const body = await response.json().catch(() => ({})) as { accessToken?: unknown };
         if (!response.ok || typeof body.accessToken !== 'string') throw new Error('activation failed');
         storeSessionAccessToken(body.accessToken);
-        window.location.replace('/app');
+        window.location.replace(workspaceDestination);
       } catch {
         setActivationState('error');
       }
     })();
-  }, [ticket]);
+  }, [ticket, workspaceDestination]);
 
   async function startCheckout() {
     if (!publicCheckoutEnabled) { setState('error'); setMessage(t.unavailable); return; }
@@ -107,7 +110,7 @@ export default function Activation({ lang }: { lang: Lang }) {
       const response = await fetch(`${gatewayUrl}/api/billing/checkout-session`, {
         method: 'POST',
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ plan, billingInterval, referralCode: await checkoutReferral(referralCode, token) }),
+        body: JSON.stringify({ plan, billingInterval, referralCode: await checkoutReferral(referralCode, token), persona, locale: lang }),
       });
       if (requiresReauthentication(response.status)) {
         clearSessionAccessToken();
@@ -140,7 +143,7 @@ export default function Activation({ lang }: { lang: Lang }) {
         {ticket && activationState === 'error' && <Notice tone="error">{t.activationFailed}</Notice>}
         {!ticket && result === 'success' && <>
           {confirmation === 'pending' && <Notice tone="neutral"><LoaderCircle className="h-5 w-5 shrink-0 animate-spin" />{confirmationText.pending}</Notice>}
-          {confirmation === 'confirmed' && <><Notice tone="success"><CheckCircle2 className="h-5 w-5 shrink-0" />{confirmationText.ready}</Notice><a href="/app" className="mt-5 flex w-full items-center justify-center gap-2 bg-sky-deep px-5 py-3 font-display text-white sketch shadow-paint"><ArrowRight className="h-4 w-4" />{t.console}</a></>}
+          {confirmation === 'confirmed' && <><Notice tone="success"><CheckCircle2 className="h-5 w-5 shrink-0" />{confirmationText.ready}</Notice><a href={workspaceDestination} className="mt-5 flex w-full items-center justify-center gap-2 bg-sky-deep px-5 py-3 font-display text-white sketch shadow-paint"><ArrowRight className="h-4 w-4" />{t.console}</a></>}
           {confirmation === 'error' && <><Notice tone="error">{confirmationText.failed}</Notice><button type="button" onClick={() => { setConfirmation('pending'); setConfirmationAttempt((value) => value + 1); }} className="mt-4 rounded-lg bg-sky-deep px-5 py-3 font-bold text-white">{confirmationText.retry}</button></>}
           {confirmation === 'signin' && <><Notice tone="neutral">{t.signInFirst}</Notice><button type="button" onClick={goToAuth} className="mt-4 rounded-lg bg-sky-deep px-5 py-3 font-bold text-white">{t.signInContinue}</button></>}
         </>}
@@ -155,6 +158,7 @@ export default function Activation({ lang }: { lang: Lang }) {
           {!publicCheckoutEnabled && <Notice tone="neutral">{t.unavailable}</Notice>}
           {needsAuth && <Notice tone="neutral"><LogIn className="h-5 w-5 shrink-0" />{t.signInFirst}</Notice>}
           {state === 'error' && <Notice tone="error">{message}</Notice>}
+          {message === t.alreadySubscribed && <a href={workspaceDestination} className="mt-4 block underline">{t.console} →</a>}
           {needsAuth
             ? <button type="button" onClick={goToAuth} className="mt-5 flex w-full items-center justify-center gap-2 bg-sky-deep px-5 py-3 font-display text-white sketch shadow-paint transition hover:-translate-y-0.5"><LogIn className="h-4 w-4" />{t.signInContinue}</button>
             : <button type="button" disabled={state === 'sending' || !publicCheckoutEnabled} onClick={() => void startCheckout()} className="mt-5 flex w-full items-center justify-center gap-2 bg-sky-deep px-5 py-3 font-display text-white sketch shadow-paint transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"><CreditCard className="h-4 w-4" />{state === 'sending' ? t.processing : t.continue}</button>}

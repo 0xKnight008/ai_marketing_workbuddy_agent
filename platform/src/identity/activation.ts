@@ -1,3 +1,4 @@
+import { audience } from '../contracts/audience';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 import { z } from 'zod';
@@ -16,7 +17,7 @@ const ticketClaimsSchema = z.object({
 });
 
 type TicketClaims = z.infer<typeof ticketClaimsSchema>;
-type CheckoutIdentity = Pick<StripeActivationEvent, 'eventId' | 'workspaceId' | 'actorId'>;
+type CheckoutIdentity = Pick<StripeActivationEvent, 'eventId' | 'workspaceId' | 'actorId' | 'persona' | 'locale'>;
 
 interface ActivationEmail {
   to: string;
@@ -74,9 +75,11 @@ export class ActivationDeliveryService {
 
     if (delivery.emailAlreadySent) return;
     const publicSite = this.config.PUBLIC_SITE_URL.replace(/\/$/, '');
+    const activationPath = input.locale === 'zh' || input.locale === 'es' ? `/${input.locale}/activate` : '/activate';
+    const context = audience(input.persona) ? `&persona=${input.persona}` : '';
     await this.sendEmail({
       to: delivery.email,
-      activationUrl: `${publicSite}/activate?ticket=${encodeURIComponent(delivery.token)}`,
+      activationUrl: `${publicSite}${activationPath}?ticket=${encodeURIComponent(delivery.token)}${context}`,
     });
     await this.database.withWorkspace(input.workspaceId, async (tx) => {
       const marked = await tx.query(

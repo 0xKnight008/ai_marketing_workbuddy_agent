@@ -163,6 +163,10 @@ export class PlatformService {
     return this.insights.listInsights(actor);
   }
 
+  async insightReview(actor: ActorContext, reportId: unknown, body?: unknown): Promise<unknown> {
+    return new InsightFeedbackService(this.database).review(actor, reportId, body);
+  }
+
   async insightActions(actor: ActorContext, reportId: unknown): Promise<unknown> {
     return new InsightFeedbackService(this.database).list(actor, reportId);
   }
@@ -261,7 +265,7 @@ export class PlatformService {
 
   async createStripeCheckout(actor: ActorContext, body: unknown): Promise<{ id: string; url: string }> {
     if (actor.role !== 'owner') throw new HttpError(403, 'owner_required');
-    const parsed = z.object({ plan: z.enum(PLAN_KEYS), billingInterval: billingIntervalSchema.default('month'), referralCode: z.string().regex(/^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$/).optional() }).parse(body);
+    const parsed = z.object({ plan: z.enum(PLAN_KEYS), billingInterval: billingIntervalSchema.default('month'), referralCode: z.string().regex(/^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$/).optional(), persona: z.enum(['creators', 'sellers', 'community-hosts']).optional(), locale: z.enum(['en', 'zh', 'es']).optional() }).parse(body);
     const existing = await this.database.withWorkspace(actor.workspaceId, (tx) => tx.query(`SELECT stripe_subscription_id FROM workspace_billing
       WHERE workspace_id = current_setting('app.workspace_id')::uuid AND stripe_subscription_id IS NOT NULL
         AND subscription_status NOT IN ('canceled', 'inactive', 'incomplete_expired')`));
@@ -272,6 +276,8 @@ export class PlatformService {
       plan: parsed.plan,
       billingInterval: parsed.billingInterval,
       referralCode: parsed.referralCode,
+      persona: parsed.persona,
+      locale: parsed.locale,
     });
     await this.database.withWorkspace(actor.workspaceId, (tx) => tx.query(
       'INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)',

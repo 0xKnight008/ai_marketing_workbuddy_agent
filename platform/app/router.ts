@@ -33,6 +33,8 @@ export default (app: Application) => {
   router.post('/api/notifications/events/:eventId/act', controller.platform.actOnNotificationEvent);
   router.get('/api/insights/:reportId', controller.platform.insightDetail);
   router.post('/api/insights/:reportId/deliver', controller.platform.requestInsightDelivery);
+  router.get('/api/insights/:reportId/review', controller.platform.insightReview);
+  router.put('/api/insights/:reportId/review', controller.platform.saveInsightReview);
   router.get('/api/insights/:reportId/actions', controller.platform.insightActions);
   router.put('/api/insights/:reportId/actions/:actionKey', controller.platform.saveInsightAction);
   router.post('/api/topics/runs', controller.platform.createTopicRun);

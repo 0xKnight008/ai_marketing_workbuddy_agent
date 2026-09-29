@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { uniqueImportItems } from './deduplicate';
 
 import { usageSnapshot } from '../billing/guardrails';
 import type { ActorContext } from '../contracts/domain';
@@ -21,6 +22,7 @@ const MAX_CONTENT_BYTES = 2 * 1024 * 1024;
 const createImportSchema = z.object({
   label: z.string().trim().min(1).max(120),
   sourceType: z.enum(['csv', 'paste']),
+  deduplicate: z.boolean().default(false),
   content: z.string().min(1).max(MAX_CONTENT_BYTES),
   modelBand: modelBandSchema.default('eco'),
 }).strict();
@@ -73,6 +75,7 @@ export class ImportService {
     let items = input.sourceType === 'discord' || input.sourceType === 'google_sheets' ? [] : input.sourceType === 'csv'
       ? parseCsv(input.content).map(csvRecordToItem).filter((item): item is ParsedItem => Boolean(item))
       : pasteToItems(input.content);
+    if ((input.sourceType === 'paste' || input.sourceType === 'csv') && input.deduplicate) items = uniqueImportItems(items);
     if (!items.length && input.sourceType !== 'discord' && input.sourceType !== 'google_sheets') throw new HttpError(422, 'import_no_items');
     if (items.length > MAX_ITEMS_PER_BATCH) throw new HttpError(422, 'import_too_large');
     // Reject invalid runtime inputs before storing jobs or reserving credits.

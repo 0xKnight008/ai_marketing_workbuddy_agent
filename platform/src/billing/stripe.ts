@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
 import { z } from 'zod';
+import { audience, type Audience } from '../contracts/audience';
 
 import type { GatewayConfig } from '../foundation/platform-config';
 import { HttpError } from '../http/errors';
@@ -23,6 +24,8 @@ interface StripeEvent {
 }
 
 export interface StripeActivationEvent {
+  persona?: Audience;
+  locale?: string;
   referralCode?: string;
   eventId: string;
   eventType: string;
@@ -92,7 +95,7 @@ function stripeSecret(config: GatewayConfig): string {
   return config.STRIPE_SECRET_KEY;
 }
 
-export async function createStripeCheckoutSession(config: GatewayConfig, input: { workspaceId: string; actorId: string; plan: PlanKey; billingInterval?: BillingInterval; referralCode?: string }): Promise<StripeCheckoutSession> {
+export async function createStripeCheckoutSession(config: GatewayConfig, input: { workspaceId: string; actorId: string; plan: PlanKey; billingInterval?: BillingInterval; referralCode?: string; persona?: Audience; locale?: string }): Promise<StripeCheckoutSession> {
   const billingInterval = billingIntervalSchema.default('month').parse(input.billingInterval);
   const stripe = stripeConfiguration(config, input.plan, billingInterval);
   if (billingInterval === 'year') {
@@ -123,9 +126,13 @@ export async function createStripeCheckoutSession(config: GatewayConfig, input: 
   body.set('subscription_data[metadata][billingInterval]', billingInterval);
   body.set('subscription_data[trial_period_days]', String(config.STRIPE_TRIAL_DAYS));
   const returnParams = new URLSearchParams({ plan: input.plan, billingInterval });
+  const persona = audience(input.persona);
+  if (persona) { returnParams.set('persona', persona); body.set('metadata[persona]', persona); body.set('subscription_data[metadata][persona]', persona); }
+  if (input.locale === 'en' || input.locale === 'zh' || input.locale === 'es') body.set('metadata[locale]', input.locale);
+  const activationPath = input.locale === 'zh' || input.locale === 'es' ? `/${input.locale}/activate` : '/activate';
   if (input.referralCode) returnParams.set('ref', input.referralCode);
-  body.set('success_url', `${config.PUBLIC_SITE_URL.replace(/\/$/, '')}/activate?checkout=success&${returnParams}&session_id={CHECKOUT_SESSION_ID}`);
-  body.set('cancel_url', `${config.PUBLIC_SITE_URL.replace(/\/$/, '')}/activate?checkout=cancelled&${returnParams}`);
+  body.set('success_url', `${config.PUBLIC_SITE_URL.replace(/\/$/, '')}${activationPath}?checkout=success&${returnParams}&session_id={CHECKOUT_SESSION_ID}`);
+  body.set('cancel_url', `${config.PUBLIC_SITE_URL.replace(/\/$/, '')}${activationPath}?checkout=cancelled&${returnParams}`);
 
   const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
     method: 'POST',
@@ -170,6 +177,8 @@ export function stripeActivationFromWebhook(rawBody: string): StripeActivationEv
   return {
     eventId: event.id,
     eventType: event.type,
+    ...(audience(recordValue(session.metadata)?.persona) ? {persona: audience(recordValue(session.metadata)?.persona)} : {}),
+    ...(['en','zh','es'].includes(String(recordValue(session.metadata)?.locale)) ? {locale: String(recordValue(session.metadata)?.locale)} : {}),
     workspaceId: metadata.workspaceId,
     actorId: metadata.actorId,
     plan: metadata.plan,

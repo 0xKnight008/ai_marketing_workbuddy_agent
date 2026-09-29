@@ -1,0 +1,256 @@
+{
+  "en": {
+    "creators": {
+      "tag": "FOR CREATORS · Turn feedback into your next idea",
+      "title": "Your next idea.<br>Inspired by <em>your audience.</em>",
+      "desc": "Turn fan comments into evidence-backed insights. Find recurring questions and audience needs, check the original comments and save useful findings for your next content plan.",
+      "cta": "Start my creator trial",
+      "template": "Fan comment insights",
+      "outcome": "Comments → Insights → Reviewed findings",
+      "demoTitle": "A clue for your next piece of content",
+      "demoSub": "COMMENT INSIGHTS / CREATOR NOTES",
+      "finding": "Viewers want practical solutions for small spaces.",
+      "source": "Comment C-018 · Example data",
+      "quote": "Could you make a video about organizing a tiny rental kitchen?",
+      "action": "Explore a small-kitchen series",
+      "actionDesc": "Check the original comments, then save this audience need as a focus for planning.",
+      "chips": ["Comment insights", "Source evidence", "Saved findings"],
+      "pains": [
+        "You save comments but cannot find them when planning.",
+        "You see reactions without a clear view of what people need.",
+        "Your last analysis is buried in a forgotten document."
+      ],
+      "cards": [
+        [
+          "01 / LISTEN",
+          "Understand the questions",
+          "Group audience needs and questions while keeping their original context."
+        ],
+        [
+          "02 / CHECK",
+          "Follow the evidence",
+          "Open a finding’s source comment before choosing a direction."
+        ],
+        [
+          "03 / REUSE",
+          "Build on your judgment",
+          "Keep reviewed insights in the report library for your next planning session."
+        ]
+      ],
+      "fit": "Creator is a starting point for independent creators."
+    },
+    "sellers": {
+      "tag": "FOR SELLERS · Let product feedback guide your next step",
+      "title": "Behind every review,<br>what deserves <em>your attention?</em>",
+      "desc": "Organize product reviews into evidence-backed issue clusters and expectation gaps. Check the original feedback and save priorities before deciding what to improve.",
+      "cta": "Start my product insights trial",
+      "template": "Product review attribution",
+      "outcome": "Product reviews → Issue attribution → Saved priorities",
+      "demoTitle": "Understand the issue before changing the product",
+      "demoSub": "REVIEW ATTRIBUTION / PRODUCT NOTES",
+      "finding": "Gift buyers need packaging to arrive in good condition.",
+      "source": "Review R-012 · Example data",
+      "quote": "The cup is lovely, but the box arrived crushed. I cannot give it as a gift.",
+      "action": "Investigate packaging and transit protection",
+      "actionDesc": "Review the source with your fulfillment team. One review is not an estimate of the overall defect rate.",
+      "chips": ["Issue attribution", "Expectation gaps", "Source evidence"],
+      "pains": [
+        "Similar complaints appear across scattered reviews.",
+        "It is hard to distinguish quality issues from unclear expectations.",
+        "Your team needs to see the evidence behind a proposed fix."
+      ],
+      "cards": [
+        [
+          "01 / DIAGNOSE",
+          "Separate issues from reactions",
+          "Examine packaging, product instructions and usage feedback in context."
+        ],
+        [
+          "02 / CHECK",
+          "Test your interpretation",
+          "Follow citations back to the original review before assigning a cause."
+        ],
+        [
+          "03 / ALIGN",
+          "Keep clear priorities",
+          "Save reviewed findings so your team can return to the same evidence."
+        ]
+      ],
+      "fit": "Growth suits regular analysis; Creator is also available for lighter usage."
+    },
+    "community-hosts": {
+      "tag": "FOR COMMUNITY HOSTS · See the needs behind the conversation",
+      "title": "Your community is talking.<br>What needs <em>your attention?</em>",
+      "desc": "Turn community discussions into a digest of topics, unresolved questions and risks. Check source messages, mark what needs attention and save a reusable summary.",
+      "cta": "Start my community trial",
+      "template": "Community discussion summaries",
+      "outcome": "Discussions → Digest → Saved follow-ups",
+      "demoTitle": "A useful starting point for today’s follow-up",
+      "demoSub": "COMMUNITY DIGEST / HOST NOTES",
+      "finding": "New members struggle to find the getting-started guide.",
+      "source": "Message M-026 · Example data",
+      "quote": "Where is the beginner tutorial? I checked the pinned messages but cannot find it.",
+      "action": "Make the newcomer entry point clearer",
+      "actionDesc": "Review the current pinned messages and keep this question as a priority for the next onboarding update.",
+      "chips": [
+        "Discussion digest",
+        "Unresolved questions",
+        "Saved follow-ups"
+      ],
+      "pains": [
+        "Hundreds of messages leave you unsure who needs a reply.",
+        "The same unanswered questions return every week.",
+        "Useful context gets lost when you rewrite the community summary."
+      ],
+      "cards": [
+        [
+          "01 / CATCH UP",
+          "Find the important threads",
+          "Read the digest, then return to source messages for context."
+        ],
+        [
+          "02 / CHECK",
+          "See what remains unanswered",
+          "Review questions and risks before deciding what needs a response."
+        ],
+        [
+          "03 / REUSE",
+          "Keep your follow-up priorities",
+          "Save reviewed findings in the shared workspace for your next check-in."
+        ]
+      ],
+      "fit": "Creator is a starting point for one community; Growth offers more analysis capacity."
+    }
+  },
+  "es": {
+    "creators": {
+      "tag": "PARA CREADORES · De comentarios a ideas",
+      "title": "Tu próxima idea.<br>Inspirada por <em>tu audiencia.</em>",
+      "desc": "Convierte comentarios de seguidores en hallazgos con evidencia. Identifica preguntas y necesidades, revisa los comentarios originales y guarda lo útil para tu próximo contenido.",
+      "cta": "Iniciar mi prueba para creadores",
+      "template": "Análisis de comentarios de seguidores",
+      "outcome": "Comentarios → Hallazgos → Prioridades revisadas",
+      "demoTitle": "Una pista para tu próximo contenido",
+      "demoSub": "COMENTARIOS / NOTAS DEL CREADOR",
+      "finding": "La audiencia busca soluciones prácticas para espacios pequeños.",
+      "source": "Comentario C-018 · Datos de ejemplo",
+      "quote": "¿Podrías hacer un vídeo sobre cómo organizar una cocina pequeña de alquiler?",
+      "action": "Explora una serie sobre cocinas pequeñas",
+      "actionDesc": "Revisa los comentarios originales y guarda esta necesidad para la planificación.",
+      "chips": [
+        "Análisis de comentarios",
+        "Evidencia original",
+        "Hallazgos guardados"
+      ],
+      "pains": [
+        "Guardas comentarios que luego no encuentras al planificar.",
+        "Ves reacciones, pero no queda claro qué necesita la audiencia.",
+        "El último análisis queda enterrado en un documento."
+      ],
+      "cards": [
+        [
+          "01 / ESCUCHAR",
+          "Entiende las preguntas",
+          "Agrupa necesidades y dudas sin perder el contexto original."
+        ],
+        [
+          "02 / REVISAR",
+          "Sigue la evidencia",
+          "Abre el comentario original antes de elegir una dirección."
+        ],
+        [
+          "03 / REUTILIZAR",
+          "Conserva tu criterio",
+          "Guarda hallazgos revisados para la próxima sesión de planificación."
+        ]
+      ],
+      "fit": "Creator es un punto de partida para creadores independientes."
+    },
+    "sellers": {
+      "tag": "PARA VENDEDORES · Escucha las reseñas",
+      "title": "Detrás de cada reseña,<br>¿qué merece <em>tu atención?</em>",
+      "desc": "Organiza reseñas de productos en problemas y diferencias de expectativas con evidencia. Comprueba las opiniones originales y guarda prioridades antes de decidir qué mejorar.",
+      "cta": "Iniciar mi prueba de análisis de productos",
+      "template": "Análisis de problemas en reseñas",
+      "outcome": "Reseñas → Atribución de problemas → Prioridades",
+      "demoTitle": "Entiende el problema antes de cambiar el producto",
+      "demoSub": "RESEÑAS / NOTAS DE PRODUCTO",
+      "finding": "Quienes compran regalos necesitan que el embalaje llegue intacto.",
+      "source": "Reseña R-012 · Datos de ejemplo",
+      "quote": "La taza es bonita, pero la caja llegó aplastada. No puedo regalarla así.",
+      "action": "Revisa el embalaje y la protección en el transporte",
+      "actionDesc": "Comprueba la fuente con el equipo logístico. Una reseña no estima la tasa total de defectos.",
+      "chips": [
+        "Atribución de problemas",
+        "Expectativas",
+        "Evidencia original"
+      ],
+      "pains": [
+        "Las mismas quejas aparecen en reseñas dispersas.",
+        "Cuesta distinguir problemas de calidad de expectativas poco claras.",
+        "El equipo necesita ver la evidencia de cada mejora propuesta."
+      ],
+      "cards": [
+        [
+          "01 / ENTENDER",
+          "Distingue problemas y reacciones",
+          "Examina embalaje, instrucciones y experiencia de uso en contexto."
+        ],
+        [
+          "02 / REVISAR",
+          "Comprueba tu interpretación",
+          "Lee la reseña original antes de atribuir una causa."
+        ],
+        [
+          "03 / PRIORIZAR",
+          "Guarda prioridades claras",
+          "Conserva hallazgos revisados para volver a la misma evidencia."
+        ]
+      ],
+      "fit": "Growth sirve para análisis frecuentes; Creator también permite un uso menor."
+    },
+    "community-hosts": {
+      "tag": "PARA COMUNIDADES · Entiende las necesidades",
+      "title": "Tu comunidad conversa.<br>¿Qué necesita <em>tu atención?</em>",
+      "desc": "Convierte conversaciones de la comunidad en resúmenes de temas, preguntas pendientes y riesgos. Revisa los mensajes originales, marca prioridades y guarda un resumen reutilizable.",
+      "cta": "Iniciar mi prueba para comunidades",
+      "template": "Resúmenes de conversaciones de comunidad",
+      "outcome": "Conversaciones → Resumen → Seguimiento",
+      "demoTitle": "Un punto de partida para el seguimiento de hoy",
+      "demoSub": "COMUNIDAD / NOTAS DEL ANFITRIÓN",
+      "finding": "Los nuevos miembros no encuentran la guía inicial.",
+      "source": "Mensaje M-026 · Datos de ejemplo",
+      "quote": "¿Dónde está el tutorial para principiantes? Revisé los mensajes fijados y no lo encuentro.",
+      "action": "Aclara el acceso para nuevos miembros",
+      "actionDesc": "Revisa los mensajes fijados y guarda esta pregunta para mejorar la bienvenida.",
+      "chips": [
+        "Resumen de conversaciones",
+        "Preguntas pendientes",
+        "Seguimiento guardado"
+      ],
+      "pains": [
+        "Cientos de mensajes dificultan saber a quién responder.",
+        "Las mismas preguntas vuelven cada semana.",
+        "El contexto útil se pierde al reescribir el resumen."
+      ],
+      "cards": [
+        [
+          "01 / LEER",
+          "Encuentra los temas importantes",
+          "Lee el resumen y vuelve a los mensajes originales."
+        ],
+        [
+          "02 / REVISAR",
+          "Detecta preguntas pendientes",
+          "Revisa dudas y riesgos antes de decidir qué responder."
+        ],
+        [
+          "03 / REUTILIZAR",
+          "Conserva las prioridades",
+          "Guarda hallazgos revisados para el próximo seguimiento."
+        ]
+      ],
+      "fit": "Creator permite empezar con una comunidad; Growth ofrece más capacidad de análisis."
+    }
+  }
+}

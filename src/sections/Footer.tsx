@@ -1,3 +1,5 @@
+import { AUDIENCES, audiencePath } from '../../platform/src/contracts/audience';
+import { audienceCopy } from '../audience/copy';
 import { useEffect, useRef, useState } from "react";
 import { loadTurnstile } from '../components/ContactSupport';
 import { Piggy, SpritePuff } from "../components/ghibli/Piggy";
@@ -163,6 +165,7 @@ export function Footer() {
             <a href={lang === 'en' ? '/privacy' : `/${lang}/privacy`} className="font-bold text-[#A8B4CC] hover:text-sun">{f.legal.privacy}</a>
             <a href={lang === 'en' ? '/terms' : `/${lang}/terms`} className="font-bold text-[#A8B4CC] hover:text-sun">{f.legal.terms}</a>
             <a href={lang === 'en' ? '/contact' : `/${lang}/contact`} className="font-bold text-[#A8B4CC] hover:text-sun">{contactLabel}</a>
+            {AUDIENCES.map(p => <a key={p} href={audiencePath(p, lang)} className="font-bold text-[#A8B4CC] hover:text-sun">{audienceCopy[p][lang].name}</a>)}
             <a href={lang === 'en' ? '/activate' : `/${lang}/activate`} className="font-bold text-[#A8B4CC] hover:text-sun">Refer &amp; earn 20%</a>
           </div>
           <p className="font-hand text-lg text-[#A8B4CC]">{f.madeWith}</p>
