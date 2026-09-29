@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { pendingConnectionPage } from '../zernio/connection-pages';
 
 import cors from '@fastify/cors';
-import Fastify, { type FastifyRequest } from 'fastify';
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import { aiRuntimeEventSchema } from '../contracts/ai-runtime-event';
@@ -195,12 +195,14 @@ app.get('/api/zernio/connect', async (request, reply) => {
   return platformService.startZernioConnection(actor, query.platform);
 });
 
-app.get('/api/zernio/callback', async (request, reply) => {
+const zernioCallbackHandler = async (request: FastifyRequest, reply: FastifyReply) => {
   const result = await platformService.completeZernioOAuth(request.query as Record<string, unknown>);
   return reply.code(200).header('cache-control', 'no-store').header('referrer-policy', 'no-referrer').type('text/html').send(
     result.kind === 'selection' ? legacySelectionPage(result.platform, result.choices) : legacySuccessPage(),
   );
-});
+};
+app.get('/api/zernio/callback', zernioCallbackHandler);
+app.get('/z/cb', zernioCallbackHandler);
 
 app.post('/api/zernio/select', async (request, reply) => {
   const body = z.object({ selection: z.string().min(1) }).parse(request.body);
