@@ -8,6 +8,26 @@ export const ZERNIO_PLATFORMS = [
 ] as const;
 
 export type ZernioPlatform = typeof ZERNIO_PLATFORMS[number];
+
+// Compact OAuth-state encoding: Zernio URL-encodes the entire redirect_url
+// (including our ?state= param) into X's 500-char state budget. Keep the
+// payload short while preserving the full HMAC signature.
+const PLATFORM_SHORT: Record<ZernioPlatform, string> = {
+  facebook: 'fb', instagram: 'ig', linkedin: 'li', pinterest: 'pi',
+  googlebusiness: 'gb', snapchat: 'sc', whatsapp: 'wa', tiktok: 'tt',
+  youtube: 'yt', twitter: 'tw', threads: 'th', bluesky: 'bs',
+  reddit: 'rd', discord: 'dc', slack: 'sl', telegram: 'tg',
+};
+const SHORT_PLATFORM = new Map(Object.entries(PLATFORM_SHORT).map(([k, v]) => [v, k as ZernioPlatform]));
+
+function uuidToCompact(uuid: string): string {
+  return Buffer.from(uuid.replace(/-/g, ''), 'hex').toString('base64url');
+}
+function compactToUuid(b64: string): string {
+  const h = Buffer.from(b64, 'base64url').toString('hex');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
 export type ZernioSelectionStep =
   | 'select_page'
   | 'select_organization'
@@ -182,7 +202,7 @@ export class ZernioClient {
   }
 
   createState(workspaceId: string, profileId: string, platform: ZernioPlatform, expiresAt = Math.floor(Date.now() / 1000) + 600): string {
-    const payload = Buffer.from(JSON.stringify({ workspaceId, profileId, platform, exp: expiresAt })).toString('base64url');
+    const payload = [uuidToCompact(workspaceId), profileId, PLATFORM_SHORT[platform], String(expiresAt)].join('~');
     return `${payload}.${signature(payload, this.options.oauthStateSecret)}`;
   }
 
@@ -192,11 +212,12 @@ export class ZernioClient {
     const provided = Buffer.from(signed);
     const expected = Buffer.from(signature(payload, this.options.oauthStateSecret));
     if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) throw new Error('Invalid OAuth state signature');
-    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as { workspaceId?: unknown; profileId?: unknown; platform?: unknown; exp?: unknown };
-    if (typeof parsed.workspaceId !== 'string' || typeof parsed.profileId !== 'string' || !ZERNIO_PLATFORMS.includes(parsed.platform as ZernioPlatform) || typeof parsed.exp !== 'number' || parsed.exp <= now) {
+    const [compactWorkspaceId, profileId, shortPlatform, exp] = payload.split('~');
+    const platform = shortPlatform ? SHORT_PLATFORM.get(shortPlatform) : undefined;
+    if (!compactWorkspaceId || !profileId || !platform || !exp || Number(exp) <= now) {
       throw new Error('Expired or invalid OAuth state');
     }
-    return { workspaceId: parsed.workspaceId, profileId: parsed.profileId, platform: parsed.platform as ZernioPlatform };
+    return { workspaceId: compactToUuid(compactWorkspaceId), profileId, platform };
   }
 
   async createProfile(workspaceId: string): Promise<string> {
