@@ -13,6 +13,7 @@ COPY assets/ /usr/share/nginx/html/assets/
 COPY zh/ /usr/share/nginx/html/zh/
 COPY en/ /usr/share/nginx/html/en/
 COPY es/ /usr/share/nginx/html/es/
+COPY for/ /usr/share/nginx/html/for/
 
 # 验证文件已复制
 RUN ls -la /usr/share/nginx/html/ && \
