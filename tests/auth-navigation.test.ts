@@ -45,3 +45,16 @@ test('expired and malformed stored tokens return to login; valid tokens still re
   clearSessionAccessToken();
   assert.equal(readSessionAccessToken(), '');
 });
+
+test('audience and CTA placement survive checkout authentication in every locale', () => {
+  for (const persona of ['creators', 'sellers', 'community-hosts']) for (const locale of ['en', 'zh', 'es']) {
+    const path = `${locale === 'en' ? '' : `/${locale}`}/activate`;
+    const auth = checkoutAuthPath(path, `?persona=${persona}&placement=hero`, 'creator', 'month');
+    const next = new URL(safeNextPath(new URL(auth, origin).search, origin), origin);
+    assert.equal(next.pathname, path);
+    assert.equal(next.searchParams.get('persona'), persona);
+    assert.equal(next.searchParams.get('placement'), 'hero');
+    assert.equal(next.searchParams.get('plan'), 'creator');
+    assert.equal(next.searchParams.get('billingInterval'), 'month');
+  }
+});
