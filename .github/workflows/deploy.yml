@@ -112,6 +112,20 @@ jobs:
         working-directory: ai-runtime
         run: npm run build
 
+      # The production artifact has compiled website assets, not root src/ or tests/.
+      # A full-checkout typecheck cannot detect accidental server imports of those files.
+      - name: Validate isolated server deployment package
+        run: |
+          server_package="$(mktemp -d)"
+          trap 'rm -rf "$server_package"' EXIT
+          tar --exclude=node_modules --exclude=.mastra --exclude=logs --exclude=run -cf - platform ai-runtime server | tar -xf - -C "$server_package"
+          ln -s "$PWD/platform/node_modules" "$server_package/platform/node_modules"
+          ln -s "$PWD/ai-runtime/node_modules" "$server_package/ai-runtime/node_modules"
+          ln -s "$PWD/server/node_modules" "$server_package/server/node_modules"
+          cd "$server_package/platform"
+          npm run typecheck
+          npm test
+
       # 4. 构建项目（含 TypeScript 检查）
       - name: Build project
         env:
