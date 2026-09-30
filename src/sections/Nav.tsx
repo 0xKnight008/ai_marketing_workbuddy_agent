@@ -1,3 +1,5 @@
+import { AUDIENCES, audiencePath } from '../../platform/src/contracts/audience';
+import { audienceCopy } from '../audience/copy';
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Menu, X, Sparkles } from "lucide-react";
 import { Piggy } from "../components/ghibli/Piggy";
@@ -10,8 +12,8 @@ const LANGS: { code: Lang; label: string }[] = [
   { code: "es", label: "ES" },
 ];
 
-function FeaturesMenu({ label, mobile = false, onNavigate }: { label: string; mobile?: boolean; onNavigate?: () => void }) {
-  const { t } = useT();
+function FeaturesMenu({ label, mobile = false, onNavigate, solutions = false }: { label: string; mobile?: boolean; onNavigate?: () => void; solutions?: boolean }) {
+  const { t, lang } = useT();
   const details = useRef<HTMLDetailsElement>(null);
 
   useEffect(() => {
@@ -41,7 +43,7 @@ function FeaturesMenu({ label, mobile = false, onNavigate }: { label: string; mo
         <ChevronDown aria-hidden className="h-4 w-4 transition-transform group-open/features:rotate-180" />
       </summary>
       <div className={mobile ? "ml-3 border-l-2 border-meadow/25 pl-2" : "absolute left-0 top-full z-50 mt-2 w-56 rounded-2xl border-2 border-ink/15 bg-paper-card p-2 shadow-paint"}>
-        {[{ label: t.nav.featuresOverview, href: "#features" }, ...t.nav.featureLinks].map((link) => (
+        {(solutions ? AUDIENCES.map(p => ({label:audienceCopy[p][lang].name,href:audiencePath(p,lang)})) : [{ label: t.nav.featuresOverview, href: "#features" }, ...t.nav.featureLinks]).map((link) => (
           <a
             key={link.href}
             href={link.href}
@@ -102,7 +104,7 @@ export function Nav() {
           <nav className="hidden xl:flex items-center gap-1" aria-label={t.nav.menu}>
             {t.nav.links.map((l) => l.href === "#features" ? (
               <FeaturesMenu key={l.href} label={l.label} />
-            ) : (
+            ) : l.href === "#audiences" ? (<FeaturesMenu key={l.href} label={lang === "zh" ? "适用人群" : lang === "es" ? "Soluciones" : "Solutions"} solutions onNavigate={() => setOpen(false)} />) : (
               <a
                 key={l.href}
                 href={l.href}
@@ -160,7 +162,7 @@ export function Nav() {
           <nav id="mobile-navigation" aria-label={t.nav.menu} className="xl:hidden mt-3 max-h-[calc(100dvh-6rem)] overflow-y-auto p-4 bg-paper-card sketch wobble shadow-paint flex flex-col gap-1">
             {t.nav.links.map((l) => l.href === "#features" ? (
               <FeaturesMenu key={l.href} label={l.label} mobile onNavigate={() => setOpen(false)} />
-            ) : (
+            ) : l.href === "#audiences" ? (<FeaturesMenu key={l.href} label={lang === "zh" ? "适用人群" : lang === "es" ? "Soluciones" : "Solutions"} solutions mobile onNavigate={() => setOpen(false)} />) : (
               <a
                 key={l.href}
                 href={l.href}

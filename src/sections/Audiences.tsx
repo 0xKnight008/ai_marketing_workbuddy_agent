@@ -1,3 +1,4 @@
+import { AUDIENCES, audiencePath } from '../../platform/src/contracts/audience';
 import { ArrowRight, Palette, Store, Users } from "lucide-react";
 import { SectionTitle } from "../components/SectionTitle";
 import { Reveal } from "../components/Reveal";
@@ -11,7 +12,7 @@ const TAG_ROTATION = ["-rotate-2", "rotate-2", "-rotate-1"];
 const WOBBLE = ["wobble", "wobble-2", "wobble-3"];
 
 export function Audiences() {
-  const { t } = useT();
+  const { t, lang } = useT();
   const a = t.audiences;
 
   return (
@@ -73,7 +74,7 @@ export function Audiences() {
                     ))}
                   </ul>
                   <a
-                    href={item.href}
+                    href={audiencePath(AUDIENCES[i], lang)}
                     className="mt-5 inline-flex w-fit items-center gap-1.5 font-bold text-sky-deep border-b-2 border-dotted border-sky-deep/50 pb-0.5 transition-all hover:gap-2.5 hover:text-ink hover:border-ink/60"
                   >
                     {item.cta}

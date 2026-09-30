@@ -10,6 +10,7 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
+        ...Object.fromEntries(['', 'zh', 'es'].flatMap(locale => ['creators', 'sellers', 'community-hosts'].map(persona => [`${locale || 'en'}-${persona}`, path.resolve(__dirname, [locale, 'for', persona, 'index.html'].filter(Boolean).join('/'))]))),
         root: path.resolve(__dirname, "index.html"),
         zh: path.resolve(__dirname, "zh/index.html"),
         en: path.resolve(__dirname, "en/index.html"),

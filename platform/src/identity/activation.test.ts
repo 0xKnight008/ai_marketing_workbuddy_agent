@@ -85,9 +85,11 @@ test('checkout delivery emails the owner and persists only the ticket hash', asy
   await service.deliverCheckout({
     eventId: claims.stripeEventId,
     workspaceId: claims.workspaceId,
-    actorId: claims.actorId,
+    actorId: claims.actorId, persona: 'sellers', locale: 'zh',
   });
 
+  assert.equal(new URL(deliveredUrl).pathname, '/zh/activate');
+  assert.equal(new URL(deliveredUrl).searchParams.get('persona'), 'sellers');
   const ticket = new URL(deliveredUrl).searchParams.get('ticket');
   assert.ok(ticket);
   assert.deepEqual(verifyActivationTicket(ticket, secret), claims);

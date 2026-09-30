@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { reportHighlights } from '../contracts/report-highlights';
 import type { ActorContext } from '../contracts/domain';
 import type { Database } from '../foundation/database';
 import { can } from '../foundation/rbac';
@@ -34,6 +35,29 @@ export function reportActions(template: InsightTemplate, report: Record<string, 
 type SavedReport = { template: InsightTemplate; report: Record<string, unknown>; feedback: Record<string, unknown> };
 export class InsightFeedbackService {
   constructor(private readonly database: Database) {}
+
+  async review(actor: ActorContext, reportId: unknown, body?: unknown) {
+    const id = z.string().uuid().parse(reportId);
+    const writing = body !== undefined;
+    if (writing && !can(actor.role, 'workflow:run')) throw new HttpError(403, 'feedback_forbidden');
+    const input = writing ? z.object({ reviewed: z.literal(true), selectedKeys: z.array(z.string().max(80)).max(50) }).strict().parse(body) : undefined;
+    return this.database.withWorkspace(actor.workspaceId, async tx => {
+      const result = await tx.query<{ template: string; report: Record<string, unknown>; review: {selectedKeys: string[]; reviewed: true; actorId: string; updatedAt: string} | null }>(
+        `SELECT template, report, review_selection AS review FROM insight_report
+         WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND status = 'generated'${writing ? ' FOR UPDATE' : ''}`, [id]);
+      const row = result.rows[0];
+      if (!row) throw new HttpError(404, 'insight_not_found');
+      if (!input) return { review: row.review, canEdit: can(actor.role, 'workflow:run') };
+      const available = new Set(reportHighlights(row.template, row.report).map(h => h.key));
+      if (input.selectedKeys.some(key => !available.has(key))) throw new HttpError(422, 'unknown_report_highlight');
+      const selectedKeys = [...new Set(input.selectedKeys)].sort();
+      if (row.review && JSON.stringify([...row.review.selectedKeys].sort()) === JSON.stringify(selectedKeys)) return { review: row.review, canEdit: true };
+      const review = { reviewed: true as const, selectedKeys, actorId: actor.actorId, updatedAt: new Date().toISOString() };
+      await tx.query(`UPDATE insight_report SET review_selection = $2::jsonb WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid`, [id, JSON.stringify(review)]);
+      await tx.query('INSERT INTO audit_event (workspace_id, actor_id, event_type, payload) VALUES ($1, $2, $3, $4)', [actor.workspaceId, actor.actorId, 'insight.review_saved', {reportId: id, selectedKeys}]);
+      return { review, canEdit: true };
+    });
+  }
 
   async list(actor: ActorContext, reportId: unknown) {
     const id = z.string().uuid().parse(reportId);

@@ -98,3 +98,18 @@ test('gateway validates interval and owner before external calls; ignores client
   assert.equal(requests, 2);
   assert.deepEqual(audit[0]![3], { plan: 'growth', billingInterval: 'year', stripeCheckoutSessionId: 'cs_fake' });
 });
+
+test('all audience and language combinations survive success and cancellation without changing the plan', async t => {
+ let body=new URLSearchParams();
+ t.mock.method(globalThis,'fetch',async(_url:string,options?:RequestInit)=>{body=options?.body as URLSearchParams;return Response.json({id:'cs_fake',url:'https://checkout.stripe.com/test'});});
+ for(const persona of ['creators','sellers','community-hosts'] as const) for(const locale of ['en','zh','es']) {
+  await createStripeCheckoutSession(config,{...identity,plan:'creator',persona,locale});
+  assert.equal(body.get('metadata[persona]'),persona);
+  assert.equal(body.get('line_items[0][price]'),'price_creator_month');
+  for(const key of ['success_url','cancel_url']) {
+   const url=new URL(body.get(key)!);
+   assert.equal(url.pathname,`${locale==='en'?'':`/${locale}`}/activate`);
+   assert.equal(url.searchParams.get('persona'),persona);
+  }
+ }
+});

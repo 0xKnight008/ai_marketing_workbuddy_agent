@@ -1,3 +1,5 @@
+import { AudienceWorkspace } from '../audience/AudienceWorkspace';
+import { audience, AUDIENCES, AUDIENCE_TEMPLATE } from '../../platform/src/contracts/audience';
 import { ReferralLedger } from '../components/ReferralLedger';
 import { CONNECTION_PLATFORMS, publicationAvailability, supportsAnnouncement } from '../../platform/src/zernio/social-platforms';
 import { useWorkspaceLanguage } from '../workspace/useWorkspaceLanguage';
@@ -148,7 +150,7 @@ function PlatformWorkspace() {
   const [token, setToken] = useState(readSessionAccessToken);
   const [me, setMe] = useState<MeView | null>(null);
   const [sessionError, setSessionError] = useState('');
-  const [section, updateSection] = useState<Section>(() => { if (new URLSearchParams(location.search).has('topup_session')) return 'billing'; const route = location.hash.slice(1).split('/')[0] as Section; return sections.includes(route) ? route : 'dashboard'; });
+  const [section, updateSection] = useState<Section>(() => { if (new URLSearchParams(location.search).has('topup_session')) return 'billing'; const route = location.hash.slice(1).split('/')[0] as Section; return sections.includes(route) ? route : audience(new URLSearchParams(location.search).get('persona')) ? 'start' : 'dashboard'; });
   const setSection = (next: Section) => { setInsightDetail(null); updateSection(next); history.pushState(null, '', `#${next}`); };
   useEffect(() => { const restore = () => { const route = location.hash.slice(1).split('/')[0] as Section; updateSection(sections.includes(route) ? route : 'dashboard'); }; window.addEventListener('popstate', restore); return () => window.removeEventListener('popstate', restore); }, []);
   const [templates, setTemplates] = useState<PipelineTemplate[]>(fallbackTemplates);
@@ -258,8 +260,9 @@ function PlatformWorkspace() {
       if (requests.some(response => response.status === 401)) { signOut(); return; }
       if (readSessionAccessToken() !== token) return;
       const [templatesResponse, pipelinesResponse, accountsResponse, approvalsResponse, usageResponse, tasksResponse, auditResponse, importsResponse, googleConnectionResponse, insightsResponse, topicsResponse] = requests;
+      let existingWork = false;
       if (templatesResponse.ok) setTemplates(await templatesResponse.json() as PipelineTemplate[]);
-      if (pipelinesResponse.ok) setPipelines(await pipelinesResponse.json() as PipelineView[]);
+      if (pipelinesResponse.ok) { const rows = await pipelinesResponse.json() as PipelineView[]; setPipelines(rows); existingWork ||= rows.length > 0; }
       if (accountsResponse.ok) setAccounts(await accountsResponse.json() as ConnectedAccount[]);
       if (approvalsResponse.ok) setApprovals(await approvalsResponse.json() as ApprovalView[]);
       if (usageResponse.ok) {
@@ -269,9 +272,16 @@ function PlatformWorkspace() {
       }
       if (tasksResponse.ok) setTaskEvents(await tasksResponse.json() as TaskEventView[]);
       if (auditResponse.ok) setAuditEvents(await auditResponse.json() as AuditEventView[]);
-      if (importsResponse.ok) setImportBatches(await importsResponse.json() as ImportBatchView[]);
+      if (importsResponse.ok) { const rows = await importsResponse.json() as ImportBatchView[]; setImportBatches(rows); existingWork ||= rows.length > 0; }
       if (googleConnectionResponse.ok) setGoogleConnection(await googleConnectionResponse.json() as { connected: boolean; email?: string; connectedAt?: string });
-      if (insightsResponse.ok) setInsights(await insightsResponse.json() as InsightReportView[]);
+      if (insightsResponse.ok) {
+        const reports = await insightsResponse.json() as InsightReportView[];
+        setInsights(reports);
+        // Only an empty workspace without an explicit destination gets the first-task chooser.
+        if (!reports.length && !existingWork && requests.every(r => r.ok) && !location.hash && !new URLSearchParams(location.search).has('topup_session')) {
+          updateSection('start'); history.replaceState(null, '', `${location.pathname}${location.search}#start`);
+        }
+      }
       if (topicsResponse.ok) {
         // 防御性解析：非预期负载（如旧代理/兜底桩返回数组）不得破坏渲染。
         const data = await topicsResponse.json() as TopicListView;
@@ -769,6 +779,13 @@ function PlatformWorkspace() {
 
   if (!me) return <main className="min-h-screen bg-paper p-10 text-ink"><p role="status">{sessionError || 'Verifying your session…'}</p>{sessionError && <button onClick={() => void loadMe(token).then((valid) => { if (valid) void loadWorkspace(); })} className="m-3 rounded-md border p-3">{t("Retry")}</button>}<button onClick={signOut} className="m-3 rounded-md border p-3">{t("Sign in again")}</button></main>;
 
+  function openSavedReport(id: string) {
+    const report = insights.find(item => item.id === id);
+    const persona = AUDIENCES.find(p => AUDIENCE_TEMPLATE[p] === report?.template);
+    if (persona) { setSection('start'); history.replaceState(null, '', `#start/${persona}/${encodeURIComponent(id)}`); }
+    else { setSection('reports'); void loadInsightDetail(id); }
+  }
+
   const locked = !ACTIVE_SUBSCRIPTIONS.has(me.subscriptionStatus) || usage?.status === 'paused';
   async function recoverCheckout() {
     setRecoveringCheckout(true);
@@ -786,13 +803,14 @@ function PlatformWorkspace() {
   return (
     <WorkspaceShell section={section} navigate={setSection} name={me.workspace.name} email={me.user.email} pending={approvals.length} usage={usage} signOut={signOut}>
 
-      {locked && <section className="mx-auto mt-8 max-w-7xl rounded-xl border-2 border-sunset/50 bg-sunset/10 p-5"><h2 className="text-lg font-semibold">{t("Automation is paused")}</h2><p className="mt-1 text-sm text-ink-soft">{t("Complete your subscription or review your usage limits. A free trial pauses after 7 days or 30 AI credits, whichever comes first.")}</p><div className="mt-4 flex flex-wrap gap-3">{me.role === 'owner' && <button disabled={recoveringCheckout} onClick={() => void recoverCheckout()} className="rounded-md bg-sky-deep px-5 py-3 font-medium text-white disabled:opacity-50">{recoveringCheckout ? t("Checking Stripe…") : t("Check / resume checkout")}</button>}<a href="/activate?plan=growth" className="inline-block rounded-md bg-sunset px-5 py-3 font-medium text-white shadow-paint-sm">{t("View plans")}</a></div></section>}
+      {locked && <section className="mx-auto mt-8 max-w-7xl rounded-xl border-2 border-sunset/50 bg-sunset/10 p-5"><h2 className="text-lg font-semibold">{t("Automation is paused")}</h2><p className="mt-1 text-sm text-ink-soft">{t("Complete your subscription or review your usage limits. A free trial pauses after 7 days or 30 AI credits, whichever comes first.")}</p><div className="mt-4 flex flex-wrap gap-3">{me.role === 'owner' && <button disabled={recoveringCheckout} onClick={() => void recoverCheckout()} className="rounded-md bg-sky-deep px-5 py-3 font-medium text-white disabled:opacity-50">{recoveringCheckout ? t("Checking Stripe…") : t("Check / resume checkout")}</button>}<a href={`/activate?plan=growth${audience(new URLSearchParams(location.search).get('persona')) ? `&persona=${audience(new URLSearchParams(location.search).get('persona'))}` : ''}`} className="inline-block rounded-md bg-sunset px-5 py-3 font-medium text-white shadow-paint-sm">{t("View plans")}</a></div></section>}
 
-      <div className={`workspace-content ${locked && section !== 'settings' && section !== 'dashboard' && section !== 'billing' ? "pointer-events-none select-none opacity-40 grayscale" : ''}`} aria-disabled={locked && section !== 'settings' && section !== 'dashboard' && section !== 'billing'} inert={locked && section !== 'settings' && section !== 'dashboard' && section !== 'billing'}>
+      <div className={`workspace-content ${locked && section !== 'start' && section !== 'settings' && section !== 'dashboard' && section !== 'billing' ? "pointer-events-none select-none opacity-40 grayscale" : ''}`} aria-disabled={locked && section !== 'start' && section !== 'settings' && section !== 'dashboard' && section !== 'billing'} inert={locked && section !== 'start' && section !== 'settings' && section !== 'dashboard' && section !== 'billing'}>
+        {section === 'start' && <AudienceWorkspace key={me.workspace.id} token={token} apiBase={gatewayUrl} workspaceId={me.workspace.id} role={me.role} canRun={!locked} onFullReport={id => { setSection('reports'); void loadInsightDetail(id); }} onUsageChange={() => void loadWorkspace()} />}
         {section === 'billing' && <BillingDashboard token={token} gatewayUrl={gatewayUrl} onUsage={applyBillingUsage} />}
-        {section === 'dashboard' && <Overview navigate={setSection} reports={insights} approvals={approvals} items={importBatches.reduce((sum, batch) => sum + batch.itemCount, 0)} accountIssues={accounts.filter(account => account.status !== 'connected').length} onReport={id => { setSection('reports'); void loadInsightDetail(id); }} />}
+        {section === 'dashboard' && <Overview navigate={setSection} reports={insights} approvals={approvals} items={importBatches.reduce((sum, batch) => sum + batch.itemCount, 0)} accountIssues={accounts.filter(account => account.status !== 'connected').length} onReport={openSavedReport} />}
         {section === 'review' && <ApprovalQueue approvals={approvals} onDecision={decideApproval} />}
-        {section === 'reports' && !insightDetail && <ReportLibrary reports={insights} onOpen={id => void loadInsightDetail(id)} />}
+        {section === 'reports' && !insightDetail && <ReportLibrary reports={insights} onOpen={openSavedReport} />}
         {(section === 'reports' || section === 'insights') && insightDetail && <section className="workspace-card"><button onClick={() => { setInsightDetail(null); history.pushState(null, '', `#${section}`); }}>{section === 'insights' ? w('Back to insights', 'Volver a análisis', '返回洞察') : w('Back to reports', 'Volver a informes', '返回报告')}</button><h2 className="mt-4">{insightDetail.title}</h2><DeliveryPanel report={insightDetail} accounts={accounts} onDeliver={(id,input) => deliverInsight(id,input)} /><InsightReportBody report={insightDetail} /></section>}
         {workspaceError && <div className="mb-6 rounded-xl border border-sky-deep/20 bg-sky-pale p-4 text-sm text-sky-deep" role="alert">{t(workspaceError)} <button className="ml-3 underline" onClick={() => void loadWorkspace()}>{t('Retry')}</button></div>}
         {message && <div className="mb-6 rounded-xl border border-sky-deep/20 bg-sky-pale p-4 text-sm text-sky-deep" role="status">{t(message)} <button className="ml-3 underline" onClick={() => { setMessage(''); void loadWorkspace(); }}>{t('Retry')}</button></div>}

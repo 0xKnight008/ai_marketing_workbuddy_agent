@@ -5,7 +5,7 @@ const root = new URL('../', import.meta.url);
 const seo = JSON.parse(await readFile(new URL('src/i18n/seo.json', root), 'utf8'));
 const origin = 'https://www.piggybot.me';
 const locales = ['', 'en', 'zh', 'es'];
-const pages = ['', 'contact', 'privacy', 'terms'];
+const pages = ['', 'contact', 'privacy', 'terms', 'for/creators', 'for/sellers', 'for/community-hosts'];
 const escape = (value) => value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 // English aliases consolidate to the root version; translated pages stay separate.
 const url = (locale, page) => {
@@ -16,6 +16,7 @@ const canonicalUrls = new Set();
 
 for (const locale of locales) {
   for (const page of pages) {
+    if (locale === 'en' && page.startsWith('for/')) continue;
     const file = new URL([...([locale, page].filter(Boolean)), 'index.html'].join('/'), root);
     let html = await readFile(file, 'utf8');
     const lang = locale || 'en';
@@ -57,4 +58,4 @@ for (const locale of locales) {
 
 await writeFile(new URL('public/sitemap.xml', root), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${[...canonicalUrls].map((location) => `  <url><loc>${location}</loc></url>`).join('\n')}\n</urlset>\n`);
 await writeFile(new URL('public/robots.txt', root), `User-agent: *\nAllow: /\n\nSitemap: ${origin}/sitemap.xml\n`);
-console.log('Generated SEO metadata for 16 pages and 12 canonical sitemap URLs.');
+console.log(`Generated SEO metadata and ${canonicalUrls.size} canonical sitemap URLs.`);

@@ -11,7 +11,7 @@
     "test:subscribe": "node --test server/subscribe-server.test.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
-    "seo:generate": "node scripts/generate-seo.mjs",
+    "seo:generate": "node scripts/generate-audience-pages.mjs && node scripts/generate-seo.mjs",
     "prebuild": "npm run seo:generate",
     "prebuild:ci": "npm run seo:generate"
   },
