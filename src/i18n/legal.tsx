@@ -107,7 +107,7 @@ const privacyEn: LegalDoc = {
     {
       heading: "9. Exercising your rights",
       paragraphs: [
-        "To exercise any right, email privacy@piggybot.me with the subject \"Privacy request\" from the email associated with your account, or use the contact form at piggybot.me/contact. We will verify your identity (and, for authorized agents, your written permission and the agent's registration where required) before acting. We respond within the time required by applicable law (generally 45 days for CCPA requests, extendable once).",
+        "To exercise any right, email cs@support.piggybot.me with the subject \"Privacy request\" from the email associated with your account, or use the contact form at piggybot.me/contact. We will verify your identity (and, for authorized agents, your written permission and the agent's registration where required) before acting. We respond within the time required by applicable law (generally 45 days for CCPA requests, extendable once).",
         "If you are in the EEA, UK or Switzerland, you additionally have rights of access, rectification, erasure, restriction, portability and objection, and may lodge a complaint with your supervisory authority. Our legal bases include contract performance, legitimate interests (security, improvement), consent (newsletters, optional cookies) and legal obligations.",
       ],
     },
@@ -138,7 +138,7 @@ const privacyEn: LegalDoc = {
     {
       heading: "14. Contact us",
       paragraphs: [
-        "Privacy questions or requests: privacy@piggybot.me. General support: piggybot.me/contact. Postal address: Piggybot, Inc., Attn: Privacy, [registered address on file with our Delaware registered agent].",
+        "Privacy questions or requests: cs@support.piggybot.me. General support: piggybot.me/contact.",
       ],
     },
   ],
@@ -244,7 +244,7 @@ const termsEn: LegalDoc = {
     {
       heading: "13. Dispute resolution; arbitration; class-action waiver",
       paragraphs: [
-        "PLEASE READ CAREFULLY. Except for small-claims court matters and IP enforcement, any dispute arising from these Terms or the Service will be resolved by binding individual arbitration administered by the American Arbitration Association under its Commercial Arbitration Rules, seated in Wilmington, Delaware, in English. The Federal Arbitration Act governs this section. YOU AND PIGGYBOT WAIVE ANY RIGHT TO A JURY TRIAL AND TO PARTICIPATE IN A CLASS ACTION OR CLASS-WIDE ARBITRATION. You may opt out of arbitration within 30 days of first accepting these Terms by emailing legal@piggybot.me with the subject \"Arbitration opt-out\".",
+        "PLEASE READ CAREFULLY. Except for small-claims court matters and IP enforcement, any dispute arising from these Terms or the Service will be resolved by binding individual arbitration administered by the American Arbitration Association under its Commercial Arbitration Rules, seated in Wilmington, Delaware, in English. The Federal Arbitration Act governs this section. YOU AND PIGGYBOT WAIVE ANY RIGHT TO A JURY TRIAL AND TO PARTICIPATE IN A CLASS ACTION OR CLASS-WIDE ARBITRATION. You may opt out of arbitration within 30 days of first accepting these Terms by emailing cs@support.piggybot.me with the subject \"Arbitration opt-out\".",
       ],
     },
     {
@@ -268,7 +268,7 @@ const termsEn: LegalDoc = {
     {
       heading: "17. Contact",
       paragraphs: [
-        "Questions about these Terms: legal@piggybot.me. Support: piggybot.me/contact. Piggybot, Inc., Delaware, USA.",
+        "Questions about these Terms: cs@support.piggybot.me. Support: piggybot.me/contact.",
       ],
     },
   ],
@@ -367,7 +367,7 @@ const privacyZh: LegalDoc = {
     {
       heading: "9. 如何行使权利",
       paragraphs: [
-        "请使用与账户关联的邮箱发送邮件至 privacy@piggybot.me（主题注明「Privacy request」），或通过 piggybot.me/contact 的联系表单提交。我们将在处理前核实你的身份（授权代理人需同时核实你的书面授权及法律要求的代理人登记）。我们将在适用法律要求的期限内答复（CCPA 请求通常为 45 天，可延长一次）。",
+        "请使用与账户关联的邮箱发送邮件至 cs@support.piggybot.me（主题注明「Privacy request」），或通过 piggybot.me/contact 的联系表单提交。我们将在处理前核实你的身份（授权代理人需同时核实你的书面授权及法律要求的代理人登记）。我们将在适用法律要求的期限内答复（CCPA 请求通常为 45 天，可延长一次）。",
         "若你位于欧洲经济区、英国或瑞士，你还享有访问、更正、删除、限制处理、数据可携带及反对的权利，并可向监管机构投诉。我们的法律依据包括合同履行、合法利益（安全、改进）、同意（订阅、可选 Cookie）及法定义务。",
       ],
     },
@@ -398,7 +398,7 @@ const privacyZh: LegalDoc = {
     {
       heading: "14. 联系我们",
       paragraphs: [
-        "隐私问题或请求：privacy@piggybot.me。一般支持：piggybot.me/contact。邮寄地址：Piggybot, Inc., Attn: Privacy（特拉华州注册代理人备案地址）。",
+        "隐私问题或请求：cs@support.piggybot.me。一般支持：piggybot.me/contact。",
       ],
     },
   ],
@@ -504,7 +504,7 @@ const termsZh: LegalDoc = {
     {
       heading: "13. 争议解决；仲裁；集体诉讼弃权",
       paragraphs: [
-        "请仔细阅读。除小额法庭事项与知识产权执法外，因本条款或本服务产生的任何争议，均由美国仲裁协会按其商事仲裁规则在特拉华州威尔明顿以英文进行具有约束力的个人仲裁解决。《联邦仲裁法》适用于本条。你与 PIGGYBOT 均放弃陪审团审判及参与集体诉讼或集体仲裁的权利。你可以在首次接受本条款后 30 天内发送邮件至 legal@piggybot.me（主题「Arbitration opt-out」）选择退出仲裁。",
+        "请仔细阅读。除小额法庭事项与知识产权执法外，因本条款或本服务产生的任何争议，均由美国仲裁协会按其商事仲裁规则在特拉华州威尔明顿以英文进行具有约束力的个人仲裁解决。《联邦仲裁法》适用于本条。你与 PIGGYBOT 均放弃陪审团审判及参与集体诉讼或集体仲裁的权利。你可以在首次接受本条款后 30 天内发送邮件至 cs@support.piggybot.me（主题「Arbitration opt-out」）选择退出仲裁。",
       ],
     },
     {
@@ -528,7 +528,7 @@ const termsZh: LegalDoc = {
     {
       heading: "17. 联系我们",
       paragraphs: [
-        "条款相关问题：legal@piggybot.me。支持：piggybot.me/contact。Piggybot, Inc.，美国特拉华州。",
+        "条款相关问题：cs@support.piggybot.me。支持：piggybot.me/contact。",
       ],
     },
   ],
@@ -627,7 +627,7 @@ const privacyEs: LegalDoc = {
     {
       heading: "9. Cómo ejercer tus derechos",
       paragraphs: [
-        "Para ejercer cualquier derecho, escribe a privacy@piggybot.me con el asunto «Privacy request» desde el correo asociado a tu cuenta, o usa el formulario en piggybot.me/contact. Verificaremos tu identidad (y, para agentes autorizados, tu permiso por escrito y el registro del agente cuando se requiera) antes de actuar. Respondemos dentro del plazo legal (generalmente 45 días para solicitudes CCPA, prorrogable una vez).",
+        "Para ejercer cualquier derecho, escribe a cs@support.piggybot.me con el asunto «Privacy request» desde el correo asociado a tu cuenta, o usa el formulario en piggybot.me/contact. Verificaremos tu identidad (y, para agentes autorizados, tu permiso por escrito y el registro del agente cuando se requiera) antes de actuar. Respondemos dentro del plazo legal (generalmente 45 días para solicitudes CCPA, prorrogable una vez).",
         "Si estás en el EEE, Reino Unido o Suiza, tienes además derechos de acceso, rectificación, supresión, limitación, portabilidad y oposición, y puedes reclamar ante tu autoridad de control. Nuestras bases jurídicas incluyen la ejecución del contrato, intereses legítimos (seguridad, mejora), consentimiento (boletines, cookies opcionales) y obligaciones legales.",
       ],
     },
@@ -658,7 +658,7 @@ const privacyEs: LegalDoc = {
     {
       heading: "14. Contáctanos",
       paragraphs: [
-        "Preguntas o solicitudes de privacidad: privacy@piggybot.me. Soporte general: piggybot.me/contact. Dirección postal: Piggybot, Inc., Attn: Privacy (dirección registrada ante nuestro agente registrado en Delaware).",
+        "Preguntas o solicitudes de privacidad: cs@support.piggybot.me. Soporte general: piggybot.me/contact.",
       ],
     },
   ],
@@ -764,7 +764,7 @@ const termsEs: LegalDoc = {
     {
       heading: "13. Resolución de disputas; arbitraje; renuncia a acciones colectivas",
       paragraphs: [
-        "LEE CON ATENCIÓN. Salvo asuntos de tribunales de reclamos menores y protección de propiedad intelectual, cualquier disputa derivada de estos Términos o del Servicio se resolverá mediante arbitraje individual vinculante administrado por la American Arbitration Association según sus Reglas de Arbitraje Comercial, con sede en Wilmington, Delaware, en inglés. La Ley Federal de Arbitraje rige esta sección. TÚ Y PIGGYBOT RENUNCIAN AL JUICIO POR JURADO Y A PARTICIPAR EN DEMANDAS O ARBITRAJES COLECTIVOS. Puedes excluirte del arbitraje dentro de los 30 días de aceptar estos Términos escribiendo a legal@piggybot.me con el asunto «Arbitration opt-out».",
+        "LEE CON ATENCIÓN. Salvo asuntos de tribunales de reclamos menores y protección de propiedad intelectual, cualquier disputa derivada de estos Términos o del Servicio se resolverá mediante arbitraje individual vinculante administrado por la American Arbitration Association según sus Reglas de Arbitraje Comercial, con sede en Wilmington, Delaware, en inglés. La Ley Federal de Arbitraje rige esta sección. TÚ Y PIGGYBOT RENUNCIAN AL JUICIO POR JURADO Y A PARTICIPAR EN DEMANDAS O ARBITRAJES COLECTIVOS. Puedes excluirte del arbitraje dentro de los 30 días de aceptar estos Términos escribiendo a cs@support.piggybot.me con el asunto «Arbitration opt-out».",
       ],
     },
     {
@@ -788,7 +788,7 @@ const termsEs: LegalDoc = {
     {
       heading: "17. Contacto",
       paragraphs: [
-        "Preguntas sobre estos Términos: legal@piggybot.me. Soporte: piggybot.me/contact. Piggybot, Inc., Delaware, EE. UU.",
+        "Preguntas sobre estos Términos: cs@support.piggybot.me. Soporte: piggybot.me/contact.",
       ],
     },
   ],
