@@ -34,6 +34,15 @@ for(const locale of ['en','es','zh'])for(const size of ['desktop','mobile'])for(
 });
 test('approval has an explicit immutable confirmation and updates home count',async({page})=>{const requests=await fixture(page);await nav(page,'review');await page.getByRole('button',{name:'Approve',exact:true}).click();await expect(page.getByRole('dialog')).toBeVisible();expect(requests).toHaveLength(0);await expect(page.getByRole('dialog').locator('pre')).toHaveText(original);await page.getByRole('button',{name:'Confirm decision'}).click();await expect(page.getByRole('dialog')).not.toBeVisible();expect(requests[0]).toEqual({path:'/api/approval-requests/approval-1/approved',body:{}});await nav(page,'dashboard');await expect(page.locator('.workspace-stats button').first().locator('strong')).toHaveText('0');});
 test('CSV import preview preserves edits when language changes and submits only after confirmation', async ({ page }) => {
+ // File.text() is asynchronous. Exercise a slow read so the assertion cannot
+ // accidentally depend on the request arriving before Playwright click resolves.
+ await page.addInitScript(() => {
+  const read = File.prototype.text;
+  File.prototype.text = async function () {
+   await new Promise(resolve => setTimeout(resolve, 150));
+   return read.call(this);
+  };
+ });
  const requests = await fixture(page); await nav(page, 'imports');
  await page.getByLabel('Batch label', { exact: true }).fill('September');
  await page.locator('input[type=file]').setInputFiles({ name: 'feedback.csv', mimeType: 'text/csv', buffer: Buffer.from('text\nFirst feedback\nSecond feedback') });
@@ -43,7 +52,9 @@ test('CSV import preview preserves edits when language changes and submits only 
  await expect(page.locator('#import-label')).toHaveValue('September');
  await page.getByRole('button', { name: 'Vista previa CSV', exact: true }).click();
  await page.getByRole('button', { name: 'Confirmar importación', exact: true }).click();
+ await expect.poll(() => requests.length).toBe(1);
  expect(requests[0]).toMatchObject({ path: '/api/imports', body: { label: 'September', sourceType: 'csv', content: 'text\nFirst feedback\nSecond feedback' } });
+ await expect(page.getByRole('dialog')).not.toBeVisible();
 });
 
 for (const locale of ['en', 'zh', 'es']) test(`${locale}: Sources exposes only CSV and Discord, without Google requests`, async ({ page }) => {
