@@ -14,6 +14,11 @@ COPY zh/ /usr/share/nginx/html/zh/
 COPY en/ /usr/share/nginx/html/en/
 COPY es/ /usr/share/nginx/html/es/
 COPY for/ /usr/share/nginx/html/for/
+COPY contact/ /usr/share/nginx/html/contact/
+COPY privacy/ /usr/share/nginx/html/privacy/
+COPY terms/ /usr/share/nginx/html/terms/
+COPY robots.txt /usr/share/nginx/html/robots.txt
+COPY sitemap.xml /usr/share/nginx/html/sitemap.xml
 
 # 验证文件已复制
 RUN ls -la /usr/share/nginx/html/ && \
