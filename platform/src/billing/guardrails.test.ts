@@ -49,6 +49,46 @@ test('charges Eco credits when a Standard request is degraded', async () => {
   assert.equal(inserted[0]?.[2], 1);
 });
 
+test('explicit bands are preserved when entitled, even when higher bands are allowed', async () => {
+  for (const band of ['eco', 'standard', 'flagship'] as const) {
+    const { tx } = usageTransaction(0);
+    const result = await reserveAiRun(tx, ['eco', 'standard', 'flagship'], 'run-1', band);
+    assert.equal(result.band, band);
+    assert.equal(result.provider, 'primary');
+    assert.equal(result.credits, { eco: 1, standard: 6, flagship: 20 }[band]);
+  }
+});
+
+test('explicit unavailable band fails without charging instead of silently replacing it', async () => {
+  const { tx, inserted } = usageTransaction(0);
+  await assert.rejects(reserveAiRun(tx, ['eco'], 'run-1', 'flagship'), /model_band_not_allowed/);
+  assert.equal(inserted.length, 0);
+});
+
+test('insufficient credits still degrade an explicit Flagship selection to primary Eco', async () => {
+  const { tx } = usageTransaction(0, 0, 'trialing', new Date(Date.now() + 60_000).toISOString(), 29);
+  const result = await reserveAiRun(tx, ['eco', 'standard', 'flagship'], 'run-1', 'flagship');
+  assert.equal(result.band, 'eco');
+  assert.equal(result.provider, 'primary');
+  assert.equal(result.credits, 1);
+});
+
+test('degraded guardrail still overrides manual Flagship with fallback Eco', async () => {
+  const { tx } = usageTransaction(2_000);
+  const result = await reserveAiRun(tx, ['eco', 'standard', 'flagship'], 'run-1', 'flagship');
+  assert.equal(result.band, 'eco');
+  assert.equal(result.provider, 'fallback');
+  assert.equal(result.credits, 1);
+});
+
+test('supplier hard spend cap still pauses rather than bypassing the cap via Eco', async () => {
+  const { tx, inserted } = usageTransaction(0, PLAN_CATALOG.creator.supplierSpendLimitCents * 10_000);
+  const result = await reserveAiRun(tx, ['eco', 'standard', 'flagship'], 'run-1', 'flagship');
+  assert.equal(result.guardrail.status, 'paused');
+  assert.equal(result.charged, false);
+  assert.equal(inserted.length, 0);
+});
+
 for (const status of ['inactive', 'past_due', 'canceled', 'unpaid', 'incomplete', 'trialing', 'unknown']) {
   test(`${status} cannot reserve AI, publish, or create runs without a valid entitlement`, async () => {
     const { tx, inserted } = usageTransaction(0, 0, status);
@@ -158,4 +198,3 @@ test('reserveAiRun replays an already-paid attempt instead of pausing on empty b
   assert.equal(reservation.band, 'standard'); // 复用首次计费时的档位，不因余额变化降档
   assert.equal(reservation.credits, 6);
 });
-

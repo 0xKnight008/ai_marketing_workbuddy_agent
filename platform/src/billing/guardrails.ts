@@ -195,10 +195,12 @@ export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: s
     };
   }
   // 用户显式选择的档位（对话框 eco/standard/flagship 选择器）在策略允许时优先生效；
-  // 未选择或超出 allowedModelClasses 时维持原默认（取允许的最高档）。
-  const requested = requestedBand && allowedModelClasses.includes(requestedBand)
-    ? requestedBand
-    : requestedModelBand(allowedModelClasses);
+  // 未选择时保留原默认；无权使用的显式选择必须报错，不能静默换档。
+  // 已付款任务仍在上方优先回放，不因策略/余额变化重复计费。
+  if (requestedBand && !allowedModelClasses.includes(requestedBand)) {
+    throw new HttpError(403, 'model_band_not_allowed');
+  }
+  const requested = requestedBand ?? requestedModelBand(allowedModelClasses);
   const requestedPolicy = MODEL_BAND_POLICIES[requested];
   const useFallbackEco = requested !== 'eco' && current.aiCreditsAvailable < requestedPolicy.credits;
   const band = useFallbackEco ? 'eco' : requested;

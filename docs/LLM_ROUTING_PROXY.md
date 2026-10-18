@@ -1,5 +1,11 @@
 # Production LLM routing proxy
 
+This document describes legacy `proxy` mode. For official DeepSeek Eco, Z.AI
+Standard, and the retained 1token Flagship route, use the opt-in
+[three-channel profile](THREE_CHANNEL_ROUTING.md). That profile supplies
+explicit endpoint/key objects per channel; it does not rely on the global
+OpenAI credentials to reach all suppliers.
+
 Mastra resolves every `openai/<model>` string through the same
 `OPENAI_API_KEY` and `OPENAI_BASE_URL`. Because 1token.ai and Kimi are separate
 OpenAI-compatible endpoints, production must put a model-aware proxy such as
