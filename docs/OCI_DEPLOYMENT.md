@@ -85,7 +85,11 @@ Fill them from `platform/.env.example`, `ai-runtime/.env.example`, and `server/.
   `AI_MODEL_ROUTING_MODE=proxy`, a proxy-issued `OPENAI_API_KEY`, an
   `OPENAI_BASE_URL` ending in `/v1`, and all six primary/fallback `AI_MODEL_*`
   aliases. Follow [`LLM_ROUTING_PROXY.md`](./LLM_ROUTING_PROXY.md); do not put
-  1token.ai or Kimi credentials in the ai-runtime environment.
+  1token.ai or Kimi credentials in the ai-runtime environment in proxy mode.
+  Alternatively, use the opt-in [`THREE_CHANNEL_ROUTING.md`](./THREE_CHANNEL_ROUTING.md)
+  profile (`AI_MODEL_ROUTING_MODE=three-channel`): official `DEEPSEEK_API_KEY`
+  and `ZAI_API_KEY` live only in the protected runtime environment, while
+  Flagship retains the existing proxy-issued key and reviewed 1token Sol alias.
 - `CORS_ORIGINS=https://app.example.com`, `PUBLIC_SITE_URL=https://app.example.com`
 - `RUN_SERVICE_CALLBACK_URL=http://127.0.0.1:4100/internal/ai-runtime-events`
 - `ZERNIO_BASE_URL=https://zernio.com/api`, the team-level `ZERNIO_API_KEY`,

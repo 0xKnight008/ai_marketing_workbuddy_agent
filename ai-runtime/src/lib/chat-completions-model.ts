@@ -7,6 +7,8 @@
  * When `model` is an object with { id, url, apiKey }, Mastra takes the
  * OpenAICompatible path and calls /v1/chat/completions instead.
  */
+import { officialChannelModel } from './three-channel-routing';
+
 export type ChatCompletionsModel =
   | string
   | {
@@ -15,11 +17,13 @@ export type ChatCompletionsModel =
       apiKey: string;
     };
 
-export function chatCompletionsModel(model: string): ChatCompletionsModel {
+export function chatCompletionsModel(model: string, env: Readonly<Record<string, string | undefined>> = process.env): ChatCompletionsModel {
+  const official = officialChannelModel(model, env);
+  if (official) return official;
   if (!model.startsWith('openai/')) return model;
 
-  const url = process.env.OPENAI_BASE_URL;
-  const apiKey = process.env.OPENAI_API_KEY;
+  const url = env.OPENAI_BASE_URL;
+  const apiKey = env.OPENAI_API_KEY;
   if (!url || !apiKey) {
     throw new Error(
       'OPENAI_BASE_URL and OPENAI_API_KEY are required to build a chat-completions model',

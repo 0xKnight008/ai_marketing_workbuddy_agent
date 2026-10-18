@@ -6,6 +6,7 @@ import { createTopicAssignerAgent } from '../agents/topic-assigner-agent';
 import { createTopicTaxonomyAgent } from '../agents/topic-taxonomy-agent';
 import { config } from '../config';
 import { modelForBand } from '../lib/model-routing';
+import { structuredOutputForBand } from '../lib/structured-output';
 import { classifyRequestSchema, classifyGenerationSchema } from '../schemas/classify';
 import { insightReportRequestSchema, insightResultSchemas } from '../schemas/insights';
 import { topicAssignRequestSchema, topicAssignResultSchema, topicProposeRequestSchema, topicProposeResultSchema } from '../schemas/topics';
@@ -166,7 +167,7 @@ export const internalApiRoutes = [
         const agent = createItemClassifierAgent(modelForBand(config, modelBand, provider));
         const { object } = await agent.generate(
           `Classify each of the following ${items.length} item(s)${language === 'auto' ? '' : ` (expected language: ${language})`}. Items as JSON:\n${JSON.stringify(items)}`,
-          { structuredOutput: { schema: classifyGenerationSchema } },
+          { structuredOutput: structuredOutputForBand(classifyGenerationSchema, modelBand) },
         );
         return c.json(object, 200);
       } catch (error) {
@@ -195,7 +196,7 @@ export const internalApiRoutes = [
         const agent = createTopicTaxonomyAgent(modelForBand(config, modelBand, provider));
         const { object } = await agent.generate(
           `Propose a topic taxonomy from the following sample of ${items.length} feedback item(s)${language === 'auto' ? '' : ` (expected language: ${language})`}. Items as JSON:\n${JSON.stringify(items)}`,
-          { structuredOutput: { schema: topicProposeResultSchema } },
+          { structuredOutput: structuredOutputForBand(topicProposeResultSchema, modelBand) },
         );
         return c.json(object, 200);
       } catch (error) {
@@ -224,7 +225,7 @@ export const internalApiRoutes = [
         const agent = createTopicAssignerAgent(modelForBand(config, modelBand, provider));
         const { object } = await agent.generate(
           `Assign each of the following ${items.length} item(s) to 0-3 topics from the fixed taxonomy${language === 'auto' ? '' : ` (expected language: ${language})`}. Taxonomy as JSON:\n${JSON.stringify(taxonomy)}\nItems as JSON:\n${JSON.stringify(items)}`,
-          { structuredOutput: { schema: topicAssignResultSchema } },
+          { structuredOutput: structuredOutputForBand(topicAssignResultSchema, modelBand) },
         );
         return c.json(object, 200);
       } catch (error) {
@@ -262,17 +263,17 @@ export const internalApiRoutes = [
         // 按模板分支选择强类型 schema（联合类型无法直接传给 structuredOutput）。
         let object: unknown;
         if (request.template === 'content_recap') {
-          object = (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.content_recap } })).object;
+          object = (await agent.generate(prompt, { structuredOutput: structuredOutputForBand(insightResultSchemas.content_recap, request.modelBand) })).object;
         } else if (request.template === 'comment_insights') {
-          object = (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.comment_insights } })).object;
+          object = (await agent.generate(prompt, { structuredOutput: structuredOutputForBand(insightResultSchemas.comment_insights, request.modelBand) })).object;
         } else if (request.template === 'product_opportunities') {
-          object = (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.product_opportunities } })).object;
+          object = (await agent.generate(prompt, { structuredOutput: structuredOutputForBand(insightResultSchemas.product_opportunities, request.modelBand) })).object;
         } else if (request.template === 'review_attribution') {
-          object = (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.review_attribution } })).object;
+          object = (await agent.generate(prompt, { structuredOutput: structuredOutputForBand(insightResultSchemas.review_attribution, request.modelBand) })).object;
         } else if (request.template === 'community_digest') {
-          object = (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.community_digest } })).object;
+          object = (await agent.generate(prompt, { structuredOutput: structuredOutputForBand(insightResultSchemas.community_digest, request.modelBand) })).object;
         } else {
-          object = (await agent.generate(prompt, { structuredOutput: { schema: insightResultSchemas.daily_ops } })).object;
+          object = (await agent.generate(prompt, { structuredOutput: structuredOutputForBand(insightResultSchemas.daily_ops, request.modelBand) })).object;
         }
         return c.json(object as Record<string, unknown>, 200);
       } catch (error) {

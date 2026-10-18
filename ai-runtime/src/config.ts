@@ -3,6 +3,8 @@
  * 这里只允许出现 LLM、内部鉴权、回调投递三类配置。
  */
 
+import { threeChannelConfig } from './lib/three-channel-routing';
+
 type Environment = Readonly<Record<string, string | undefined>>;
 type ModelBand = 'eco' | 'standard' | 'flagship';
 
@@ -49,10 +51,10 @@ function httpUrl(env: Environment, name: string, fallback?: string): string {
   return url.toString();
 }
 
-function routingMode(env: Environment): 'direct' | 'proxy' {
+function routingMode(env: Environment): 'direct' | 'proxy' | 'three-channel' {
   const value = optional(env, 'AI_MODEL_ROUTING_MODE') ?? 'direct';
-  if (value !== 'direct' && value !== 'proxy') {
-    throw new Error('AI_MODEL_ROUTING_MODE must be direct or proxy');
+  if (value !== 'direct' && value !== 'proxy' && value !== 'three-channel') {
+    throw new Error('AI_MODEL_ROUTING_MODE must be direct, proxy or three-channel');
   }
   return value;
 }
@@ -65,7 +67,7 @@ function assertProxyRouting(
 ): string | undefined {
   if (env.NODE_ENV === 'production' && mode !== 'proxy') {
     throw new Error(
-      'AI_MODEL_ROUTING_MODE=proxy is required in production so primary and fallback suppliers share one OpenAI-compatible endpoint',
+      'AI_MODEL_ROUTING_MODE=proxy is required in production unless using the explicit three-channel profile',
     );
   }
   if (mode !== 'proxy') return optional(env, 'OPENAI_BASE_URL');
@@ -101,18 +103,26 @@ function assertProxyRouting(
 }
 
 export function loadConfig(env: Environment = process.env) {
-  const models = {
+  let models = {
     eco: optional(env, 'AI_MODEL_ECO') ?? optional(env, 'AI_MODEL') ?? 'openai/gpt-4o-mini',
     standard: optional(env, 'AI_MODEL_STANDARD') ?? 'openai/gpt-4o',
     flagship: optional(env, 'AI_MODEL_FLAGSHIP') ?? 'openai/o3',
   } as const;
-  const fallbackModels = {
+  let fallbackModels = {
     eco: optional(env, 'AI_MODEL_ECO_FALLBACK'),
     standard: optional(env, 'AI_MODEL_STANDARD_FALLBACK'),
     flagship: optional(env, 'AI_MODEL_FLAGSHIP_FALLBACK'),
   } as const;
   const modelRoutingMode = routingMode(env);
-  const openAiBaseUrl = assertProxyRouting(env, modelRoutingMode, models, fallbackModels);
+  let openAiBaseUrl: string | undefined;
+  if (modelRoutingMode === 'three-channel') {
+    const channels = threeChannelConfig(env);
+    models = channels.models;
+    fallbackModels = channels.fallbackModels;
+    openAiBaseUrl = channels.openAiBaseUrl;
+  } else {
+    openAiBaseUrl = assertProxyRouting(env, modelRoutingMode, models, fallbackModels);
+  }
 
   const storageUrl = required(env, 'MASTRA_STORAGE_URL', 'file:./mastra.db');
   if (env.NODE_ENV === 'production' && storageUrl.startsWith('file:')) {

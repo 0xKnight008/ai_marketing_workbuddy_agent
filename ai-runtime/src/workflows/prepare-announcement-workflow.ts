@@ -9,6 +9,7 @@ import { getEmitter } from '../events/emitter';
 import { resolveApprovalRequirement } from '../lib/approval-policy';
 import { runDeterministicChecks } from '../lib/deterministic-checks';
 import { modelForBand } from '../lib/model-routing';
+import { structuredOutputForBand } from '../lib/structured-output';
 import { assertDraftsWithinPolicy, assertRunInputWithinPolicy } from '../lib/run-policy';
 import { assertTargetsMatch } from '../lib/target-validation';
 import {
@@ -83,7 +84,7 @@ const contentPlanningStep = createStep({
             ? `Prior approved examples (style reference):\n${executionContext.priorApprovedExamples.join('\n---\n')}`
             : 'No prior approved examples.',
         ].join('\n\n'),
-        { structuredOutput: { schema: contentPlanSchema } },
+        { structuredOutput: structuredOutputForBand(contentPlanSchema, executionContext.runPolicy.modelBand) },
       );
 
       const contentPlan = contentPlanSchema.parse(object);
@@ -116,7 +117,7 @@ const copyOptimizationStep = createStep({
             `Content plan: ${JSON.stringify(inputData.contentPlan)}`,
             `Brand profile: ${JSON.stringify(inputData.executionContext.brandProfile)}`,
           ].join('\n\n'),
-          { structuredOutput: { schema: draftSetSchema } },
+          { structuredOutput: structuredOutputForBand(draftSetSchema, inputData.executionContext.runPolicy.modelBand) },
         );
 
         const draftSet = draftSetSchema.parse(object);
@@ -164,7 +165,7 @@ const complianceCheckStep = createStep({
             `Drafts: ${JSON.stringify(inputData.drafts)}`,
             `Brand profile: ${JSON.stringify(brand)}`,
           ].join('\n\n'),
-          { structuredOutput: { schema: complianceReportSchema } },
+          { structuredOutput: structuredOutputForBand(complianceReportSchema, inputData.executionContext.runPolicy.modelBand) },
         );
         const semanticReport = complianceReportSchema.parse(object);
 
