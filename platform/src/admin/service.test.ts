@@ -16,6 +16,27 @@ const targetWorkspaceId = '33333333-3333-4333-8333-333333333333';
 const adminToken = 'platform-admin-secret-at-least-32-characters';
 const config = { BILLING_ADMIN_TOKEN: adminToken } as GatewayConfig;
 
+test('token usage rejects non-admin callers before contacting runtime and validates cursors', async () => {
+  const service = new AdminService(config, {} as Database);
+  await assert.rejects(service.tokenUsage(actor, undefined, {}), /platform_admin_required/);
+  await assert.rejects(service.tokenUsage({ ...actor, role: 'viewer' }, adminToken, {}), /platform_admin_required/);
+  await assert.rejects(service.tokenUsage(actor, adminToken, { before: -1 }));
+  await assert.rejects(service.tokenUsage(actor, adminToken, {}), /token_usage_not_configured/);
+});
+
+test('token usage forwards only validated query and internal authentication', async t => {
+  const service = new AdminService({ ...config, AI_RUNTIME_URL: 'http://runtime.test:4111', INTERNAL_SERVICE_TOKEN: 'internal-test' }, {} as Database);
+  t.mock.method(globalThis, 'fetch', async (url: URL, init: RequestInit) => {
+    assert.equal(url.origin, 'http://runtime.test:4111');
+    assert.equal(url.pathname, '/internal/token-usage');
+    assert.equal(url.searchParams.get('before'), '123');
+    assert.equal(url.searchParams.get('q'), 'deepseek');
+    assert.equal(new Headers(init.headers).get('x-internal-token'), 'internal-test');
+    return Response.json([{ id: 122, prompt_tokens: 10 }]);
+  });
+  assert.deepEqual(await service.tokenUsage(actor, adminToken, { q: 'deepseek', before: '123' }), [{ id: 122, prompt_tokens: 10 }]);
+});
+
 test('newsletter directory requires both admin factors and uses bounded parameterized pagination', async () => {
   let reached = false;
   const database = { withAdmin: async (operation: (tx: TenantTransaction) => Promise<unknown>) => {

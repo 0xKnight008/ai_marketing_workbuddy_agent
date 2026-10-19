@@ -79,6 +79,7 @@ export default (app: Application) => {
   router.post('/api/admin/workspaces/:workspaceId/entitlements', controller.platform.adminUpdateEntitlements);
   router.get('/api/admin/feedback', controller.platform.adminFeedback);
   router.get('/api/admin/newsletter', controller.platform.adminNewsletter);
+  router.get('/api/admin/token-usage', controller.platform.adminTokenUsage);
   router.patch('/api/admin/feedback/:ticketNo', controller.platform.adminUpdateFeedback);
   router.get('/api/admin/jobs', controller.platform.adminJobs);
   router.post('/api/admin/jobs/:jobId/replay', controller.platform.adminReplayJob);

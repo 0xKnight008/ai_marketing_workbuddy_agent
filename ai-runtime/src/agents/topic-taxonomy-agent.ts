@@ -1,5 +1,6 @@
 import { Agent } from '@mastra/core/agent';
 import { chatCompletionsModel } from '../lib/chat-completions-model';
+import { tokenUsageOptions } from '../lib/token-ledger';
 
 /**
  * 主题 taxonomy 提议 agent（Module 2 · 全量主题聚类）。
@@ -26,5 +27,6 @@ Rules:
 - Never invent counts, frequencies, or percentages. You propose names and definitions only; counting is done by the platform.
 - Output strictly follows the structured schema. No commentary outside the schema.`,
     model: chatCompletionsModel(model),
+    defaultOptions: tokenUsageOptions(model, 'topic-taxonomy'),
   });
 }

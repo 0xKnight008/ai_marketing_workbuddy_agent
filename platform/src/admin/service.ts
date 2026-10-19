@@ -77,6 +77,18 @@ interface AdminReferralRow {
 export class AdminService {
   constructor(private readonly config: GatewayConfig, private readonly database: Database) {}
 
+  async tokenUsage(actor: ActorContext, adminToken: string | undefined, query: unknown): Promise<unknown[]> {
+    this.authorize(actor, adminToken);
+    const { q, before } = searchSchema.extend({ before: z.coerce.number().int().min(1).max(Number.MAX_SAFE_INTEGER).default(Number.MAX_SAFE_INTEGER) }).parse(query ?? {});
+    if (!this.config.INTERNAL_SERVICE_TOKEN) throw new HttpError(503, 'token_usage_not_configured');
+    const url = new URL('/internal/token-usage', this.config.AI_RUNTIME_URL);
+    url.searchParams.set('q', q);
+    url.searchParams.set('before', String(before));
+    const response = await fetch(url, { headers: { 'x-internal-token': this.config.INTERNAL_SERVICE_TOKEN }, signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) throw new HttpError(502, 'token_usage_unavailable');
+    return await response.json() as unknown[];
+  }
+
   async newsletter(actor: ActorContext, adminToken: string | undefined, query: unknown): Promise<unknown[]> {
     this.authorize(actor, adminToken);
     const { q, offset } = searchSchema.extend({ offset: z.coerce.number().int().min(0).max(1000000).default(0) }).parse(query ?? {});

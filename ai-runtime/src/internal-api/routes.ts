@@ -13,6 +13,7 @@ import { topicAssignRequestSchema, topicAssignResultSchema, topicProposeRequestS
 import { RunServiceEventEmitter, registerEmitter, removeEmitter } from '../events/emitter';
 import { prepareAnnouncementRequestSchema } from '../schemas/announcement';
 import { internalAuth } from './auth';
+import { listTokenUsage } from '../lib/token-ledger';
 import { createAiRunRecord, getAiRunRecord, updateAiRunRecord } from './run-registry';
 
 /**
@@ -24,6 +25,15 @@ import { createAiRunRecord, getAiRunRecord, updateAiRunRecord } from './run-regi
  * Mastra Studio 调试）。
  */
 export const internalApiRoutes = [
+  registerApiRoute('/internal/token-usage', {
+    method: 'GET', middleware: [internalAuth],
+    handler: async (c) => {
+      const before = Number(c.req.query('before') ?? Number.MAX_SAFE_INTEGER);
+      const q = c.req.query('q') ?? '';
+      if (!Number.isSafeInteger(before) || before < 1 || q.length > 200) return c.json({ error: 'invalid_query' }, 400);
+      return c.json(await listTokenUsage(before, q));
+    },
+  }),
   registerApiRoute('/internal/health', {
     method: 'GET',
     handler: async (c) => c.json({ ok: true, service: 'ai-runtime' }),

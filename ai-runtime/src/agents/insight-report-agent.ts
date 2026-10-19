@@ -1,5 +1,6 @@
 import { Agent } from '@mastra/core/agent';
 import { chatCompletionsModel } from '../lib/chat-completions-model';
+import { tokenUsageOptions } from '../lib/token-ledger';
 
 import type { InsightTemplate } from '../schemas/insights';
 
@@ -81,5 +82,6 @@ export function createInsightReportAgent(template: InsightTemplate, model: strin
     name: `insight-${template}-agent`,
     instructions: TEMPLATE_INSTRUCTIONS[template],
     model: chatCompletionsModel(model),
+    defaultOptions: tokenUsageOptions(model, 'insight-report'),
   });
 }

@@ -11,6 +11,8 @@ const databaseConfigSchema = z.object({
 const zernioClientRpmSchema = z.coerce.number().int().min(1).max(100_000).default(480);
 
 export const gatewayConfigSchema = databaseConfigSchema.extend({
+  AI_RUNTIME_URL: z.string().url().default('http://127.0.0.1:4111'),
+  INTERNAL_SERVICE_TOKEN: z.string().min(1).optional(),
   AUTH_TOKEN_SECRET: z.string().min(32),
   AI_RUNTIME_EVENT_SIGNING_SECRET: z.string().min(32),
   CORS_ORIGINS: z.string().min(1).default('http://localhost:5173').transform((value) =>

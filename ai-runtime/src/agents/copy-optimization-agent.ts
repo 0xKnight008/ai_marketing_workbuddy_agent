@@ -1,5 +1,6 @@
 import { Agent } from '@mastra/core/agent';
 import { chatCompletionsModel } from '../lib/chat-completions-model';
+import { tokenUsageOptions } from '../lib/token-ledger';
 
 /**
  * 文案优化 agent（架构文档 §3.5 明确点名的 agent）。
@@ -29,5 +30,6 @@ Rules:
 - Write in the language specified by the brand profile.
 - Output strictly follows the structured schema.`,
     model: chatCompletionsModel(model),
+    defaultOptions: tokenUsageOptions(model, 'copy-optimization'),
   });
 }
