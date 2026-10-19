@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 
 import AdminEmailGate from '../components/AdminEmailGate';
+import AdminTokenUsage from '../components/AdminTokenUsage';
 
 const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
-type AdminTab = 'workspaces' | 'feedback' | 'jobs' | 'referrals' | 'newsletter';
+type AdminTab = 'workspaces' | 'feedback' | 'jobs' | 'referrals' | 'newsletter' | 'token-usage';
 interface NewsletterView { id: string; email: string; createdAt: string; welcomeStatus: string; attempts: number; welcomeError: string | null; providerId: string | null; acceptedAt: string | null; }
 
 interface UsageView {
@@ -66,6 +67,7 @@ interface ReferralView {
 }
 
 const tabs: Array<{ id: AdminTab; label: string }> = [
+  { id: 'token-usage', label: 'Token usage' },
   { id: 'workspaces', label: 'Workspaces' },
   { id: 'feedback', label: 'Support tickets' },
   { id: 'newsletter', label: 'Newsletter subscribers' },
@@ -115,6 +117,7 @@ function AdminConsole({ email, logout, expired }: { email: string; logout: () =>
   }
 
   async function load(nextTab: AdminTab = tab, offset = 0) {
+    if (nextTab === 'token-usage') return;
     setLoading(true);
     setMessage('');
     const query = `?q=${encodeURIComponent(search.trim())}&offset=${offset}`;
@@ -167,21 +170,22 @@ function AdminConsole({ email, logout, expired }: { email: string; logout: () =>
       <section className="mx-auto mt-8 grid max-w-7xl gap-4 rounded-xl border border-ink/20 bg-paper-card p-5 lg:grid-cols-[1fr_1fr_auto]">
         <p className="text-sm">Signed in as {email}. Session expires after 30 minutes.</p>
         <button onClick={logout} className="rounded border border-ink/20 px-4 py-2">Sign out</button>
-        <button disabled={loading} onClick={() => void load()} className="rounded-md bg-sunset px-6 py-3 font-semibold text-white disabled:opacity-50">{loading ? 'Working…' : 'Refresh'}</button>
+        {tab !== 'token-usage' && <button disabled={loading} onClick={() => void load()} className="rounded-md bg-sunset px-6 py-3 font-semibold text-white disabled:opacity-50">{loading ? 'Working…' : 'Refresh'}</button>}
       </section>
 
       <section className="mx-auto mt-6 max-w-7xl">
         <div className="flex flex-wrap gap-2" role="tablist" aria-label="Admin sections">
           {tabs.map((item) => <button key={item.id} role="tab" aria-selected={tab === item.id} onClick={() => selectTab(item.id)} className={`rounded-md px-4 py-2 text-sm font-semibold ${tab === item.id ? 'bg-sky-deep text-white' : 'border border-ink/20 bg-paper-card text-ink'}`}>{item.label}</button>)}
         </div>
-        <div className="mt-4 flex gap-2">
+        {tab !== 'token-usage' && <div className="mt-4 flex gap-2">
           <input value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void load(); }} className="min-w-0 flex-1 rounded-md border border-ink/20 bg-paper-card p-3" placeholder="Search workspace, slug, owner, ticket, or email" />
           <button disabled={loading} onClick={() => void load()} className="rounded-md border border-ink/30 bg-paper-card px-5 py-3 font-medium disabled:opacity-50">Search / refresh</button>
-        </div>
-        {message && <p className="mt-3 text-sm text-sky-deep" role="status">{message}</p>}
+        </div>}
+        {tab !== 'token-usage' && message && <p className="mt-3 text-sm text-sky-deep" role="status">{message}</p>}
       </section>
 
       <section className="mx-auto mt-6 max-w-7xl overflow-x-auto rounded-xl border border-ink/20 bg-paper-card p-5">
+        {tab === 'token-usage' && <AdminTokenUsage request={request} />}
         {tab === 'newsletter' && <><p className="mb-4 text-sm">Welcome status “accepted” means Resend accepted the email, not confirmed inbox delivery. Check the provider ID in Resend for delivery or bounce details.</p><table className="w-full text-left text-sm"><thead><tr>{['Email', 'Subscribed', 'Welcome status', 'Attempts', 'Last error', 'Resend ID'].map(label => <th key={label} className="p-3">{label}</th>)}</tr></thead><tbody>{newsletter.map(row => <tr key={row.id} className="border-t border-ink/10"><td className="p-3">{row.email}</td><td className="p-3">{new Date(row.createdAt).toLocaleString()}</td><td className="p-3">{row.welcomeStatus}</td><td className="p-3">{row.attempts}</td><td className="p-3">{row.welcomeError ?? '—'}</td><td className="p-3">{row.providerId ?? '—'}</td></tr>)}</tbody></table>{!newsletter.length && <p>No subscribers found.</p>}<div className="mt-4 flex gap-4"><button disabled={loading || newsletterOffset === 0} onClick={() => void load('newsletter', Math.max(0, newsletterOffset - 100))}>Previous</button><span>Page {newsletterOffset / 100 + 1}</span><button disabled={loading || newsletter.length < 100} onClick={() => void load('newsletter', newsletterOffset + 100)}>Next</button></div></>}
         {tab === 'workspaces' && <WorkspaceTable rows={workspaces} plans={plans} credits={credits} setPlans={setPlans} setCredits={setCredits} disabled={loading} update={(workspace) => mutate(`/api/admin/workspaces/${workspace.id}/entitlements`, entitlementChange(workspace, plans, credits), `Updated ${workspace.name}.`)} />}
         {tab === 'feedback' && <FeedbackTable rows={feedback} disabled={loading} update={(ticket, status) => mutate(`/api/admin/feedback/${ticket.ticketNo}`, { status }, `${ticket.ticketNo} moved to ${status}.`)} />}

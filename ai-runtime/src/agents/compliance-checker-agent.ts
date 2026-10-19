@@ -1,5 +1,6 @@
 import { Agent } from '@mastra/core/agent';
 import { chatCompletionsModel } from '../lib/chat-completions-model';
+import { tokenUsageOptions } from '../lib/token-ledger';
 
 /**
  * 合规校验 agent。与确定性校验（禁用词扫描、长度上限）互补，
@@ -31,5 +32,6 @@ Rules:
 - passed=false if and only if at least one blocker exists.
 - Output strictly follows the structured schema.`,
     model: chatCompletionsModel(model),
+    defaultOptions: tokenUsageOptions(model, 'compliance-checker'),
   });
 }

@@ -1,5 +1,6 @@
 import { Agent } from '@mastra/core/agent';
 import { chatCompletionsModel } from '../lib/chat-completions-model';
+import { tokenUsageOptions } from '../lib/token-ledger';
 
 /**
  * 公告内容规划 agent。
@@ -25,5 +26,6 @@ Rules:
 - Write in the language specified by the brand profile.
 - Output strictly follows the structured schema. No commentary outside the schema.`,
     model: chatCompletionsModel(model),
+    defaultOptions: tokenUsageOptions(model, 'announcement-planner'),
   });
 }

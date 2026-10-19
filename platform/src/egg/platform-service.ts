@@ -461,6 +461,10 @@ export class PlatformService {
     return this.admin.newsletter(actor, adminToken, query);
   }
 
+  async adminTokenUsage(actor: ActorContext, adminToken: string | undefined, query: unknown): Promise<unknown[]> {
+    return this.admin.tokenUsage(actor, adminToken, query);
+  }
+
   async adminUpdateFeedback(actor: ActorContext, adminToken: string | undefined, ticketNo: unknown, body: unknown): Promise<unknown> {
     return this.admin.updateFeedback(actor, adminToken, ticketNo, body);
   }
