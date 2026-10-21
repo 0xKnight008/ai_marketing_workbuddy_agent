@@ -1,3 +1,4 @@
+import { downloadReport, reportMarkdown, reportEvidenceCsv } from '../workspace/report-export';
 import { ReportDatasetStats } from "../components/ReportDatasetStats";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -63,8 +64,10 @@ export function AudienceWorkspace({
   const [persona, setPersona] = useState<Audience | undefined>(
     () =>
       audience(location.hash.split("/")[1]) ??
-      audience(new URLSearchParams(location.search).get("persona")),
+      audience(new URLSearchParams(location.search).get("persona")) ?? "creators",
   );
+  const [modelBand,setModelBand]=useState<"eco"|"standard"|"flagship">("standard");
+  const [autoGenerate,setAutoGenerate]=useState(false);
   const [stage, setStage] = useState<Stage>("input");
   const [label, setLabel] = useState("");
   const [scope, setScope] = useState("");
@@ -213,7 +216,7 @@ export function AudienceWorkspace({
         setBusy(false);
         setPersona(
           audience(parts[1]) ??
-            audience(new URLSearchParams(location.search).get("persona")),
+            audience(new URLSearchParams(location.search).get("persona")) ?? "creators",
         );
         setStage("input");
         setReport(null);
@@ -302,6 +305,7 @@ export function AudienceWorkspace({
   const choose = (p: Audience) => {
     ++navigation.current;
     setPersona(p);
+    setAutoGenerate(false);
     setStage("input");
     setReport(null);
     setBatch(null);
@@ -361,6 +365,7 @@ export function AudienceWorkspace({
     try {
       await action();
     } catch (e) {
+      setAutoGenerate(false);
       if (!abort.current?.signal.aborted) setError((e as Error).message);
     } finally {
       busyRef.current = false;
@@ -370,6 +375,7 @@ export function AudienceWorkspace({
   const importData = () =>
     run(async () => {
       const request = navigation.current;
+      setAutoGenerate(true);
       const result = await api<Batch>("/api/imports", {
         method: "POST",
         body: JSON.stringify({
@@ -377,7 +383,7 @@ export function AudienceWorkspace({
           sourceType: source,
           content: text,
           deduplicate,
-          modelBand: "eco",
+          modelBand,
         }),
       });
       if (request !== navigation.current) return;
@@ -394,7 +400,7 @@ export function AudienceWorkspace({
         body: JSON.stringify({
           template: AUDIENCE_TEMPLATE[persona],
           batchIds: [batch.id],
-          modelBand: "eco",
+          modelBand,
           language: locale,
           title: batch.label,
         }),
@@ -409,6 +415,7 @@ export function AudienceWorkspace({
       history.pushState(null, "", `#start/${persona}/${result.id}`);
       onUsageChange();
     });
+  useEffect(()=>{if(autoGenerate && stage==='ready' && batch?.status==='classified' && !busy){setAutoGenerate(false);void generate();}},[autoGenerate,stage,batch?.status,busy]);
   const save = () =>
     run(async () => {
       if (!report || !reviewed || !reviewLoaded) return;
@@ -500,15 +507,7 @@ export function AudienceWorkspace({
       JSON.stringify([...saved.selectedKeys].sort()) ===
         JSON.stringify([...selected].sort()),
   );
-  const step = ["input", "preview"].includes(stage)
-    ? stage === "input"
-      ? 1
-      : 2
-    : stage === "classifying" || stage === "ready"
-      ? 2
-      : savedCurrent
-        ? 4
-        : 3;
+  const step=stage==='input'?1:stage==='preview'?2:3;
   return (
     <div className={`audience-workspace au-${persona}`}>
       <div className="au-heading">
@@ -523,7 +522,7 @@ export function AudienceWorkspace({
             )}
           </p>
         </div>
-        <label>
+        <div>{button(w("New task","Nueva tarea","新建任务"),()=>choose(persona))}<label>
           {w("Scenario", "Escenario", "使用场景")}
           <select
             aria-label={w("Scenario", "Escenario", "使用场景")}
@@ -537,7 +536,7 @@ export function AudienceWorkspace({
               </option>
             ))}
           </select>
-        </label>
+        </label></div>
       </div>
       <div className="au-toolbar">
         {button(w("This analysis", "Este análisis", "本次分析"), () =>
@@ -577,9 +576,8 @@ export function AudienceWorkspace({
         <ol className="au-steps">
           {[
             w("Import", "Importar", "导入素材"),
-            w("Check scope", "Revisar alcance", "确认范围"),
+            w("Confirm goal", "Confirmar objetivo", "确认目标"),
             w("Read results", "Leer resultados", "查看结果"),
-            w("Save & reuse", "Guardar", "保存复用"),
           ].map((name, i) => (
             <li key={name} aria-current={step === i + 1 ? "step" : undefined}>
               <span>{step > i + 1 ? "✓" : i + 1}</span>
@@ -719,16 +717,16 @@ export function AudienceWorkspace({
               {w("Analysis scope", "Alcance", "分析范围")}
             </div>
           </div>
-          <ol className="au-preview">
+          <h3>{w('Analysis goal','Objetivo del análisis','分析目标')} · {copy.report}</h3><p>{w('Choose a supported goal using Scenario. Classification and the report will run in sequence after confirmation.','Elige un objetivo con Escenario. La clasificación y el informe se ejecutarán en secuencia.','通过使用场景选择当前支持的分析目标；确认后依次完成分类与报告生成。')}</p><div className="au-model-control"><label>{w('Model capability','Capacidad del modelo','模型能力')}<select aria-label={w('Model capability','Capacidad del modelo','模型能力')} value={modelBand} disabled={busy} onChange={e=>setModelBand(e.target.value as typeof modelBand)}><option value="eco">Eco · {w('Fast','Rápido','轻量')}</option><option value="standard">Standard · {w('Balanced','Equilibrado','均衡')}</option><option value="flagship">Flagship · {w('Deep reasoning','Razonamiento profundo','深度')}</option></select></label></div><ol className="au-preview">
             {rows.slice(0, 5).map((row, i) => (
               <li key={i}>{row}</li>
             ))}
           </ol>
           <p>
             {w(
-              "Eco: 1 credit per AI call. Classification and report generation are charged separately; calls depend on batch size and model limits.",
-              "Eco: 1 crédito por llamada. La clasificación y el informe se cobran por separado según los datos.",
-              "Eco 每次 AI 调用 1 credit。导入分类与报告生成分别计费，调用次数取决于批次大小与模型限制。",
+              "Classification and report generation are separate paid calls. The selected band applies to both: Eco 1, Standard 6, Flagship 20 credits per call. Total calls depend on batch size.",
+              "Clasificación e informe se cobran por separado: Eco 1, Standard 6 y Flagship 20 créditos por llamada. Las llamadas dependen de los datos.",
+              "分类与报告分别计费，所选档位同时适用于两者：Eco 每次 1、Standard 每次 6、Flagship 每次 20 credits；总调用次数取决于素材大小。",
             )}
           </p>
           <p>
@@ -741,9 +739,9 @@ export function AudienceWorkspace({
             )}
             {button(
               w(
-                "Confirm paid import →",
-                "Confirmar importación →",
-                "确认导入并分类 →",
+                "Confirm goal & run analysis →",
+                "Confirmar objetivo y analizar →",
+                "确认目标并开始分析 →",
               ),
               () => void importData(),
               true,
@@ -846,7 +844,7 @@ export function AudienceWorkspace({
       )}
       {stage === "result" && report && (
         <section className="workspace-card">
-          <p className="au-eyebrow">{copy.report}</p>
+          <div className="au-actions"><button onClick={()=>downloadReport(`report-${report.id}.md`,reportMarkdown(report))}>{w('Report .md','Informe .md','报告 .md')}</button><button onClick={()=>downloadReport(`evidence-${report.id}.csv`,reportEvidenceCsv(report),'text/csv;charset=utf-8')}>{w('Evidence .csv','Evidencias .csv','证据 .csv')}</button></div><p className="au-eyebrow">{copy.report}</p>
           <h3>{report.title}</h3>
           <p>
             {report.itemCount} {copy.noun} ·{" "}

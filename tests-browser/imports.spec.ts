@@ -16,6 +16,7 @@ test('CSV preview requires confirmation, preserves custom labels and rejects ove
     return route.fulfill({ json: [] });
   });
   await page.goto('/app');
+  await page.locator('.workspace-sidebar details summary').click();
   await page.getByRole('button', { name: 'Sources', exact: true }).click();
   const file = page.locator('input[type=file]');
   await file.setInputFiles({ name: 'first.csv', mimeType: 'text/csv', buffer: Buffer.from('text\nhello') });

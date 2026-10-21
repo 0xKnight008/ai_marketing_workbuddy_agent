@@ -174,15 +174,15 @@ for (const persona of Object.keys(personas) as Persona[])
         "Duplicates removed",
       );
       expect(f.mutations).toHaveLength(0);
-      await page.getByRole("button", { name: "Confirm paid import" }).click();
-      await expect(page.getByText("Your sources are ready")).toBeVisible();
+      await page.getByRole("button", { name: "Confirm goal & run analysis" }).click();
+
       expect(f.mutations[0].body).toMatchObject({
         deduplicate: true,
         sourceType: "paste",
-        modelBand: "eco",
+        modelBand: "standard",
       });
-      await page.getByRole("button", { name: /^Generate/ }).click();
-      await expect(page.locator(".au-insight")).toBeVisible();
+
+      await expect(page.locator(".au-insight")).toBeVisible({timeout:20000});
       expect(f.mutations[1].body).toMatchObject({
         batchIds: ["batch-1"],
         template: personas[persona][0],
@@ -254,7 +254,7 @@ test("CSV preview preserves distinct authors and keeps input after insufficient-
   await expect(page.locator(".au-stats>div").nth(2).locator("b")).toHaveText(
     "2",
   );
-  await page.getByRole("button", { name: "Confirm paid import" }).click();
+  await page.getByRole("button", { name: "Confirm goal & run analysis" }).click();
   await expect(page.getByRole("alert")).toContainText(
     "Subscription or AI credits",
   );
@@ -269,13 +269,13 @@ test("editor can analyze without billing permissions; exhausted owner can still 
   await page.getByRole("button", { name: "Use example input" }).click();
   await page.getByRole("button", { name: "Preview scope" }).click();
   await expect(
-    page.getByRole("button", { name: "Confirm paid import" }),
+    page.getByRole("button", { name: "Confirm goal & run analysis" }),
   ).toBeEnabled();
   expect(f.mutations).toHaveLength(0);
   await page.unroute("**/api/**");
   await fixture(page, "creators", { credits: 0, existing: true });
   await page.goto("/app#start/creators/report-1");
-  await expect(page.locator(".au-insight")).toBeVisible();
+  await expect(page.locator(".au-insight")).toBeVisible({timeout:20000});
   await page
     .getByLabel("I checked the source evidence and analysis scope.")
     .check();
@@ -299,18 +299,18 @@ test("viewer cannot save; failed generation is recoverable without silent retrie
   ).toBeVisible();
   expect(f.mutations).toHaveLength(0);
 });
-test("empty workspace offers three scenarios; existing work keeps its overview", async ({
+test("both empty and existing workspaces open the three-step task", async ({
   page,
 }) => {
   await fixture(page, "creators");
   await page.goto("/app");
   await expect(
-    page.getByText("What would you like to understand first?"),
+    page.getByText("Bring your first source"),
   ).toBeVisible();
   await page.unroute("**/api/**");
   await fixture(page, "creators", { existing: true });
   await page.goto("/app");
-  await expect(page.locator("[data-nav=dashboard]")).toHaveAttribute(
+  await expect(page.locator("[data-nav=start]")).toHaveAttribute(
     "aria-current",
     "page",
   );
@@ -363,7 +363,7 @@ test("result and mobile landing pass accessibility checks; language preference s
   await page.locator("#workspace-language").selectOption("es");
   await page.reload();
   await expect(page.locator("#workspace-language")).toHaveValue("es");
-  await expect(page.locator(".au-insight")).toBeVisible();
+  await expect(page.locator(".au-insight")).toBeVisible({timeout:20000});
   for (const landing of [false, true]) {
     if (landing) {
       await page.setViewportSize({ width: 390, height: 844 });
@@ -377,4 +377,11 @@ test("result and mobile landing pass accessibility checks; language preference s
     );
     expect(result.violations).toEqual([]);
   }
+});
+
+for (const modelBand of ['eco','standard','flagship']) test(`three-step task respects ${modelBand} and exports real Markdown / CSV`,async({page})=>{
+ const f=await fixture(page,'creators');await page.goto('/app#start');await page.getByLabel('Source name',{exact:true}).fill('Export test');await page.getByLabel('Date / scope',{exact:true}).fill('Today');await page.getByLabel('One item per line',{exact:true}).fill(f.quote);await page.getByRole('button',{name:'Preview scope'}).click();await page.getByLabel('Model capability',{exact:true}).selectOption(modelBand);await page.getByRole('button',{name:'Confirm goal & run analysis'}).click();await expect(page.locator('.au-insight')).toBeVisible({timeout:20000});expect(f.mutations.map(x=>x.body.modelBand)).toEqual([modelBand,modelBand]);
+ const {readFile}=await import('node:fs/promises');
+ let pending=page.waitForEvent('download');await page.getByRole('button',{name:'Report .md',exact:true}).click();let download=await pending;const md=await readFile((await download.path())!,'utf8');expect(md).toContain('# September · This week\n\n');expect(md).toContain(`> [i1] ${f.quote}`);expect(md).not.toContain('\\n');
+ pending=page.waitForEvent('download');await page.getByRole('button',{name:'Evidence .csv',exact:true}).click();download=await pending;const csv=await readFile((await download.path())!,'utf8');expect(csv.charCodeAt(0)).toBe(0xfeff);expect(csv).toContain('\r\n');expect(csv).toContain('"validated_excerpt"');expect(csv).toContain(f.quote);expect(f.mutations).toHaveLength(2);
 });

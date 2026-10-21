@@ -20,6 +20,7 @@ test('selects a full presale draft and displays exact text in the approval queue
     return route.fulfill({ json: [] });
   });
   await page.goto('/app');
+  await page.locator('.workspace-sidebar details summary').click();
   await page.getByRole('button', { name: 'Insights', exact: true }).click();
   await page.getByRole('button', { name: 'Open report', exact: true }).click();
   await page.getByRole('button', { name: 'Send report…', exact: true }).click();

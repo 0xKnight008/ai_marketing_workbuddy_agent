@@ -25,6 +25,7 @@ test('manual execution feedback saves, persists on reopen, and keeps edits after
     return route.fulfill({ json: [] });
   });
   await page.goto('/app');
+  await page.locator('.workspace-sidebar details summary').click();
   await page.getByRole('button', { name: 'Insights', exact: true }).click();
   await page.getByRole('button', { name: 'Open report', exact: true }).click();
   const panel = page.getByRole('region', { name: 'Execution feedback' });

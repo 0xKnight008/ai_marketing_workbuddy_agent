@@ -17,6 +17,7 @@ test('content recap displays quoted script drafts and truthful historical topic 
     return route.fulfill({ json: [] });
   });
   await page.goto('/app');
+  await page.locator('.workspace-sidebar details summary').click();
   await page.getByRole('button', { name: 'Insights', exact: true }).click();
   await page.getByRole('button', { name: 'Open report', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Next batch: 2 topic ideas' })).toBeVisible();
@@ -44,6 +45,7 @@ test('report shows full totals separately from sampled quotations and supports h
     return route.fulfill({ json: [] });
   });
   await page.goto('/app');
+  await page.locator('.workspace-sidebar details summary').click();
   await page.getByRole('button', { name: 'Insights', exact: true }).click();
   await page.getByRole('button', { name: 'Open report', exact: true }).click();
   const stats = page.getByRole('region', { name: 'Full dataset statistics' });
