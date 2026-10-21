@@ -1,3 +1,4 @@
+import {useWorkspaceLanguage} from '../workspace/useWorkspaceLanguage';
 import { useState } from 'react';
 
 interface Summary {
@@ -11,32 +12,9 @@ export function referralMoney(micros: string): string {
   return `${cents / 100n}.${String(cents % 100n).padStart(2, '0')}`;
 }
 
-export function ReferralLedger({ gatewayUrl, headers }: { gatewayUrl: string; headers: () => HeadersInit }) {
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [offset, setOffset] = useState(0);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  async function load(page: number) {
-    setBusy(true); setError('');
-    try {
-      const response = await fetch(`${gatewayUrl}/api/referral/summary?offset=${page}`, { headers: headers() });
-      if (!response.ok) throw new Error('Unable to load referral ledger. Owner or admin access is required.');
-      setSummary(await response.json() as Summary); setOffset(page);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to load ledger.'); }
-    finally { setBusy(false); }
-  }
-  return <section className="sketch bg-paper-card p-5 mt-6">
-    <h2 className="text-lg font-semibold">Referral rewards</h2>
-    <p className="mt-2 text-sm">20% of eligible first-year USD payments, capped at $2,000 per rolling year. Rewards round down to cents and wait 30 days. Any refund reverses the full reward. Referees receive no additional reward.</p>
-    <button className="my-3 rounded border px-3 py-2" disabled={busy} onClick={() => void load(0)}>Refresh ledger</button>
-    {error && <p role="alert">{error}</p>}
-    {summary && <>
-      <p>Attributed workspaces: {summary.attributed}</p>
-      {summary.currencies.map(row => <p key={row.currency} className="my-2 text-sm">{row.currency.toUpperCase()} — Pending/issuing: {referralMoney(row.pending)} · Available: {referralMoney(row.available)} · Total issued: {referralMoney(row.credited)} · Awaiting reversal: {referralMoney(row.reversalpending)} · Reversed: {referralMoney(row.reversed)}</p>)}
-      <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th>Referred workspace</th><th>Invoice</th><th>Reward</th><th>Status</th></tr></thead><tbody>
-        {summary.entries.map(row => <tr key={row.ledgerId ?? row.attributionId}><td className="py-2">{row.referredWorkspaceId}</td><td>{row.invoiceId ?? '—'}</td><td>{row.amountMicros ? `${row.currency?.toUpperCase()} ${referralMoney(row.amountMicros)}` : '—'}</td><td>{row.status ?? 'Awaiting eligible invoice'}</td></tr>)}
-      </tbody></table></div>
-      <div className="mt-3 flex gap-4"><button disabled={busy || !offset} onClick={() => void load(offset - 50)}>Previous</button><span>Page {offset / 50 + 1}</span><button disabled={busy || summary.entries.length < 50} onClick={() => void load(offset + 50)}>Next</button></div>
-    </>}
-  </section>;
+export function ReferralLedger({gatewayUrl,headers}:{gatewayUrl:string;headers:()=>HeadersInit}) {
+ const {w}=useWorkspaceLanguage();const [summary,setSummary]=useState<Summary|null>(null);const [offset,setOffset]=useState(0);const [busy,setBusy]=useState(false);const [error,setError]=useState('');
+ async function load(page:number){setBusy(true);setError('');try{const response=await fetch(`${gatewayUrl}/api/referral/summary?offset=${page}`,{headers:headers()});if(!response.ok)throw new Error(w('Unable to load referral ledger. Owner or admin access is required.','No se pudo cargar el registro. Se requiere propietario o administrador.','无法加载推荐账本，需要负责人或管理员权限。'));setSummary(await response.json() as Summary);setOffset(page)}catch(e){setError((e as Error).message)}finally{setBusy(false)}}
+ const state=(status:string|null)=>({pending:w('Awaiting issuance','Pendiente de emisión','等待发放'),issuing:w('Issuing','En emisión','发放中'),available:w('Available','Disponible','可用奖励'),void:w('Voided (not issued)','Anulado (no emitido)','已作废（未发放）'),reversal_pending:w('Awaiting reversal','Pendiente de reversión','待冲正'),clawed_back:w('Reversed','Revertido','已冲正')}[status??'']??w('Awaiting eligible invoice','Esperando factura elegible','等待符合条件的发票'));
+ return <section className="workspace-card" aria-label={w('Referral ledger','Registro de recomendaciones','推荐账本')}><h2>{w('Referral rewards','Recompensas por recomendación','推荐奖励')}</h2><p>{w('20% of eligible first-year USD payments, capped at $2,000 per rolling year. Rewards wait 30 days. Any refund reverses the full reward. Referees receive no additional reward.','20% de pagos elegibles en USD del primer año, límite de 2000 USD por año móvil y espera de 30 días. Cualquier reembolso revierte toda la recompensa. El referido no recibe recompensa adicional.','符合条件的首年美元付款奖励 20%，滚动年上限 $2,000，等待 30 天。任何退款冲正整笔奖励，被推荐方无额外奖励。')}</p><button className="my-3" disabled={busy} onClick={()=>void load(0)}>{w('Refresh ledger','Actualizar registro','刷新推荐账本')}</button>{error&&<p role="alert">{error}</p>}{summary&&<><p>{w('Attributed workspaces','Espacios atribuidos','已归因工作区')}: {summary.attributed}</p>{summary.currencies.map(row=><div key={row.currency}><h3>{row.currency.toUpperCase()}</h3><div className="grid grid-cols-2 gap-3 my-4 lg:grid-cols-5">{[[w('Pending / issuing','Pendiente / emitiendo','待处理 / 发放中'),row.pending],[w('Available','Disponible','可用奖励'),row.available],[w('Total issued','Total emitido','累计已发放'),row.credited],[w('Awaiting reversal','Pendiente de reversión','待冲正'),row.reversalpending],[w('Reversed','Revertido','已冲正'),row.reversed]].map(([label,value])=><div className="rounded border border-ink/20 p-3" key={label}><small>{label}</small><strong className="block">{referralMoney(value)}</strong></div>)}</div></div>)}<p className="text-sm text-ink-soft">{w('Total issued includes later reversals. Do not add it to available or reversal balances.','El total emitido incluye reversiones posteriores; no se suma a los demás saldos.','累计已发放包含后来冲正的金额，不能与可用或冲正金额相加。')}</p><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr>{[w('Referred workspace','Espacio referido','被推荐工作区'),w('Invoice','Factura','发票'),w('Reward','Recompensa','奖励'),w('Status','Estado','状态')].map(label=><th key={label}>{label}</th>)}</tr></thead><tbody>{summary.entries.map(row=><tr key={row.ledgerId??row.attributionId}><td className="py-2">{row.referredWorkspaceId}</td><td>{row.invoiceId??'—'}</td><td>{row.amountMicros?`${row.currency?.toUpperCase()} ${referralMoney(row.amountMicros)}`:'—'}</td><td>{state(row.status)}</td></tr>)}</tbody></table></div><div className="flex gap-3 mt-4"><button disabled={busy||!offset} onClick={()=>void load(offset-50)}>{w('Previous','Anterior','上一页')}</button><span>{offset/50+1}</span><button disabled={busy||summary.entries.length<50} onClick={()=>void load(offset+50)}>{w('Next','Siguiente','下一页')}</button></div></>}</section>;
 }

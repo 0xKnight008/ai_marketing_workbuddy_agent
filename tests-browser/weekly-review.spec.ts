@@ -24,6 +24,7 @@ test('weekly review shows denominators, unknown effects and report navigation; r
     return route.fulfill({ json: [] });
   });
   await page.goto('/app');
+  await page.locator('.workspace-sidebar details summary').click();
   await page.getByRole('button', { name: 'Insights', exact: true }).click();
   const panel = page.getByRole('region', { name: 'Weekly follow-up review' });
   await panel.getByRole('button', { name: 'Load weekly review' }).click();

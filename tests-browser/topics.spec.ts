@@ -29,6 +29,7 @@ test('topics show verified counts, audit modal highlights verbatim evidence, and
   });
 
   await page.goto('/app');
+  await page.locator('.workspace-sidebar details summary').click();
   await page.getByRole('button', { name: 'Topics', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Topic clustering' })).toBeVisible();
   // 计数来自平台 SQL（×N 徽章），逐主题可审计。

@@ -13,11 +13,10 @@ test('referral ledger displays exact balances and paginates referee records', as
     if (url.pathname.startsWith('/api/billing/')) return route.fulfill({ status: 503, json: { error: 'unused' } });
     return route.fulfill({ json: [] });
   });
-  await page.goto('/app#settings');
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.goto('/app#settings');await page.getByRole('tab',{name:'Account & referrals',exact:true}).click();
   await page.getByRole('button', { name: 'Refresh ledger' }).click();
   await expect(page.getByText('Attributed workspaces: 51')).toBeVisible();
-  await expect(page.getByText(/Total issued: 0.30/)).toBeVisible();
+  await expect(page.locator('.rounded').filter({has:page.getByText('Total issued',{exact:true})}).getByText('0.30',{exact:true})).toBeVisible();
   await page.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(page.getByRole('cell', { name: 'referee-50', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeDisabled();
