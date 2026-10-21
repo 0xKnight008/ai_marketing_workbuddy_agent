@@ -1,4 +1,5 @@
 {
+  "Save and check setup": ["Guardar y comprobar configuración", "保存并检查配置"],
   "V1: text-only pipeline publishing": ["V1: publicación de texto en flujos", "V1：流水线仅支持纯文字发布"],
   "V1: report and notification delivery only; pipeline publishing unavailable": ["V1: solo informes y notificaciones; sin publicación en flujos", "V1：仅支持报告和通知交付，不支持流水线发布"],
   "Connection available; media publishing is not supported in V1": ["Conexión disponible; publicación multimedia no compatible con V1", "可连接账号；V1 暂不支持媒体发布"],
