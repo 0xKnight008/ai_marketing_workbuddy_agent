@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import axe from 'axe-core';
 const original='¿Podrías hacer un tutorial paso a paso?';
 const report={id:'report-1',batchIds:['batch-1'],title:'Audience requests',template:'community_digest',status:'generated',createdAt:'2026-09-18T10:00:00Z',modelBand:'eco',itemCount:2,droppedCitations:0,delivery:null,report:{_language:'es',summary:'Requests for clearer tutorials.',hotTopics:[{topic:'Step-by-step',citations:[{ref:'i1',snippet:original}]}],unresolvedQuestions:[],highValueMembers:[],conflictRisks:[],activityIdeas:[],announcementDraft:original}};
-async function fixture(page:Page){
+async function fixture(page:Page, options: { paused?: boolean } = {}){
  page.on('pageerror',error=>{throw error;});
  let approvals=[{id:'approval-1',requestedAt:'2026-09-18T10:00:00Z',requestedAction:{summary:'Send saved draft',parameters:{content:original,subject:'[Piggybot] Audience requests',targetLabel:'review@example.invalid',channel:'email'}}}];
  const mutations:Array<{path:string;body:unknown}>=[];
@@ -13,7 +13,7 @@ async function fixture(page:Page){
  if(path==='/api/approval-requests')return route.fulfill({json:approvals});
  if(path.startsWith('/api/approval-requests/')){approvals=[];return route.fulfill({json:{status:'approved'}});}
  if(path==='/api/billing/dashboard')return route.fulfill({json:{usage:{status:'active',taskUsed:12,taskQuota:100,aiCreditsUsed:2,aiCreditsAvailable:100,plan:'growth',subscriptionStatus:'active'},subscription:null,syncError:false,creditBalance:0,refundDebt:0,includedCredits:100,canManage:true,canUpgrade:true,canTopup:true,topupUnavailableReason:null,topups:[]}});
- if(path==='/api/billing/usage')return route.fulfill({json:{status:'active',taskUsed:12,taskQuota:100,aiCreditsUsed:2,aiCreditsAvailable:100,plan:'growth',subscriptionStatus:'active'}});
+ if(path==='/api/billing/usage')return route.fulfill({json:{status:options.paused?'paused':'active',taskUsed:12,taskQuota:100,aiCreditsUsed:options.paused?100:2,aiCreditsAvailable:options.paused?0:100,plan:'growth',subscriptionStatus:'active'}});
  if(path==='/api/insights')return route.fulfill({json:req.method()==='POST'?{id:'report-new',status:'pending'}:[report]});
  if(path==='/api/insights/report-1')return route.fulfill({json:report});
  if(path.endsWith('/review'))return route.fulfill({json:{review:null,canEdit:true}});
@@ -66,7 +66,9 @@ test('mobile navigation traps focus, restores focus and supports 320px',async({p
 test('report evidence remains unchanged across UI language switches',async({page})=>{await fixture(page);await nav(page,'reports');await page.getByRole('button',{name:'Open report',exact:true}).click();await expect(page.locator('blockquote')).toContainText(original);await page.locator('#workspace-language').selectOption('zh');await expect(page.locator('blockquote')).toContainText(original);await expect(page.getByRole('button',{name:'保存核对与关注重点'})).toBeVisible();});
 
 test('support floats above paused content, preserves failed input and creates a real ticket',async({page})=>{
- await fixture(page);await page.route('**/api/billing/usage',route=>route.fulfill({json:{status:'paused',subscriptionStatus:'active',taskUsed:12,taskQuota:100,aiCreditsUsed:100,aiCreditsAvailable:0,plan:'growth'}}));await page.reload();await expect(page.getByRole('heading',{name:'Automation is paused',exact:true})).toBeVisible();const calls:unknown[]=[];let fail=true;await page.route('**/api/feedback',route=>{calls.push(route.request().postDataJSON());return route.fulfill(fail?{status:503,json:{error:'unavailable'}}:{json:{ticketId:'PB-123'}})});
+ // Configure billing before navigation: reloading immediately after the sidebar mounts
+ // cancels startup fetches and can raise a WebKit pageerror before support is exercised.
+ await fixture(page, { paused: true });await expect(page.getByRole('heading',{name:'Automation is paused',exact:true})).toBeVisible();const calls:unknown[]=[];let fail=true;await page.route('**/api/feedback',route=>{calls.push(route.request().postDataJSON());return route.fulfill(fail?{status:503,json:{error:'unavailable'}}:{json:{ticketId:'PB-123'}})});
  await page.locator('#workspace-language').selectOption('zh');await page.getByRole('button',{name:'帮助与支持',exact:true}).click();const dialog=page.getByRole('dialog');await dialog.getByRole('textbox').fill('任务报告需要协助');await dialog.getByRole('combobox').selectOption('bug');await dialog.getByRole('button',{name:'提交支持工单'}).click();await expect(dialog.getByRole('status')).toContainText('提交失败');await expect(dialog.getByRole('textbox')).toHaveValue('任务报告需要协助');fail=false;await dialog.getByRole('button',{name:'提交支持工单'}).click();await expect(dialog.getByRole('status')).toContainText('PB-123');expect(calls[1]).toMatchObject({category:'bug',message:'任务报告需要协助',locale:'zh'});await page.keyboard.press('Escape');await expect(page.getByRole('button',{name:'帮助与支持',exact:true})).toBeFocused();
 });
 test('combined settings keeps Stripe management, upgrades, credits and account referral actions',async({page})=>{
