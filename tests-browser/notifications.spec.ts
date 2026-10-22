@@ -33,8 +33,7 @@ test('scheduled delivery: rule save is standing approval; weekly digest needs a 
   });
 
   await page.goto('/app');
-  await page.locator('.workspace-sidebar details summary').click();
-  await page.getByRole('button', { name: 'Notifications', exact: true }).click();
+  await page.locator('[data-nav=settings]').click(); await page.getByRole('tab',{name:'Digests & reminders',exact:true}).click();
   const panel = page.getByRole('region', { name: 'Scheduled delivery' });
   await panel.getByRole('button', { name: 'Load scheduled delivery' }).click();
 

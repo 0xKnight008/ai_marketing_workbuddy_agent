@@ -1,3 +1,4 @@
+import {ExecutionHistory} from '../workspace/ModelControls';
 import { downloadReport, reportMarkdown, reportEvidenceCsv } from '../workspace/report-export';
 import { ReportDatasetStats } from "../components/ReportDatasetStats";
 import { useEffect, useRef, useState } from "react";
@@ -23,6 +24,7 @@ import { AUDIENCE_TEMPLATE, audienceCopy, samples } from "./copy";
 import "./audience-workspace.css";
 
 type Report = {
+  modelBand?:"eco"|"standard"|"flagship";
   id: string;
   template: string;
   title: string;
@@ -67,6 +69,7 @@ export function AudienceWorkspace({
       audience(new URLSearchParams(location.search).get("persona")) ?? "creators",
   );
   const [modelBand,setModelBand]=useState<"eco"|"standard"|"flagship">("standard");
+  const [templateOverride,setTemplateOverride]=useState('');
   const [autoGenerate,setAutoGenerate]=useState(false);
   const [stage, setStage] = useState<Stage>("input");
   const [label, setLabel] = useState("");
@@ -305,6 +308,7 @@ export function AudienceWorkspace({
   const choose = (p: Audience) => {
     ++navigation.current;
     setPersona(p);
+    setTemplateOverride('');
     setAutoGenerate(false);
     setStage("input");
     setReport(null);
@@ -398,7 +402,7 @@ export function AudienceWorkspace({
       const result = await api<Report>("/api/insights", {
         method: "POST",
         body: JSON.stringify({
-          template: AUDIENCE_TEMPLATE[persona],
+          template: templateOverride || AUDIENCE_TEMPLATE[persona],
           batchIds: [batch.id],
           modelBand,
           language: locale,
@@ -717,6 +721,9 @@ export function AudienceWorkspace({
               {w("Analysis scope", "Alcance", "分析范围")}
             </div>
           </div>
+          <label>{w('Report template','Plantilla de informe','报告模板')}<select value={templateOverride||AUDIENCE_TEMPLATE[persona]} onChange={e=>setTemplateOverride(e.target.value)}>{[
+            ['content_recap',w('Content recap','Resumen de contenido','内容复盘')],['comment_insights',w('Comment insights','Análisis de comentarios','评论洞察')],['product_opportunities',w('Product opportunities','Oportunidades de producto','商品机会')],['review_attribution',w('Review attribution','Análisis de reseñas','评价归因')],['community_digest',w('Community digest','Resumen de comunidad','社群摘要')],['daily_ops',w('Daily tasks','Tareas diarias','每日任务')]
+          ].map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
           <h3>{w('Analysis goal','Objetivo del análisis','分析目标')} · {copy.report}</h3><p>{w('Choose a supported goal using Scenario. Classification and the report will run in sequence after confirmation.','Elige un objetivo con Escenario. La clasificación y el informe se ejecutarán en secuencia.','通过使用场景选择当前支持的分析目标；确认后依次完成分类与报告生成。')}</p><div className="au-model-control"><label>{w('Model capability','Capacidad del modelo','模型能力')}<select aria-label={w('Model capability','Capacidad del modelo','模型能力')} value={modelBand} disabled={busy} onChange={e=>setModelBand(e.target.value as typeof modelBand)}><option value="eco">Eco · {w('Fast','Rápido','轻量')}</option><option value="standard">Standard · {w('Balanced','Equilibrado','均衡')}</option><option value="flagship">Flagship · {w('Deep reasoning','Razonamiento profundo','深度')}</option></select></label></div><ol className="au-preview">
             {rows.slice(0, 5).map((row, i) => (
               <li key={i}>{row}</li>
@@ -775,9 +782,9 @@ export function AudienceWorkspace({
           </p>
           <p>
             {w(
-              "You can leave this page. The batch is saved in Sources.",
-              "Puedes salir. El lote está guardado en Fuentes.",
-              "可以离开此页，批次已保存在数据来源中。",
+              "You can leave this page. The batch is saved in Source library under Current task.",
+              "Puedes salir. El lote está en Biblioteca de fuentes, dentro de Tarea actual.",
+              "可以离开此页，批次已保存在当前任务的素材库中。",
             )}
           </p>
           <div className="au-actions">
@@ -860,6 +867,7 @@ export function AudienceWorkspace({
               )}
             </div>
           )}
+          {report&&<ExecutionHistory token={token} apiBase={apiBase} kind="report" id={report.id} requested={report.modelBand??modelBand}/>}
           <ReportDatasetStats value={report.report?._dataset} />
           <p>
             {typeof report.report?.summary === "string"

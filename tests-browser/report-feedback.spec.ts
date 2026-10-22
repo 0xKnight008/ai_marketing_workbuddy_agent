@@ -25,8 +25,7 @@ test('manual execution feedback saves, persists on reopen, and keeps edits after
     return route.fulfill({ json: [] });
   });
   await page.goto('/app');
-  await page.locator('.workspace-sidebar details summary').click();
-  await page.getByRole('button', { name: 'Insights', exact: true }).click();
+  await page.locator('[data-nav=reports]').click();
   await page.getByRole('button', { name: 'Open report', exact: true }).click();
   const panel = page.getByRole('region', { name: 'Execution feedback' });
   await expect(panel).toContainText('Saving does not execute, publish or approve anything');
@@ -37,7 +36,7 @@ test('manual execution feedback saves, persists on reopen, and keeps edits after
   await panel.getByRole('button', { name: 'Save feedback: Reply to fans' }).click();
   await expect(panel).toContainText('Feedback saved');
   expect(saves[0]).toEqual({ status: 'completed', effect: 'improved', note: 'Five fans replied' });
-  await page.getByRole('button', { name: 'Back to insights', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to reports', exact: true }).click();
   await page.getByRole('button', { name: 'Open report', exact: true }).click();
   await expect(panel.getByLabel('Outcome notes: Reply to fans')).toHaveValue('Five fans replied');
   await panel.getByLabel('Outcome notes: Reply to fans').fill('Updated observation');

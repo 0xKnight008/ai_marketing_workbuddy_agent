@@ -126,13 +126,13 @@ export async function executeTaskTurn(
           };
         const reservation = await reserveAiRun(
           tx,
-          [reply.modelBand],
+          [(job.payload.modelBandOverride ?? reply.modelBand) as ModelBand],
           {
             subjectId: reply.id,
             attempt: reply.steps.length + 1,
             actionType: "ai.task",
           },
-          reply.modelBand,
+          (job.payload.modelBandOverride ?? reply.modelBand) as ModelBand,
         );
         if (
           !reservation.replayed &&

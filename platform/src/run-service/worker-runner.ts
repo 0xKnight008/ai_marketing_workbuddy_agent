@@ -1,3 +1,4 @@
+import {ModelChoiceRequired} from '../billing/guardrails';
 import {executeTaskTurn} from '../task-service/worker';
 import { createHash } from 'node:crypto';
 import { supportsAnnouncement } from '../zernio/social-platforms';
@@ -120,7 +121,13 @@ export class RunWorker {
       else throw new Error(`Unsupported job: ${job.kind}`);
     } catch (error) {
       if (error instanceof JobLeaseLost) throw error;
-      if (error instanceof SupplierUnavailableError) await this.deferForSupplier(job, error);
+      if (error instanceof ModelChoiceRequired) {
+        await this.options.database.withWorkspace(job.workspaceId,async tx=>{
+          await tx.query("UPDATE job SET status='queued',attempt=GREATEST(attempt-1,0),available_at='infinity',locked_at=NULL,locked_by=NULL,last_error='model_choice_required',payload=payload||$3::jsonb,updated_at=now() WHERE workspace_id=$1 AND id=$2",[job.workspaceId,job.id,JSON.stringify({modelChoice:{requestedBand:error.requestedBand,availableCredits:error.usage.aiCreditsAvailable,reason:error.reason}})]);
+          await tx.query('INSERT INTO audit_event(workspace_id,event_type,payload) VALUES($1,$2,$3)',[job.workspaceId,'ai.model_choice_required',{jobId:job.id,taskId:job.payload.taskId??null,requestedBand:error.requestedBand,reason:error.reason}]);
+        });
+      }
+      else if (error instanceof SupplierUnavailableError) await this.deferForSupplier(job, error);
       else await this.failJob(job, error);
     }
   }
@@ -148,8 +155,8 @@ export class RunWorker {
       }
       // 对话框档位选择：run input 可携带 modelBand（eco/standard/flagship），
       // 合法且在品牌策略允许范围内时优先于默认档位。
-      const requestedBand = z.enum(MODEL_BANDS).safeParse(found.input?.modelBand);
-      const reservation = await reserveAiRun(tx, found.context.allowedModelClasses, found.id, requestedBand.success ? requestedBand.data : undefined);
+      const requestedBand = z.enum(MODEL_BANDS).safeParse(job.payload.modelBandOverride ?? found.input?.modelBand);
+      const reservation = await reserveAiRun(tx, job.payload.modelBandOverride ? [...found.context.allowedModelClasses,String(job.payload.modelBandOverride)] : found.context.allowedModelClasses, found.id, requestedBand.success ? requestedBand.data : undefined);
       if (!reservation.replayed && reservation.guardrail.status === 'paused') {
         await this.pauseForBilling(tx, job, reservation.guardrail, 'ai_run');
         return undefined;
@@ -356,16 +363,16 @@ export class RunWorker {
             LIMIT $2`,
           [batchId, CLASSIFY_CHUNK],
         );
-        if (!pending.rows.length) return { deferred: false as const, modelBand: batch.rows[0].modelBand as ModelBand, rows: pending.rows };
+        if (!pending.rows.length) return { deferred: false as const, modelBand: (job.payload.modelBandOverride ?? batch.rows[0].modelBand) as ModelBand, rows: pending.rows };
         // 迭代 5：按 chunk 计量 AI credits。attempt 取 chunk 内容哈希 —— 同一批
         // item 重试不会重复扣费（task_event 幂等索引 ON CONFLICT DO NOTHING）；
         // 额度暂停时延迟 job 而非失败（与 referral credit 的 deferral 同模式），
         // 充值/账期重置后自动续跑，已分类 chunk 不会重做。
         const reservation = await reserveAiRun(
           tx,
-          [batch.rows[0].modelBand],
+          [String(job.payload.modelBandOverride ?? batch.rows[0].modelBand)],
           { subjectId: batchId, attempt: chunkAttemptKey(pending.rows.map((row) => row.id)), actionType: 'ai.classify' },
-          batch.rows[0].modelBand as ModelBand,
+          (job.payload.modelBandOverride ?? batch.rows[0].modelBand) as ModelBand,
         );
         if (!reservation.replayed && reservation.guardrail.status === 'paused') {
           await this.deferJobForCredits(tx, job, 'import.classify_deferred', { batchId });
@@ -483,9 +490,9 @@ export class RunWorker {
         if (!claimed.rows[0]) throw new Error('topic run not found or already terminal');
         const reservation = await reserveAiRun(
           tx,
-          [claimed.rows[0].modelBand],
+          [String(job.payload.modelBandOverride ?? claimed.rows[0].modelBand)],
           { subjectId: runId, attempt: 1, actionType: 'ai.topics.propose' },
-          claimed.rows[0].modelBand as ModelBand,
+          (job.payload.modelBandOverride ?? claimed.rows[0].modelBand) as ModelBand,
         );
         if (!reservation.replayed && reservation.guardrail.status === 'paused') {
           await this.deferJobForCredits(tx, job, 'topics.cluster_deferred', { runId, phase: 'propose' });
@@ -562,9 +569,9 @@ export class RunWorker {
         if (!pending.rows.length) return { done: true as const };
         const reservation = await reserveAiRun(
           tx,
-          [run.rows[0].modelBand],
+          [String(job.payload.modelBandOverride ?? run.rows[0].modelBand)],
           { subjectId: runId, attempt: chunkAttemptKey(pending.rows.map((row) => row.id)), actionType: 'ai.topics.assign' },
-          run.rows[0].modelBand as ModelBand,
+          (job.payload.modelBandOverride ?? run.rows[0].modelBand) as ModelBand,
         );
         if (!reservation.replayed && reservation.guardrail.status === 'paused') {
           await this.deferJobForCredits(tx, job, 'topics.cluster_deferred', { runId, phase: 'assign' });
@@ -649,9 +656,9 @@ export class RunWorker {
       // job 重试不会重复扣费）；额度暂停时延迟 job，充值/账期重置后自动续跑。
       const reservation = await reserveAiRun(
         tx,
-        [reportRow.modelBand],
+        [String(job.payload.modelBandOverride ?? reportRow.modelBand)],
         { subjectId: reportId, actionType: 'ai.insight' },
-        reportRow.modelBand as ModelBand,
+        (job.payload.modelBandOverride ?? reportRow.modelBand) as ModelBand,
       );
       if (!reservation.replayed && reservation.guardrail.status === 'paused') {
         await this.deferJobForCredits(tx, job, 'insight.generate_deferred', { reportId });

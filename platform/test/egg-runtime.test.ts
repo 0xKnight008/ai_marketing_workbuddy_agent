@@ -34,6 +34,18 @@ describe('Egg production gateway', () => {
   after(async () => { await app.close(); });
   afterEach(() => { mm.restore(); });
 
+  it('requires authentication for model consent and execution history',async()=>{
+    await app.httpRequest().get('/api/model-choices').expect(401);
+    await app.httpRequest().post('/api/model-choices/11111111-1111-4111-8111-111111111111').send({modelBand:'eco',reason:'Confirmed Eco'}).expect(401);
+    await app.httpRequest().get('/api/model-executions/report/11111111-1111-4111-8111-111111111111').expect(401);
+  });
+  for(const decision of ['approved','rejected'])it(`routes ${decision} with the exact decision note`,async()=>{
+    mm(app.platform.service,'decideApproval',async(actor:{role:string},id:string,value:string,reason:string)=>{
+      assert.equal(actor.role,'owner');assert.equal(id,'11111111-1111-4111-8111-111111111111');assert.equal(value,decision);assert.equal(reason,'Checked original draft');return {status:decision};
+    });
+    await app.httpRequest().post(`/api/approval-requests/11111111-1111-4111-8111-111111111111/${decision}`).set('authorization',`Bearer ${ownerToken}`).send({reason:'Checked original draft'}).expect(200).expect({status:decision});
+  });
+
   it('requires authentication before disconnecting a social account', async () => {
     await app.httpRequest().post('/api/zernio/accounts/11111111-1111-4111-8111-111111111111/disconnect')
       .send({}).expect(401);

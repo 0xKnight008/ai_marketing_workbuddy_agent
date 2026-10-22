@@ -45,8 +45,7 @@ test('weekly history attributes execution by feedback time, seals immutably, and
   });
 
   await page.goto('/app');
-  await page.locator('.workspace-sidebar details summary').click();
-  await page.getByRole('button', { name: 'Insights', exact: true }).click();
+  await page.locator('[data-nav=reports]').click(); await page.getByRole('tab',{name:'Weekly review',exact:true}).click();
   const panel = page.getByRole('region', { name: 'Weekly execution history' });
   await panel.getByRole('button', { name: 'Load weekly history' }).click();
 

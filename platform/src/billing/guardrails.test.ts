@@ -65,20 +65,15 @@ test('explicit unavailable band fails without charging instead of silently repla
   assert.equal(inserted.length, 0);
 });
 
-test('insufficient credits still degrade an explicit Flagship selection to primary Eco', async () => {
-  const { tx } = usageTransaction(0, 0, 'trialing', new Date(Date.now() + 60_000).toISOString(), 29);
-  const result = await reserveAiRun(tx, ['eco', 'standard', 'flagship'], 'run-1', 'flagship');
-  assert.equal(result.band, 'eco');
-  assert.equal(result.provider, 'primary');
-  assert.equal(result.credits, 1);
+test('insufficient credits require consent before changing an explicit Flagship selection', async () => {
+  const {tx,inserted}=usageTransaction(0,0,'trialing',new Date(Date.now()+60000).toISOString(),29);
+  await assert.rejects(reserveAiRun(tx,['eco','standard','flagship'],'run-1','flagship'),/model_choice_required/);
+  assert.equal(inserted.length,0);
 });
-
-test('degraded guardrail still overrides manual Flagship with fallback Eco', async () => {
-  const { tx } = usageTransaction(2_000);
-  const result = await reserveAiRun(tx, ['eco', 'standard', 'flagship'], 'run-1', 'flagship');
-  assert.equal(result.band, 'eco');
-  assert.equal(result.provider, 'fallback');
-  assert.equal(result.credits, 1);
+test('exhausted task quota requires consent before replacing manual Flagship with Eco', async () => {
+  const {tx,inserted}=usageTransaction(2000);
+  await assert.rejects(reserveAiRun(tx,['eco','standard','flagship'],'run-1','flagship'),/model_choice_required/);
+  assert.equal(inserted.length,0);
 });
 
 test('supplier hard spend cap still pauses rather than bypassing the cap via Eco', async () => {

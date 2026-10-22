@@ -40,7 +40,13 @@ export async function createDurableRun(tx: TenantTransaction, actor: ActorContex
 export async function decideApproval(tx: TenantTransaction, actor: ActorContext, approvalId: string, decision: 'approved' | 'rejected', reason?: string): Promise<{ runId: string | null; status: string }> {
   const approval = await tx.query<{ runId: string | null; insightReportId: string | null; actionPlan: ActionPlan }>("UPDATE approval_request SET status = $2, decided_by = $3, decided_at = now(), decision_reason = $4 WHERE id = $1 AND workspace_id = $5 AND status = 'pending' RETURNING run_id AS \"runId\", insight_report_id AS \"insightReportId\", requested_action AS \"actionPlan\"", [approvalId, decision, actor.actorId, reason ?? null, actor.workspaceId]);
   const row = approval.rows[0];
-  if (!row) throw new Error('Approval request not found or already decided');
+  if (!row) {
+    const previous = await tx.query<{runId:string|null;status:string}>(
+      'SELECT run_id AS "runId",status FROM approval_request WHERE id=$1 AND workspace_id=$2', [approvalId,actor.workspaceId]);
+    if (!previous.rows[0]) throw new HttpError(404,'approval_not_found');
+    if (previous.rows[0].status !== decision) throw new HttpError(409,'approval_already_decided');
+    return {runId:previous.rows[0].runId,status:previous.rows[0].runId?nextStatusAfterApproval(decision):decision};
+  }
 
   // 报告外发审批（迭代 4）：审批主体是 insight_report 而非 workflow_run。
   // 通过则快照 decidedBy/decidedAt 并入队 insight.deliver，由 worker 按
@@ -63,8 +69,8 @@ export async function decideApproval(tx: TenantTransaction, actor: ActorContext,
 
   if (!row.runId) throw new Error('Approval request has no subject');
   const status = nextStatusAfterApproval(decision);
-  const transitioned = await tx.query<{ id: string }>("UPDATE workflow_run SET status = $3, finished_at = CASE WHEN $3 = 'cancelled' THEN now() ELSE finished_at END WHERE id = $1 AND workspace_id = $2 AND status = 'waiting_approval' RETURNING id", [row.runId, actor.workspaceId, status]);
-  if (!transitioned.rows[0]) throw new Error('Run is not waiting for approval');
+  const transitioned = await tx.query<{ id: string }>("UPDATE workflow_run SET status = $3::run_status, finished_at = CASE WHEN $3::run_status = 'cancelled'::run_status THEN now() ELSE finished_at END WHERE id = $1 AND workspace_id = $2 AND status = 'waiting_approval' RETURNING id", [row.runId, actor.workspaceId, status]);
+  if (!transitioned.rows[0]) throw new HttpError(409,'run_not_waiting_approval');
   await tx.query('INSERT INTO run_event (workspace_id, run_id, event_key, event_type, payload) VALUES ($1, $2, $3, $4, $5)', [actor.workspaceId, row.runId, `approval:${approvalId}:${decision}`, `approval.${decision}`, { approvalId, reason }]);
   if (decision === 'approved') await tx.query('INSERT INTO job (workspace_id, run_id, kind, payload) VALUES ($1, $2, $3, $4)', [actor.workspaceId, row.runId, 'execute_approved_actions', { runId: row.runId, actionPlan: actionPlanSchema.parse(row.actionPlan) }]);
   return { runId: row.runId, status };

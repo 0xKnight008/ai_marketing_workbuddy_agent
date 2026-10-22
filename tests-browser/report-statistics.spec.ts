@@ -17,8 +17,7 @@ test('content recap displays quoted script drafts and truthful historical topic 
     return route.fulfill({ json: [] });
   });
   await page.goto('/app');
-  await page.locator('.workspace-sidebar details summary').click();
-  await page.getByRole('button', { name: 'Insights', exact: true }).click();
+  await page.locator('[data-nav=reports]').click();
   await page.getByRole('button', { name: 'Open report', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Next batch: 2 topic ideas' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Script drafts · review before publishing' })).toBeVisible();
@@ -45,9 +44,9 @@ test('report shows full totals separately from sampled quotations and supports h
     return route.fulfill({ json: [] });
   });
   await page.goto('/app');
-  await page.locator('.workspace-sidebar details summary').click();
-  await page.getByRole('button', { name: 'Insights', exact: true }).click();
+  await page.locator('[data-nav=reports]').click();
   await page.getByRole('button', { name: 'Open report', exact: true }).click();
+  await page.getByRole('button',{name:'Full report & next actions',exact:true}).click();
   const stats = page.getByRole('region', { name: 'Full dataset statistics' });
   await expect(page.getByText(/Top 1 issues \(up to 5\)/)).toBeVisible();
   await expect(page.getByText(/not a sales-impact or full-dataset frequency ranking/)).toBeVisible();
@@ -61,9 +60,10 @@ test('report shows full totals separately from sampled quotations and supports h
   await expect(emotions).toContainText('Classified: 4000 / 5000 · Unknown: 1000 (20.0%)');
   await expect(emotions).toContainText('excited: 1000 (20.0%)');
   await expect(emotions).toContainText('unknown is not neutral');
-  await page.getByRole('button', { name: 'Back to insights', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to reports', exact: true }).click();
   includeDataset = false;
   await page.getByRole('button', { name: 'Open report', exact: true }).click();
+  await page.getByRole('button',{name:'Full report & next actions',exact:true}).click();
   await expect(page.getByText('Packaging feedback', { exact: true })).toBeVisible();
   await expect(stats).toHaveCount(0);
 });

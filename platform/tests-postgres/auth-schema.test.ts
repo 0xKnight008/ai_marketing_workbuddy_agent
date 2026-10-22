@@ -1,3 +1,4 @@
+import {reviewModelRegression} from './review-model-consent';
 import {assertTaskSchema} from '../src/task-service/readiness';
 import {taskContextRegression} from './task-context';
 import assert from 'node:assert/strict';
@@ -93,6 +94,7 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
       await assert.rejects(login.authenticate(session), /admin_session_required/);
     });
     await t.test('workspace task persistence, orchestration and isolation',async t=>taskContextRegression(t,client,database));
+    await t.test('production review and model consent regressions',async t=>reviewModelRegression(t,client,database));
     const registration = await auth.register(credentials, 'test-client');
     const registered = verifyAccessToken(registration.accessToken, secret);
     await t.test('real import service persists UUID batches, crosses chunk boundaries, and rolls back atomically', async () => {

@@ -24,8 +24,7 @@ test('weekly review shows denominators, unknown effects and report navigation; r
     return route.fulfill({ json: [] });
   });
   await page.goto('/app');
-  await page.locator('.workspace-sidebar details summary').click();
-  await page.getByRole('button', { name: 'Insights', exact: true }).click();
+  await page.locator('[data-nav=reports]').click(); await page.getByRole('tab',{name:'Weekly review',exact:true}).click();
   const panel = page.getByRole('region', { name: 'Weekly follow-up review' });
   await panel.getByRole('button', { name: 'Load weekly review' }).click();
   await expect(panel).toContainText('Adopted: 3/5 (60.0%)');
@@ -37,7 +36,7 @@ test('weekly review shows denominators, unknown effects and report navigation; r
   await expect(panel).toContainText('More replies observed');
   await panel.getByRole('button', { name: 'Open report and update feedback' }).click();
   await expect(page.getByRole('region', { name: 'Execution feedback' })).toBeVisible();
-  await page.getByRole('button', { name: 'Back to insights', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to reports', exact: true }).click();
   failNext = true;
   await panel.getByRole('button', { name: 'Refresh weekly review' }).click();
   await expect(panel.getByRole('alert')).toContainText('Unable to load weekly review');
