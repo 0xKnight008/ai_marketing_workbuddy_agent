@@ -105,7 +105,7 @@ test('dead-letter replay resets the attempt lease, revives its run, and writes a
     return [];
   });
 
-  const result = await new AdminService(config, database).replayJob(actor, adminToken, jobId, { workspaceId: targetWorkspaceId });
+  const result = await new AdminService(config, database).replayJob(actor, adminToken, jobId, { workspaceId: targetWorkspaceId,reason:'Regression audit confirmation' });
 
   assert.deepEqual(result, { id: jobId, status: 'queued' });
   assert.match(queries[0]?.sql ?? '', /attempt = 0/);
@@ -120,7 +120,7 @@ test('support status transitions use the global inbox and audit the affected wor
     async withAdmin(operation: (tx: TenantTransaction) => Promise<unknown>) {
       return operation(txFor((sql) => {
         globalQueries.push(sql);
-        if (sql.includes('SELECT workspace_id')) return [{ workspaceId: targetWorkspaceId }];
+        if (sql.includes('SELECT workspace_id')) return [{ workspaceId: targetWorkspaceId,reason:'Regression audit confirmation' }];
         return [];
       }));
     },
@@ -138,7 +138,7 @@ test('support status transitions use the global inbox and audit the affected wor
     },
   } as unknown as Database;
 
-  const result = await new AdminService(config, database).updateFeedback(actor, adminToken, 'FB-A1B2C3D4', { status: 'closed' });
+  const result = await new AdminService(config, database).updateFeedback(actor, adminToken, 'FB-A1B2C3D4', { status: 'closed',reason:'Regression audit confirmation' });
 
   assert.equal(result.status, 'closed');
   assert.match(globalQueries[0] ?? '', /SELECT workspace_id/);
@@ -156,7 +156,7 @@ test('pending referral credits can be voided only inside their owning workspace'
     return [];
   });
 
-  const result = await new AdminService(config, database).voidReferral(actor, adminToken, ledgerId, { workspaceId: targetWorkspaceId });
+  const result = await new AdminService(config, database).voidReferral(actor, adminToken, ledgerId, { workspaceId: targetWorkspaceId,reason:'Regression audit confirmation' });
 
   assert.deepEqual(result, { id: ledgerId, status: 'void' });
   assert.ok(queries.some(({ sql }) => sql.includes('queue_referral_clawback')));

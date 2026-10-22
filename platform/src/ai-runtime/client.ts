@@ -47,6 +47,11 @@ export class AiRuntimeClient {
     return await response.json() as AiRuntimeRun;
   }
 
+  async taskStep(payload:Record<string,unknown>):Promise<Record<string,unknown>> {
+    const response=await this.fetchImpl(new URL('/internal/task-step',this.options.baseUrl),{method:'POST',headers:{'content-type':'application/json','x-internal-token':this.options.internalToken},body:JSON.stringify(payload),signal:AbortSignal.timeout(AI_RUNTIME_INSIGHT_TIMEOUT_MS)});
+    if(!response.ok)throw new Error(`AI task step failed: ${response.status}`);return await response.json() as Record<string,unknown>;
+  }
+
   /** Synchronous batch classification for imported items (iteration-1 tagging). */
   async classifyItems(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     const response = await this.fetchImpl(new URL('/internal/classify', this.options.baseUrl), {

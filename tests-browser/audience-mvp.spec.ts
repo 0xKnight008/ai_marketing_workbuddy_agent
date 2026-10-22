@@ -163,7 +163,7 @@ for (const persona of Object.keys(personas) as Persona[])
     }) => {
       await page.setViewportSize({ width, height: 1000 });
       const f = await fixture(page, persona);
-      await page.goto(`/app?persona=${persona}#start`);
+      await page.goto(`/app?mode=template&persona=${persona}#start`);
       await page.getByLabel("Source name", { exact: true }).fill("September");
       await page.getByLabel("Date / scope", { exact: true }).fill("This week");
       await page
@@ -239,7 +239,7 @@ test("CSV preview preserves distinct authors and keeps input after insufficient-
 }) => {
   const f = await fixture(page, "sellers");
   f.control.failImport = true;
-  await page.goto("/app?persona=sellers#start");
+  await page.goto("/app?mode=template&persona=sellers#start");
   await page
     .getByLabel("CSV", { exact: true })
     .setInputFiles({
@@ -265,7 +265,7 @@ test("editor can analyze without billing permissions; exhausted owner can still 
   page,
 }) => {
   const f = await fixture(page, "creators", { role: "editor" });
-  await page.goto("/app?persona=creators#start");
+  await page.goto("/app?mode=template&persona=creators#start");
   await page.getByRole("button", { name: "Use example input" }).click();
   await page.getByRole("button", { name: "Preview scope" }).click();
   await expect(
@@ -299,17 +299,17 @@ test("viewer cannot save; failed generation is recoverable without silent retrie
   ).toBeVisible();
   expect(f.mutations).toHaveLength(0);
 });
-test("both empty and existing workspaces open the three-step task", async ({
+test("template mode opens three-step analysis for empty and existing workspaces", async ({
   page,
 }) => {
   await fixture(page, "creators");
-  await page.goto("/app");
+  await page.goto("/app?mode=template");
   await expect(
     page.getByText("Bring your first source"),
   ).toBeVisible();
   await page.unroute("**/api/**");
   await fixture(page, "creators", { existing: true });
-  await page.goto("/app");
+  await page.goto("/app?mode=template");
   await expect(page.locator("[data-nav=start]")).toHaveAttribute(
     "aria-current",
     "page",
@@ -380,7 +380,7 @@ test("result and mobile landing pass accessibility checks; language preference s
 });
 
 for (const modelBand of ['eco','standard','flagship']) test(`three-step task respects ${modelBand} and exports real Markdown / CSV`,async({page})=>{
- const f=await fixture(page,'creators');await page.goto('/app#start');await page.getByLabel('Source name',{exact:true}).fill('Export test');await page.getByLabel('Date / scope',{exact:true}).fill('Today');await page.getByLabel('One item per line',{exact:true}).fill(f.quote);await page.getByRole('button',{name:'Preview scope'}).click();await page.getByLabel('Model capability',{exact:true}).selectOption(modelBand);await page.getByRole('button',{name:'Confirm goal & run analysis'}).click();await expect(page.locator('.au-insight')).toBeVisible({timeout:20000});expect(f.mutations.map(x=>x.body.modelBand)).toEqual([modelBand,modelBand]);
+ const f=await fixture(page,'creators');await page.goto('/app?mode=template#start');await page.getByLabel('Source name',{exact:true}).fill('Export test');await page.getByLabel('Date / scope',{exact:true}).fill('Today');await page.getByLabel('One item per line',{exact:true}).fill(f.quote);await page.getByRole('button',{name:'Preview scope'}).click();await page.getByLabel('Model capability',{exact:true}).selectOption(modelBand);await page.getByRole('button',{name:'Confirm goal & run analysis'}).click();await expect(page.locator('.au-insight')).toBeVisible({timeout:20000});expect(f.mutations.map(x=>x.body.modelBand)).toEqual([modelBand,modelBand]);
  const {readFile}=await import('node:fs/promises');
  let pending=page.waitForEvent('download');await page.getByRole('button',{name:'Report .md',exact:true}).click();let download=await pending;const md=await readFile((await download.path())!,'utf8');expect(md).toContain('# September · This week\n\n');expect(md).toContain(`> [i1] ${f.quote}`);expect(md).not.toContain('\\n');
  pending=page.waitForEvent('download');await page.getByRole('button',{name:'Evidence .csv',exact:true}).click();download=await pending;const csv=await readFile((await download.path())!,'utf8');expect(csv.charCodeAt(0)).toBe(0xfeff);expect(csv).toContain('\r\n');expect(csv).toContain('"validated_excerpt"');expect(csv).toContain(f.quote);expect(f.mutations).toHaveLength(2);

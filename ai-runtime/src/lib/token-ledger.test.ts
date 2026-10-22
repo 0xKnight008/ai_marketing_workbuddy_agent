@@ -33,3 +33,6 @@ test('token counts never fabricate zero for missing, fractional or unsafe values
   assert.equal(tokenCount(0), 0);
   assert.equal(tokenCount(100), 100);
 });
+
+
+test('workspace task token usage can be traced by the durable task ID',async()=>{const client=createClient({url:'file::memory:'}),ledger=createTokenLedger(client);try{await tokenUsageOptions('openai/test','workspace-task',ledger,{},'task-durable').onStepFinish({runId:'temporary-model-run',usage:{inputTokens:12,outputTokens:4}});const rows=await ledger.list(Number.MAX_SAFE_INTEGER,'task-durable');assert.equal(rows.length,1);assert.equal(rows[0]!.run_id,'task-durable');assert.equal(rows[0]!.total_tokens,16);}finally{client.close()}});

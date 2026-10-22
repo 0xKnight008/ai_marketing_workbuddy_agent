@@ -1,3 +1,4 @@
+import {assertTaskSchema} from '../../src/task-service/readiness';
 import { Controller } from 'egg';
 import { pendingConnectionPage } from '../../src/zernio/connection-pages';
 import { ADMIN_COOKIE, ADMIN_COOKIE_OPTIONS, adminPrincipal } from '../../src/admin/email-login';
@@ -34,7 +35,8 @@ export default class PlatformController extends Controller {
       this.ctx.logger.error(error);
       throw new HttpError(503, 'auth_database_not_ready');
     }
-    this.ctx.body = { ok: true, service: 'gateway', authSchema: 'ready' };
+    try{await assertTaskSchema(this.app.platform.database)}catch(error){this.ctx.logger.error(error);throw new HttpError(503,'task_database_not_ready')}
+    this.ctx.body = { ok: true, service: 'gateway', authSchema: 'ready',taskSchema:'ready' };
   }
 
   async runtimeEvent(): Promise<void> {
@@ -394,6 +396,17 @@ export default class PlatformController extends Controller {
     );
   }
   async auditEvents(): Promise<void> { this.ctx.body = await this.app.platform.service.auditEvents(this.actor()); }
+  async listTasks(){this.ctx.set('Cache-Control','no-store');this.ctx.body=await this.app.platform.service.tasks.list(this.actor(),this.ctx.query);}
+  async createTask(){this.ctx.set('Cache-Control','no-store');this.ctx.status=201;this.ctx.body=await this.app.platform.service.tasks.create(this.actor(),this.ctx.request.body);}
+  async taskDetail(){this.ctx.set('Cache-Control','no-store');this.ctx.body=await this.app.platform.service.tasks.detail(this.actor(),this.ctx.params.taskId);}
+  async taskMessage(){this.ctx.set('Cache-Control','no-store');this.ctx.status=202;this.ctx.body=await this.app.platform.service.tasks.message(this.actor(),this.ctx.params.taskId,this.ctx.request.body);}
+  async taskEvidence(){this.ctx.set('Cache-Control','no-store');this.ctx.body=await this.app.platform.service.tasks.evidence(this.actor(),this.ctx.params.taskId,this.ctx.params.ref);}
+  async saveTaskReview(){this.ctx.set('Cache-Control','no-store');this.ctx.body=await this.app.platform.service.tasks.saveReview(this.actor(),this.ctx.params.taskId,this.ctx.request.body);}
+  async resumeTask(){this.ctx.set('Cache-Control','no-store');this.ctx.body=await this.app.platform.service.tasks.resume(this.actor(),this.ctx.params.taskId,this.ctx.request.body);}
+  async archiveTask(){this.ctx.set('Cache-Control','no-store');this.ctx.body=await this.app.platform.service.tasks.archive(this.actor(),this.ctx.params.taskId,this.ctx.request.body);}
+  async taskPreferences(){this.ctx.set('Cache-Control','no-store');this.ctx.body=await this.app.platform.service.tasks.preferences(this.actor());}
+  async saveTaskPreferences(){this.ctx.set('Cache-Control','no-store');this.ctx.body=await this.app.platform.service.tasks.preferences(this.actor(),this.ctx.request.body);}
+
   async feedback(): Promise<void> {
     this.ctx.status = 201;
     this.ctx.body = await this.app.platform.service.createFeedback(this.actor(), this.ctx.request.body);

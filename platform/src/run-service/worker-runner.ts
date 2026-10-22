@@ -1,3 +1,4 @@
+import {executeTaskTurn} from '../task-service/worker';
 import { createHash } from 'node:crypto';
 import { supportsAnnouncement } from '../zernio/social-platforms';
 import { templateAcceptanceIssues } from '../insight-service/template-acceptance';
@@ -49,6 +50,7 @@ export interface RunWorkerAiRuntime {
     result?: Record<string, unknown>;
     error?: string;
   }>;
+  taskStep?(payload: Record<string, unknown>): Promise<Record<string, unknown>>;
   classifyItems(payload: Record<string, unknown>): Promise<Record<string, unknown>>;
   generateInsightReport(payload: Record<string, unknown>): Promise<Record<string, unknown>>;
   /** Module 2：主题 taxonomy 提议（抽样归纳，不产出计数）。与 zernio 同为可选协作方。 */
@@ -89,7 +91,7 @@ export class RunWorker {
   async runOne(): Promise<boolean> {
     const job = await this.options.database.claimNextJob(this.options.workerName);
     if (!job) return false;
-    if (['import.classify', 'insight.generate', 'topics.cluster', 'execute_approved_actions', 'notification.send', 'insight.deliver'].includes(job.kind)) {
+    if (['task.turn', 'import.classify', 'insight.generate', 'topics.cluster', 'execute_approved_actions', 'notification.send', 'insight.deliver'].includes(job.kind)) {
       try {
         await withJobLease(this.options.database, job, this.options.workerName, database =>
           new RunWorker({ ...this.options, database }).executeClaimed(job));
@@ -103,7 +105,8 @@ export class RunWorker {
 
   private async executeClaimed(job: ClaimedJob): Promise<void> {
     try {
-      if (job.kind === 'prepare_ai_run') await this.executePrepare(job);
+      if(job.kind==='task.turn'){if(!this.options.aiRuntime.taskStep)throw new Error('task_runtime_unavailable');await executeTaskTurn(this.options.database,{taskStep:payload=>this.options.aiRuntime.taskStep!(payload)},job);}
+      else if (job.kind === 'prepare_ai_run') await this.executePrepare(job);
       else if (job.kind === 'reconcile_ai_run') await this.reconcileAiRun(job);
       else if (job.kind === 'execute_approved_actions') await this.executeApprovedActions(job);
       else if (job.kind === 'issue_referral_credit') await settleReferral(this.options.database, job, this.options.stripeSecretKey);
@@ -987,6 +990,10 @@ export class RunWorker {
       if (result.rows[0]?.status === 'dead_lettered' && job.runId) {
         await tx.query("UPDATE workflow_run SET status = 'dead_lettered', finished_at = now() WHERE id = $1 AND workspace_id = $2 AND status IN ('pending', 'queued', 'running')", [job.runId, job.workspaceId]);
         await tx.query('INSERT INTO run_event (workspace_id, run_id, event_key, event_type, payload) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (run_id, event_key) DO NOTHING', [job.workspaceId, job.runId, `job:${job.id}:dead_lettered`, 'run.dead_lettered', { error: message }]);
+      }
+      if(result.rows[0]?.status==='dead_lettered'&&job.kind==='task.turn'){
+        await tx.query("UPDATE workspace_task_message SET status='failed',error=$3 WHERE workspace_id=$1 AND id=$2 AND status IN ('queued','running')",[job.workspaceId,job.payload.messageId,message.slice(0,500)]);
+        await tx.query("UPDATE workspace_task SET status='failed',version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2 AND status IN ('queued','running')",[job.workspaceId,job.payload.taskId]);
       }
       // 洞察报告无关联 workflow_run，死信时直接把报告置为 failed 供前端展示。
       if (result.rows[0]?.status === 'dead_lettered' && job.kind === 'insight.generate' && typeof job.payload.reportId === 'string') {

@@ -1,3 +1,4 @@
+import {TaskService,findTask} from '../task-service/service';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import { z } from 'zod';
@@ -61,6 +62,7 @@ export class PlatformService {
   private readonly imports: ImportService;
   private readonly insights: InsightService;
   private readonly topics: TopicService;
+  readonly tasks:TaskService;
 
   constructor(
     private readonly config: GatewayConfig,
@@ -75,6 +77,7 @@ export class PlatformService {
     this.imports = new ImportService(database, config);
     this.insights = new InsightService(database);
     this.topics = new TopicService(database);
+    this.tasks=new TaskService(database);
   }
 
   actorFrom(authorization: string | undefined): ActorContext {
@@ -671,12 +674,15 @@ export class PlatformService {
       locale: z.enum(['zh', 'en', 'es']).optional(),
       pageUrl: z.string().url().max(2_048).optional(),
       name: z.string().max(120).optional(),
+      taskId:z.string().uuid().optional(),
     }).parse(body ?? {});
     const message = feedbackText(input.message, 2_000);
     if (!message) throw new HttpError(400, 'invalid_message');
     const name = input.name ? feedbackText(input.name, 120) || undefined : undefined;
 
     const feedback = await this.database.withWorkspace(actor.workspaceId, async (tx) => {
+      const task=input.taskId?await findTask(tx,input.taskId):null;
+      const taskContext=task?{id:task.id,goal:task.goal,sourceKind:task.sourceKind,sourceId:task.sourceId,batchIds:task.batchIds,version:task.version,parentTaskId:task.parentTaskId}:null;
       const member = await tx.query<{ email: string }>(
         `SELECT u.email::text AS email
            FROM app_user u JOIN workspace_membership m ON m.user_id = u.id
@@ -689,9 +695,9 @@ export class PlatformService {
         const ticketId = `FB-${randomBytes(4).toString('hex').toUpperCase()}`;
         try {
           await tx.query(
-            `INSERT INTO feedback_message (ticket_no, source, workspace_id, email, name, category, message, locale, page_url)
-             VALUES ($1, 'platform', $2, $3, $4, $5, $6, $7, $8)`,
-            [ticketId, actor.workspaceId, email, name, input.category, message, input.locale, input.pageUrl],
+            `INSERT INTO feedback_message (ticket_no, source, workspace_id, email, name, category, message, locale, page_url,task_id,task_context)
+             VALUES ($1, 'platform', $2, $3, $4, $5, $6, $7, $8,$9,$10)`,
+            [ticketId, actor.workspaceId, email, name, input.category, message, input.locale, input.pageUrl,input.taskId,taskContext],
           );
           return { ticketId, email, name, category: input.category, message };
         } catch (error) {
