@@ -12,7 +12,9 @@ test('auth readiness checks the actual schema without reading user data or mutat
     }),
   } as Pick<Database, 'withAdmin'>;
   await assertAuthSchema(database);
-  assert.equal(queries.length, 6);
+  assert.equal(queries.length, 7);
+  assert.ok(queries.some(sql=>sql.includes('trial_credit_handoff_pending')));
+  assert.ok(queries.some(sql=>sql.includes('trial_ai_credits')));
   assert.equal(queries[0], "SET LOCAL statement_timeout = '5s'");
   assert.match(queries[1]!, /password_hash, password_updated_at FROM app_user LIMIT 0$/);
   assert.ok(queries.slice(1).every((sql) => sql.startsWith('SELECT ') && sql.endsWith('LIMIT 0')));

@@ -61,7 +61,7 @@ export class TopicService {
         throw new HttpError(402, 'subscription_required');
       }
       const usage = await usageSnapshot(tx);
-      if (usage.aiCreditsAvailable <= 0) {
+      if (usage.aiCreditsAvailable <= 0 && !usage.trialConversionAvailable) {
         throw new HttpError(402, 'ai_credits_exhausted');
       }
 

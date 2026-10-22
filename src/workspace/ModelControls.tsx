@@ -207,7 +207,7 @@ export function ModelChoiceQueue({
             <p>{row.label}</p>
             <small>{row.taskId ?? row.id}</small>
             <p>
-              {row.reason === "task_quota"
+              {row.reason === 'trial_payment' ? w('Your subscription payment must be confirmed before this task can continue. The owner can resolve payment in Plan & usage, then resume the original model.','Debemos confirmar el pago de la suscripción. El titular puede resolverlo en Plan y consumo y reanudar el modelo original.','正式订阅付款尚未确认。请工作区所有者在“套餐与用量”处理付款，再恢复原模型任务。') : row.reason === "task_quota"
                 ? w(
                     "Your task quota requires Eco.",
                     "Tu cuota requiere Eco.",
@@ -221,21 +221,21 @@ export function ModelChoiceQueue({
             </p>
           </div>
           <button
-            disabled={role === "viewer"}
+            disabled={role === "viewer" || (row.reason==='trial_payment' && role!=='owner')}
             onClick={() => {
               setChoice(row);
               setBand(row.choices[0] ?? row.requestedBand);
               setError("");
             }}
           >
-            {w("Review model choice", "Revisar modelo", "确认使用模型")}
+            {row.reason==='trial_payment' ? w('Review subscription payment','Revisar pago de suscripción','确认订阅付款') : w("Review model choice", "Revisar modelo", "确认使用模型")}
           </button>
         </div>
       ))}
       <a href="#billing">{w("Plan & usage", "Plan y consumo", "套餐与用量")}</a>
       {choice && (
         <WorkspaceDialog
-          title={w(
+          title={choice.reason==='trial_payment' ? w('Confirm subscription billing & continue','Confirmar cobro y continuar','确认订阅扣费并继续') : w(
             "Confirm the model for this task",
             "Confirma el modelo de esta tarea",
             "确认此任务使用的模型",
@@ -251,7 +251,7 @@ export function ModelChoiceQueue({
               "本次选择仅适用于此任务剩余的模型步骤，不修改默认偏好。",
             )}
           </p>
-          <label>
+          {choice.reason!=='trial_payment' && <label>
             {w("Available model", "Modelo disponible", "可用模型")}
             <select
               value={band}
@@ -264,8 +264,8 @@ export function ModelChoiceQueue({
                 </option>
               ))}
             </select>
-          </label>
-          {!choice.choices.length && (
+          </label>}
+          {!choice.choices.length && choice.reason!=="trial_payment" && (
             <p>
               {w(
                 "No model is currently affordable. Review your plan and credits.",
@@ -281,7 +281,7 @@ export function ModelChoiceQueue({
             </button>
             <button
               className="workspace-primary"
-              disabled={busy || !choice.choices.includes(band)}
+              disabled={busy || (choice.reason!=="trial_payment" && !choice.choices.includes(band))}
               onClick={async () => {
                 setBusy(true);
                 setError("");
@@ -296,7 +296,8 @@ export function ModelChoiceQueue({
                       },
                       body: JSON.stringify({
                         modelBand: band,
-                        reason: `User explicitly confirmed ${band} for remaining model steps`,
+                        requestId: crypto.randomUUID(),
+                        reason: choice.reason==='trial_payment' ? `Owner confirmed subscription billing and resuming ${band}` : `User explicitly confirmed ${band} for remaining model steps`,
                       }),
                     },
                   );
@@ -320,7 +321,7 @@ export function ModelChoiceQueue({
             >
               {busy
                 ? w("Saving…", "Guardando…", "保存中…")
-                : w(
+                : choice.reason==='trial_payment' ? w('Confirm billing & resume original model','Confirmar cobro y reanudar modelo original','确认扣费并恢复原模型') : w(
                     "Confirm model & continue",
                     "Confirmar modelo y continuar",
                     "确认模型并继续",

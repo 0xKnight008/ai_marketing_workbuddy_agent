@@ -1,4 +1,5 @@
-import {ModelChoiceRequired} from '../billing/guardrails';
+import {convertSubscribedTrial} from '../billing/trial-conversion';
+import {ModelChoiceRequired,TrialConversionRequired} from '../billing/guardrails';
 import {executeTaskTurn} from '../task-service/worker';
 import { createHash } from 'node:crypto';
 import { supportsAnnouncement } from '../zernio/social-platforms';
@@ -121,7 +122,18 @@ export class RunWorker {
       else throw new Error(`Unsupported job: ${job.kind}`);
     } catch (error) {
       if (error instanceof JobLeaseLost) throw error;
-      if (error instanceof ModelChoiceRequired) {
+      if (error instanceof TrialConversionRequired) {
+        // Persist the payment boundary before any external side effect. A lost
+        // response or webhook reporting active must not unlock unpaid credits.
+        await this.options.database.withWorkspace(job.workspaceId,tx=>tx.query("UPDATE workspace_billing SET trial_credit_handoff_pending=true WHERE workspace_id=$1 AND subscription_status='trialing' AND trial_credit_handoff_at IS NULL",[job.workspaceId]));
+        let ready=false;
+        try { ready=await this.options.database.withWorkspace(job.workspaceId,tx=>convertSubscribedTrial(tx,job.workspaceId,this.options.stripeSecretKey,Date.parse(error.usage.trialEndsAt ?? '')>Date.now())); } catch { /* Keep the original job and model for owner payment recovery. */ }
+        await this.options.database.withWorkspace(job.workspaceId,async tx=>{
+          await tx.query("UPDATE job SET status='queued',attempt=GREATEST(attempt-1,0),available_at=CASE WHEN $3 THEN now() ELSE 'infinity'::timestamptz END,locked_at=NULL,locked_by=NULL,last_error=CASE WHEN $3 THEN NULL ELSE 'model_choice_required' END,payload=payload||$4::jsonb,updated_at=now() WHERE workspace_id=$1 AND id=$2",
+            [job.workspaceId,job.id,ready,JSON.stringify({modelChoice:ready?null:{requestedBand:error.requestedBand,reason:'trial_payment',trialEndsAt:error.usage.trialEndsAt}})]);
+        });
+      }
+      else if (error instanceof ModelChoiceRequired) {
         await this.options.database.withWorkspace(job.workspaceId,async tx=>{
           await tx.query("UPDATE job SET status='queued',attempt=GREATEST(attempt-1,0),available_at='infinity',locked_at=NULL,locked_by=NULL,last_error='model_choice_required',payload=payload||$3::jsonb,updated_at=now() WHERE workspace_id=$1 AND id=$2",[job.workspaceId,job.id,JSON.stringify({modelChoice:{requestedBand:error.requestedBand,availableCredits:error.usage.aiCreditsAvailable,reason:error.reason}})]);
           await tx.query('INSERT INTO audit_event(workspace_id,event_type,payload) VALUES($1,$2,$3)',[job.workspaceId,'ai.model_choice_required',{jobId:job.id,taskId:job.payload.taskId??null,requestedBand:error.requestedBand,reason:error.reason}]);
