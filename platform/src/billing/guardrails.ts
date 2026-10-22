@@ -156,6 +156,12 @@ export interface AiUsageSubject {
   actionType?: string;
 }
 
+export class ModelChoiceRequired extends HttpError {
+  constructor(readonly requestedBand:ModelBand,readonly usage:UsageSnapshot,readonly reason:'credits'|'task_quota') {
+    super(409,'model_choice_required');
+  }
+}
+
 export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: string[], subject: string | AiUsageSubject, requestedBand?: ModelBand): Promise<AiReservation> {
   const resolved: AiUsageSubject = typeof subject === 'string' ? { runId: subject } : subject;
   if (!resolved.runId && !resolved.subjectId) throw new Error('AI usage subject is missing');
@@ -215,6 +221,11 @@ export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: s
   const effectiveSpend = current.supplierSpendMicros + effectivePolicy.supplierCostMicros;
   const effectiveGuardrail = { ...projected, supplierSpendMicros: effectiveSpend, status: executionStatus(current, guardrailStatus(current.taskUsed, current.taskQuota, effectiveSpend, current.supplierSpendLimitMicros)) };
   if (projected.status === 'paused' || current.aiCreditsAvailable <= 0) return { band: effectiveBand, provider, credits: 0, supplierCostMicros: effectivePolicy.supplierCostMicros, charged: false, replayed: false, guardrail: { ...projected, status: 'paused' } };
+  // An explicitly selected model is never silently replaced. Persist a waiting
+  // job outside this rolled-back transaction and ask the user to choose.
+  if (requestedBand && effectiveBand !== requestedBand) {
+    throw new ModelChoiceRequired(requestedBand,current,useFallbackEco?'credits':'task_quota');
+  }
   const recorded = await tx.query(`INSERT INTO task_event (workspace_id, run_id, subject_id, action_type, billable_units, ai_credits, supplier_cost_micros, supplier, status, attempt, model_band)
     VALUES (current_setting('app.workspace_id')::uuid, $1, $2, $7, 0, $3, $4, $5, 'succeeded', $6, $8) ON CONFLICT DO NOTHING RETURNING id`, [resolved.runId ?? null, resolved.subjectId ?? null, credits, effectivePolicy.supplierCostMicros, provider, attempt, actionPrefix, effectiveBand]);
   if (!recorded.rowCount) {

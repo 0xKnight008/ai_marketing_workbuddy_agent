@@ -1,3 +1,4 @@
+import {ExecutionSummary,type ModelExecution} from './ModelControls';
 import { useEffect, useRef, useState } from "react";
 import { AudienceWorkspace } from "../audience/AudienceWorkspace";
 import { useWorkspaceLanguage } from "./useWorkspaceLanguage";
@@ -30,6 +31,8 @@ type Task = {
   review?: { messageId: string; refs: string[] } | null;
 };
 type Message = {
+  modelBand?:Band;
+  executions?:ModelExecution[];
   id: string;
   role: "user" | "assistant";
   content: string;
@@ -46,6 +49,7 @@ type Props = {
   canRun: boolean;
   onFullReport: (id: string) => void;
   onUsageChange: () => void;
+  sourceRevision?:string;
 };
 export function useTaskApi(token: string, apiBase: string) {
   return async function api<T>(
@@ -80,7 +84,7 @@ export function TaskWorkspace(props: Props) {
   const [legacy, setLegacy] = useState(
     () =>
       new URLSearchParams(location.search).get("mode") === "template" ||
-      /^#start\/(creators|sellers|community-hosts)/.test(location.hash),
+      /^#start\/(creators|sellers|community-hosts)/.test(location.hash) || location.hash === "#insights",
   );
   const [taskId, setTaskId] = useState(taskHash),
     [history, setHistory] = useState(false),
@@ -148,6 +152,7 @@ export function TaskWorkspace(props: Props) {
       window.removeEventListener("popstate", restore);
     };
   }, [props.token, props.workspaceId]);
+  useEffect(()=>{let live=true;void api<typeof batches>('/api/imports').then(value=>{if(live&&Array.isArray(value))setBatches(value)}).catch(()=>{});return()=>{live=false}},[props.sourceRevision]);
   function openTask(id: string) {
     if (!alive.current) return;
     navigation.current++;
@@ -872,6 +877,7 @@ function TaskConversation(
           {error}
         </p>
       )}
+      {task.waitingReason === 'model_choice_required'&&<p role="status">{w('This task is waiting for your model confirmation above. No additional model step is charged while it waits.','Esta tarea espera tu confirmación de modelo arriba. No se cobran más pasos mientras espera.','此任务正在等待上方的模型选择确认，等待期间不会收取后续模型步骤费用。')}</p>}
       {task.waitingReason === "ai_credits_deferred" && (
         <div role="status">
           <p>
@@ -989,9 +995,9 @@ function TaskConversation(
           )}
           <p>
             {w(
-              "Open Sources or Activity for the original import / publishing run.",
-              "Abre Fuentes o Actividad para ver el proceso original.",
-              "可在数据来源或活动中查看原始导入和发布记录。",
+              "Open Source library from Current task, or Activity for the publishing run.",
+              "Abre Biblioteca de fuentes desde Tarea actual, o Actividad para ver la publicación.",
+              "可从当前任务进入素材库查看原始导入，或从活动查看发布记录。",
             )}
           </p>
         </>
@@ -1002,6 +1008,7 @@ function TaskConversation(
               <h3>
                 {message.role === "user" ? w("You", "Tú", "你") : "Piggybot"}
               </h3>
+              {message.role === "assistant" && <ExecutionSummary requested={message.modelBand} executions={message.executions??[]}/>}
               <pre translate="no">
                 {message.content ||
                   w(

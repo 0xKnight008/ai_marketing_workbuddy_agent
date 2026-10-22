@@ -1,15 +1,15 @@
+import {ModelChoiceQueue,ExecutionHistory} from '../workspace/ModelControls';
 import { SupportWidget } from '../workspace/SupportWidget';
 import {TaskWorkspace,TaskPreferences,TaskResults} from '../workspace/TaskWorkspace';
 import { audience, AUDIENCES, AUDIENCE_TEMPLATE } from '../../platform/src/contracts/audience';
 import { ReferralLedger } from '../components/ReferralLedger';
 import { CONNECTION_PLATFORMS, publicationAvailability, supportsAnnouncement } from '../../platform/src/zernio/social-platforms';
 import { useWorkspaceLanguage } from '../workspace/useWorkspaceLanguage';
-import { sections, type Section } from '../workspace/routes';
+import { sectionFromHash, type Section } from '../workspace/routes';
 import { t } from '../workspace/translate';
-import { previewImport } from '../workspace/import-preview';
 import { WorkspaceShell, WorkspaceDialog } from '../workspace/Shell';
 import { WorkspaceLanguage, WorkspaceLanguageSelect } from '../workspace/i18n';
-import { Overview, ApprovalQueue, ReportLibrary } from '../workspace/Overview';
+import { ApprovalQueue, ReportLibrary } from '../workspace/Overview';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { clearSessionAccessToken, readSessionAccessToken, storeSessionAccessToken } from '../lib/auth-session';
@@ -54,14 +54,6 @@ interface TopicListView { run: TopicRunView | null; topics: TopicView[]; }
 interface TopicItemView { itemId: string; platform: string; author: string | null; text: string; evidence: string; confidence: number; createdAt: string; }
 interface TopicItemListView { topic: TopicView; total: number; items: TopicItemView[]; }
 
-const INSIGHT_TEMPLATES: { id: InsightTemplate; name: string; tagline: string }[] = [
-  { id: 'content_recap', name: 'Content recap', tagline: 'What went viral, why, and what to post next' },
-  { id: 'comment_insights', name: 'Comment insights', tagline: 'What your fans actually want, from their own words' },
-  { id: 'product_opportunities', name: 'Product opportunities', tagline: 'Merch your audience is already asking for' },
-  { id: 'review_attribution', name: 'Review attribution', tagline: 'Why negative reviews happen and what to fix first' },
-  { id: 'community_digest', name: 'Community digest', tagline: 'Hot topics, open questions, and members worth recognizing' },
-  { id: 'daily_ops', name: 'Daily ops tasks', tagline: "Today's 3-5 most important tasks, decided from your insights" },
-];
 interface ConnectedAccount { id: string; externalAccountId: string; displayName: string; platform: string; capabilities: string[]; status: 'connected' | 'expired' | 'disconnected' | 'syncing'; lastSyncedAt?: string; }
 interface PipelineCheck { id: string; label: string; passed: boolean; detail: string; }
 interface PipelineReadiness { ready: boolean; checks: PipelineCheck[]; }
@@ -107,9 +99,9 @@ function freshDraft(): PipelineDraft {
 }
 
 const MODEL_BAND_OPTIONS: { value: ModelBand; label: string; hint: string }[] = [
-  { value: 'eco', label: 'Eco', hint: '1 credit/run · fastest, cheapest' },
-  { value: 'standard', label: 'Standard', hint: '6 credits/run · balanced quality' },
-  { value: 'flagship', label: 'Flagship', hint: '20 credits/run · strongest model' },
+  { value: 'eco', label: 'Eco', hint: '1 credit/step · fastest, cheapest' },
+  { value: 'standard', label: 'Standard', hint: '6 credits/step · balanced quality' },
+  { value: 'flagship', label: 'Flagship', hint: '20 credits/step · strongest model' },
 ];
 
 function ModelBandPicker({ value, onChange }: { value: ModelBand; onChange: (band: ModelBand) => void }) {
@@ -131,29 +123,15 @@ function ModelBandPicker({ value, onChange }: { value: ModelBand; onChange: (ban
   );
 }
 
-const TAG_LABELS: Record<string, string> = {
-  purchase_intent: 'Purchase intent',
-  product_demand: 'Product demand',
-  complaint: 'Complaint',
-  suggestion: 'Suggestion',
-  content_idea: 'Content idea',
-  urging_update: 'Urging update',
-  co_creation: 'Co-creation',
-  koc_kol_lead: 'KOC/KOL lead',
-  meme_material: 'Meme material',
-  risk_event: 'Risk event',
-  needs_reply: 'Needs reply',
-};
-
 export default function PlatformDashboard() { return <WorkspaceLanguage><PlatformWorkspace /></WorkspaceLanguage>; }
 function PlatformWorkspace() {
   const { w } = useWorkspaceLanguage();
   const [token, setToken] = useState(readSessionAccessToken);
   const [me, setMe] = useState<MeView | null>(null);
   const [sessionError, setSessionError] = useState('');
-  const [section, updateSection] = useState<Section>(() => { if (new URLSearchParams(location.search).has('topup_session')) return 'billing'; const route = location.hash.slice(1).split('/')[0] as Section; return sections.includes(route) ? route : 'start'; });
-  const setSection = (next: Section) => { setInsightDetail(null); updateSection(next); history.pushState(null, '', `#${next}`); };
-  useEffect(() => { const restore = () => { const route = location.hash.slice(1).split('/')[0] as Section; updateSection(sections.includes(route) ? route : 'start'); }; window.addEventListener('popstate', restore); return () => window.removeEventListener('popstate', restore); }, []);
+  const [section, updateSection] = useState<Section>(() => { if (new URLSearchParams(location.search).has('topup_session')) return 'settings'; return sectionFromHash(location.hash); });
+  const setSection = (next: Section) => { if(next==='start')setSourceLibrary(false); setInsightDetail(null); updateSection(next); history.pushState(null, '', `#${next}`); };
+  useEffect(() => { const restore = () => { updateSection(sectionFromHash(location.hash)); setSourceLibrary(location.hash.startsWith('#imports')); if(location.hash.startsWith('#topics'))setReportTab('topics'); if(location.hash.startsWith('#notifications'))setManagementTab('notifications'); if(location.hash.startsWith('#billing'))setManagementTab('billing'); }; window.addEventListener('popstate', restore); window.addEventListener('hashchange',restore); return () => {window.removeEventListener('popstate', restore);window.removeEventListener('hashchange',restore)}; }, []);
   const [templates, setTemplates] = useState<PipelineTemplate[]>(fallbackTemplates);
   const [pipelines, setPipelines] = useState<PipelineView[]>([]);
   const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
@@ -167,7 +145,9 @@ function PlatformWorkspace() {
   const [taskEvents, setTaskEvents] = useState<TaskEventView[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEventView[]>([]);
   const [usage, setUsage] = useState<UsageView | null>(null);
-  const [managementTab,setManagementTab]=useState<'billing'|'account'>('billing');
+  const [managementTab,setManagementTab]=useState<'billing'|'account'|'notifications'>(()=>location.hash.startsWith('#notifications')?'notifications':'billing');
+  const [sourceLibrary,setSourceLibrary]=useState(()=>location.hash.startsWith('#imports'));
+  const [reportTab,setReportTab]=useState<'results'|'topics'|'weekly'>(()=>location.hash.startsWith('#topics')?'topics':'results');
   const [message, setMessage] = useState('');
   const [workspaceError, setWorkspaceError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -186,12 +166,7 @@ function PlatformWorkspace() {
   const [importDetail, setImportDetail] = useState<ImportDetailView | null>(null);
   const [importBusy, setImportBusy] = useState(false);
   const [insights, setInsights] = useState<InsightReportView[]>([]);
-  const [insightTemplate, setInsightTemplate] = useState<InsightTemplate>('content_recap');
-  const [insightBand, setInsightBand] = useState<ModelBand>('standard');
-  const [outputLanguage, setOutputLanguage] = useState<'en'|'es'|'zh'>('en');
-  const [insightBatchIds, setInsightBatchIds] = useState<string[]>([]);
   const [insightDetail, setInsightDetail] = useState<InsightReportView | null>(null);
-  const [insightBusy, setInsightBusy] = useState(false);
   const [topicData, setTopicData] = useState<TopicListView>({ run: null, topics: [] });
   const [topicBand, setTopicBand] = useState<ModelBand>('eco');
   const [topicDetail, setTopicDetail] = useState<TopicItemListView | null>(null);
@@ -468,9 +443,9 @@ function PlatformWorkspace() {
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [token, runId, run?.status, loadWorkspace]);
 
-  async function decideApproval(approvalId: string, decision: 'approved' | 'rejected'): Promise<boolean> {
+  async function decideApproval(approvalId: string, decision: 'approved' | 'rejected', reason?:string): Promise<boolean> {
     try {
-      const response = await fetch(`${gatewayUrl}/api/approval-requests/${encodeURIComponent(approvalId)}/${decision}`, { method: 'POST', headers: headers(true), body: '{}' });
+      const response = await fetch(`${gatewayUrl}/api/approval-requests/${encodeURIComponent(approvalId)}/${decision}`, { method: 'POST', headers: headers(true), body: JSON.stringify({reason}) });
       if (!response.ok) { setMessage(w('The decision could not be saved. Refresh and retry.', 'No se pudo guardar la decisión. Actualiza y reintenta.', '决定未能保存，请刷新后重试。')); return false; }
       setApprovals(current => current.filter(item => item.id !== approvalId));
       setMessage(w('Decision saved.', 'Decisión guardada.', '决定已保存。'));
@@ -541,49 +516,10 @@ function PlatformWorkspace() {
     }
   }
 
-  async function importCsvFile(file: File) {
-    if (file.size > 2 * 1024 * 1024) { setMessage('CSV files are limited to 2 MB. Split larger exports into batches.'); return; }
-    const content = await file.text();
-    const label = importLabel.trim() || file.name.replace(/\.csv$/i, '').trim().slice(0, 120) || 'CSV import';
-    setImportLabel(label);
-    await createImport('csv', content, label);
-  }
-
   async function loadImportDetail(batchId: string) {
     const response = await fetch(`${gatewayUrl}/api/imports/${batchId}`, { headers: headers() });
     if (!response.ok) { setImportDetail(null); setMessage('Import batch not found or access is denied.'); return; }
     setImportDetail(await response.json() as ImportDetailView);
-  }
-
-  async function createInsight() {
-    setMessage(''); setInsightBusy(true);
-    try {
-      const response = await fetch(`${gatewayUrl}/api/insights`, {
-        method: 'POST',
-        headers: headers(true),
-        body: JSON.stringify({ template: insightTemplate, modelBand: insightBand, language: outputLanguage, ...(insightBatchIds.length ? { batchIds: insightBatchIds } : {}) }),
-      });
-      const result = await response.json().catch(() => ({})) as { id?: string; error?: string };
-      if (response.status === 402 || result.error === 'subscription_required') {
-        setMessage(result.error === 'ai_credits_exhausted'
-          ? 'AI credits are exhausted for this period — top up or wait for the next billing cycle.'
-          : 'Insight reports require an active subscription. Pick a plan to unlock AI analysis.');
-        return;
-      }
-      if (!response.ok || !result.id) {
-        setMessage(result.error === 'insight_no_classified_batches' ? 'Import and classify a batch first — insights are built from tagged items.'
-          : result.error === 'insight_batches_not_ready' ? 'Some selected batches are still classifying. Wait for them to finish.'
-          : result.error ?? 'The insight report could not be created.');
-        return;
-      }
-      setInsightBatchIds([]);
-      setMessage('Insight report queued — the AI is reading your tagged evidence now.');
-      await loadWorkspace();
-    } catch {
-      setMessage('The insight request could not reach the workspace service. Please retry.');
-    } finally {
-      setInsightBusy(false);
-    }
   }
 
   async function deliverInsight(reportId: string, input: { channel: 'email' | 'discord'; email?: string; connectedAccountId?: string; draftKey?: string }): Promise<boolean> {
@@ -615,9 +551,9 @@ function PlatformWorkspace() {
     const response = await fetch(`${gatewayUrl}/api/insights/${reportId}`, { headers: headers() });
     if (!response.ok) { setInsightDetail(null); setMessage('Insight report not found or access is denied.'); return; }
     setInsightDetail(await response.json() as InsightReportView);
-    const nextHash = `#${section === 'insights' ? 'insights' : 'reports'}/${encodeURIComponent(reportId)}`;
+    const nextHash = `#reports/${encodeURIComponent(reportId)}`;
     if (location.hash !== nextHash) history.pushState(null, '', nextHash);
-  }, [headers, section]);
+  }, [headers]);
 
   const sessionVerified = Boolean(me);
   useEffect(() => {
@@ -670,15 +606,15 @@ function PlatformWorkspace() {
   // Poll while any batch is still being classified.
   const importsInFlight = importBatches.some((batch) => batch.status === 'pending' || batch.status === 'classifying');
   useEffect(() => {
-    if (!token || section !== 'imports' || !importsInFlight) return;
+    if (!token || (section !== 'start' || !sourceLibrary) || !importsInFlight) return;
     const timer = window.setInterval(() => void loadWorkspace(), 5_000);
     return () => window.clearInterval(timer);
-  }, [token, section, importsInFlight, loadWorkspace]);
+  }, [token, section, sourceLibrary, importsInFlight, loadWorkspace]);
 
   // Poll while an insight report is generating; refresh the open detail too.
   const insightsInFlight = insights.some((report) => report.status === 'pending' || report.status === 'generating');
   useEffect(() => {
-    if (!token || !['insights','reports','dashboard'].includes(section) || !insightsInFlight) return;
+    if (!token || section !== 'reports' || !insightsInFlight) return;
     const timer = window.setInterval(() => {
       void loadWorkspace();
       if (insightDetail && (insightDetail.status === 'pending' || insightDetail.status === 'generating')) void loadInsightDetail(insightDetail.id);
@@ -690,13 +626,13 @@ function PlatformWorkspace() {
   const topicRun = topicData.run;
   const topicsInFlight = topicRun !== null && ['pending', 'proposing', 'assigning'].includes(topicRun.status);
   useEffect(() => {
-    if (!token || section !== 'topics' || !topicsInFlight) return;
+    if (!token || (section !== 'reports' || reportTab !== 'topics') || !topicsInFlight) return;
     const timer = window.setInterval(() => {
       void loadWorkspace();
       if (topicDetail) void loadTopicItems(topicDetail.topic.id);
     }, 5_000);
     return () => window.clearInterval(timer);
-  }, [token, section, topicsInFlight, topicDetail, loadWorkspace, loadTopicItems]);
+  }, [token, section, reportTab, topicsInFlight, topicDetail, loadWorkspace, loadTopicItems]);
 
   if (!token) {
     return <EmailAuthScreen onSession={(session) => {
@@ -732,25 +668,26 @@ function PlatformWorkspace() {
   return (
     <WorkspaceShell section={section} navigate={setSection} name={me.workspace.name} email={me.user.email} pending={approvals.length} usage={usage} signOut={signOut} support={<SupportWidget token={token} apiBase={gatewayUrl} />}>
 
+      <ModelChoiceQueue token={token} apiBase={gatewayUrl} role={me.role} onChange={() => void loadWorkspace()}/>
       {locked && <section className="mx-auto mt-8 max-w-7xl rounded-xl border-2 border-sunset/50 bg-sunset/10 p-5"><h2 className="text-lg font-semibold">{t("Automation is paused")}</h2><p className="mt-1 text-sm text-ink-soft">{t("Complete your subscription or review your usage limits. A free trial pauses after 7 days or 30 AI credits, whichever comes first.")}</p><div className="mt-4 flex flex-wrap gap-3">{me.role === 'owner' && <button disabled={recoveringCheckout} onClick={() => void recoverCheckout()} className="rounded-md bg-sky-deep px-5 py-3 font-medium text-white disabled:opacity-50">{recoveringCheckout ? t("Checking Stripe…") : t("Check / resume checkout")}</button>}<a href={`/activate?plan=growth${audience(new URLSearchParams(location.search).get('persona')) ? `&persona=${audience(new URLSearchParams(location.search).get('persona'))}` : ''}`} className="inline-block rounded-md bg-sunset px-5 py-3 font-medium text-white shadow-paint-sm">{t("View plans")}</a></div></section>}
 
-      <div className={`workspace-content ${locked && section !== 'start' && section !== 'settings' && section !== 'dashboard' && section !== 'billing' ? "pointer-events-none select-none opacity-40 grayscale" : ''}`} aria-disabled={locked && section !== 'start' && section !== 'settings' && section !== 'dashboard' && section !== 'billing'} inert={locked && section !== 'start' && section !== 'settings' && section !== 'dashboard' && section !== 'billing'}>
-        {section === 'start' && <TaskWorkspace key={me.workspace.id} token={token} apiBase={gatewayUrl} workspaceId={me.workspace.id} role={me.role} canRun={!locked} onFullReport={id => { setSection('reports'); void loadInsightDetail(id); }} onUsageChange={() => void loadWorkspace()} />}
-        {(section === 'settings'||section === 'billing')&&<div className="management-tabs" role="tablist" aria-label={w('Settings & usage','Ajustes y consumo','设置与用量')}><button role="tab" aria-selected={section==='billing'||managementTab==='billing'} onClick={()=>{setManagementTab('billing');setSection('settings')}}>{w('Plan & usage','Plan y consumo','套餐与用量')}</button><button role="tab" aria-selected={section==='settings'&&managementTab==='account'} onClick={()=>{setManagementTab('account');setSection('settings')}}>{w('Account & referrals','Cuenta y recomendaciones','账号与推荐')}</button></div>}
-        {((section === 'settings'&&managementTab==='billing')||section==='billing') && <BillingDashboard token={token} gatewayUrl={gatewayUrl} onUsage={applyBillingUsage} />}
-        {section === 'dashboard' && <Overview navigate={setSection} reports={insights} approvals={approvals} items={importBatches.reduce((sum, batch) => sum + batch.itemCount, 0)} accountIssues={accounts.filter(account => account.status !== 'connected').length} onReport={openSavedReport} />}
-        {section === 'review' && <ApprovalQueue approvals={approvals} onDecision={decideApproval} />}
-        {section === 'reports' && !insightDetail && <><TaskResults token={token} apiBase={gatewayUrl} onOpen={id=>{setSection('start');history.replaceState(null,'',`#start/task/${id}`)}}/><ReportLibrary reports={insights} onOpen={openSavedReport} /></>}
-        {(section === 'reports' || section === 'insights') && insightDetail && <section className="workspace-card"><button onClick={() => { setInsightDetail(null); history.pushState(null, '', `#${section}`); }}>{section === 'insights' ? w('Back to insights', 'Volver a análisis', '返回洞察') : w('Back to reports', 'Volver a informes', '返回报告')}</button><h2 className="mt-4">{insightDetail.title}</h2><DeliveryPanel report={insightDetail} accounts={accounts} onDeliver={(id,input) => deliverInsight(id,input)} /><InsightReportBody report={insightDetail} /></section>}
+      <div className={`workspace-content ${locked && section === 'pipelines' ? "pointer-events-none select-none opacity-40 grayscale" : ''}`} aria-disabled={locked && section === 'pipelines'} inert={locked && section === 'pipelines'}>
+        {section==='start'&&<><div className="workspace-button-row"><button aria-pressed={sourceLibrary} onClick={()=>setSourceLibrary(v=>!v)}>{sourceLibrary?w('Back to current task','Volver a la tarea','返回当前任务'):w('Source library','Biblioteca de fuentes','素材库')}</button></div><div hidden={sourceLibrary}><TaskWorkspace key={me.workspace.id} token={token} apiBase={gatewayUrl} workspaceId={me.workspace.id} role={me.role} canRun={!locked} onFullReport={id=>{setSection('reports');void loadInsightDetail(id)}} onUsageChange={()=>void loadWorkspace()} sourceRevision={importBatches.map(b=>b.id+b.status).join(',')}/></div>{sourceLibrary&&<SourceLibrary batches={importBatches} label={importLabel} setLabel={setImportLabel} band={importBand} setBand={setImportBand} busy={importBusy||locked} detail={importDetail} onDiscordImport={id=>void createImport('discord',id)} onOpenDetail={id=>void loadImportDetail(id)} onCloseDetail={()=>setImportDetail(null)} token={token}/>}</>}
+
+        {section === 'settings'&&<div className="management-tabs" role="tablist" aria-label={w('Settings & usage','Ajustes y consumo','设置与用量')}><button role="tab" aria-selected={managementTab==='billing'} onClick={()=>{setManagementTab('billing');setSection('settings')}}>{w('Plan & usage','Plan y consumo','套餐与用量')}</button><button role="tab" aria-selected={managementTab==='account'} onClick={()=>{setManagementTab('account');setSection('settings')}}>{w('Account & referrals','Cuenta y recomendaciones','账号与推荐')}</button><button role="tab" aria-selected={managementTab==='notifications'} onClick={()=>setManagementTab('notifications')}>{w('Digests & reminders','Resúmenes y recordatorios','摘要与提醒')}</button></div>}
+        {(section === 'settings'&&managementTab==='billing') && <BillingDashboard token={token} gatewayUrl={gatewayUrl} onUsage={applyBillingUsage} />}
+        {section==='settings'&&managementTab==='notifications'&&<NotificationCenter apiBase={gatewayUrl} accounts={accounts}/>}
+        {section==='reports'&&!insightDetail&&<div className="management-tabs" role="tablist" aria-label={w('Report tools','Herramientas de informes','报告工具')}>{(['results','topics','weekly'] as const).map(tab=><button key={tab} role="tab" aria-selected={reportTab===tab} onClick={()=>setReportTab(tab)}>{{results:w('Saved results','Resultados guardados','已保存结果'),topics:w('Topics','Temas','主题'),weekly:w('Weekly review','Revisión semanal','每周复盘')}[tab]}</button>)}</div>}
+        {section==='reports'&&reportTab==='weekly'&&<div hidden={Boolean(insightDetail)}><WeeklyInsightReview apiBase={gatewayUrl} onOpenReport={openSavedReport}/><WeeklyHistory apiBase={gatewayUrl} onOpenReport={openSavedReport}/></div>}
+        {section==='reports'&&!insightDetail&&reportTab==='topics'&&<TopicsSection token={token} data={topicData} band={topicBand} setBand={setTopicBand} busy={topicBusy||locked} detail={topicDetail} hasClassifiedItems={importBatches.some(batch=>batch.status==='classified')} onStart={()=>void startTopicRun()} onOpenDetail={id=>void loadTopicItems(id)} onCloseDetail={()=>setTopicDetail(null)}/>}
+        {section === 'review' && <ApprovalQueue approvals={approvals} onDecision={decideApproval} token={token} apiBase={gatewayUrl}/>}
+        {section === 'reports' && !insightDetail && reportTab==='results' && <><TaskResults token={token} apiBase={gatewayUrl} onOpen={id=>{setSection('start');history.replaceState(null,'',`#start/task/${id}`)}}/><ReportLibrary reports={insights} onOpen={openSavedReport} /></>}
+        {section === 'reports' && insightDetail && <section className="workspace-card"><button onClick={() => { setInsightDetail(null); history.pushState(null, '', `#${section}`); }}>{w('Back to reports', 'Volver a informes', '返回报告')}</button><h2 className="mt-4">{insightDetail.title}</h2><DeliveryPanel report={insightDetail} accounts={accounts} onDeliver={(id,input) => deliverInsight(id,input)} /><ExecutionHistory token={token} apiBase={gatewayUrl} kind="report" id={insightDetail.id} requested={insightDetail.modelBand}/><InsightReportBody report={insightDetail} /></section>}
         {workspaceError && <div className="mb-6 rounded-xl border border-sky-deep/20 bg-sky-pale p-4 text-sm text-sky-deep" role="alert">{t(workspaceError)} <button className="ml-3 underline" onClick={() => void loadWorkspace()}>{t('Retry')}</button></div>}
         {message && <div className="mb-6 rounded-xl border border-sky-deep/20 bg-sky-pale p-4 text-sm text-sky-deep" role="status">{t(message)} <button className="ml-3 underline" onClick={() => { setMessage(''); void loadWorkspace(); }}>{t('Retry')}</button></div>}
         {section === 'pipelines' && <PipelinesSection templates={templates} pipelines={pipelines} usage={usage} loading={loading} onNew={() => { setDraft(freshDraft()); setSavedPipeline(null); setReadiness(null); setWizardStep('start'); }} onTemplate={startTemplate} onContinue={continuePipeline} onActivity={() => setSection('activity')} />}
-        {section === 'imports' && <ImportsSection batches={importBatches} label={importLabel} setLabel={setImportLabel} band={importBand} setBand={setImportBand} busy={importBusy} detail={importDetail} onDiscordImport={(id) => void createImport('discord', id)} onCsvFile={(file) => void importCsvFile(file)} onOpenDetail={(id) => void loadImportDetail(id)} onCloseDetail={() => setImportDetail(null)} />}
-        {section === 'insights' && <div hidden={Boolean(insightDetail)}><InsightsSection outputLanguage={outputLanguage} setOutputLanguage={setOutputLanguage} reports={insights} batches={importBatches.filter((batch) => batch.status === 'classified')} template={insightTemplate} setTemplate={setInsightTemplate} band={insightBand} setBand={setInsightBand} selectedBatchIds={insightBatchIds} setSelectedBatchIds={setInsightBatchIds} busy={insightBusy} detail={null} accounts={accounts} onGenerate={() => void createInsight()} onOpenDetail={(id) => void loadInsightDetail(id)} onDeliver={(id, input) => deliverInsight(id, input)} /></div>}
-        {section === 'notifications' && <NotificationCenter apiBase={gatewayUrl} accounts={accounts} />}
-        {section === 'topics' && <TopicsSection data={topicData} band={topicBand} setBand={setTopicBand} busy={topicBusy} detail={topicDetail} hasClassifiedItems={importBatches.some((batch) => batch.status === 'classified')} onStart={() => void startTopicRun()} onOpenDetail={(id) => void loadTopicItems(id)} onCloseDetail={() => setTopicDetail(null)} />}
         {section === 'accounts' && <><AccountsSection accounts={accounts.filter(account => !['snapchat', 'whatsapp'].includes(account.platform))} connecting={connecting} onConnect={connectSocial} onRefresh={() => void refreshAccounts(true)} disconnecting={disconnecting} onDisconnect={['owner', 'admin'].includes(me?.role ?? '') ? disconnectSocial : undefined} />{telegram && <section className="mt-6 rounded-xl border border-ink/20 p-6"><h3 className="text-lg font-semibold">{t("Connect Telegram")}</h3><p className="my-3">{t("Code:")} <strong>{telegram.code}</strong> {t("· Expires:")} {new Date(telegram.expiresAt).toLocaleString()}</p><ol className="space-y-2">{telegram.instructions.map((instruction, index) => <li key={index}>{instruction}</li>)}</ol><p className="mt-4">{t("After the bot confirms, select Sync account health above to verify the connection.")}</p><button onClick={() => setTelegram(null)} className="mt-3 underline">{t("Dismiss code")}</button></section>}</>}
-        {section === 'activity' && <ActivitySection approvals={approvals} taskEvents={taskEvents} auditEvents={auditEvents} runId={runId} setRunId={setRunId} run={run} onLoadRun={() => void loadRun()} onDecision={decideApproval} />}
+        {section === 'activity' && <ActivitySection approvals={approvals} taskEvents={taskEvents} auditEvents={auditEvents} runId={runId} setRunId={setRunId} run={run} onLoadRun={() => void loadRun()} token={token}/>}
         {section === 'settings' && managementTab==='account' && <SettingsSection me={me} locked={locked} newPassword={newPassword} setNewPassword={setNewPassword} passwordStatus={t(passwordStatus)} onSavePassword={() => void savePassword()} onSignOut={signOut} referralUrl={referralUrl} referralStatus={t(referralStatus)} onReferral={() => void createReferralLink()} />}
         {section==='settings'&&managementTab==='account'&&<TaskPreferences token={token} apiBase={gatewayUrl}/>}
         {section === 'settings' && managementTab==='account' && me && ['owner','admin'].includes(me.role) && <ReferralLedger key={me.workspace.id} gatewayUrl={gatewayUrl} headers={headers} />}
@@ -899,52 +836,12 @@ function InsightReportBody({ report }: { report: InsightReportView }) {
   </div>;
 }
 
-function InsightsSection({ outputLanguage, setOutputLanguage, reports, batches, template, setTemplate, band, setBand, selectedBatchIds, setSelectedBatchIds, busy, detail, accounts, onGenerate, onOpenDetail, onDeliver }: { outputLanguage: 'en'|'es'|'zh'; setOutputLanguage: (language:'en'|'es'|'zh')=>void; reports: InsightReportView[]; batches: ImportBatchView[]; template: InsightTemplate; setTemplate: (template: InsightTemplate) => void; band: ModelBand; setBand: (band: ModelBand) => void; selectedBatchIds: string[]; setSelectedBatchIds: (ids: string[]) => void; busy: boolean; detail: InsightReportView | null; accounts: ConnectedAccount[]; onGenerate: () => void; onOpenDetail: (id: string) => void; onDeliver: (id: string, input: { channel: 'email' | 'discord'; email?: string; connectedAccountId?: string; draftKey?: string }) => Promise<boolean>; }) {
-  return <div className="space-y-8">
-    <WeeklyInsightReview apiBase={gatewayUrl} onOpenReport={onOpenDetail} />
-    <WeeklyHistory apiBase={gatewayUrl} onOpenReport={onOpenDetail} />
-    <section className="sketch bg-paper-card p-6 shadow-paint-sm">
-      <p className="font-hand text-lg text-sky-deep">{t("Result templates")}</p>
-      <h2 className="font-display text-3xl">{t("Insight reports")}</h2>
-      <p className="mt-2 max-w-2xl text-sm text-ink-soft">{t("Each report is generated only from your imported, AI-tagged items — every conclusion carries verbatim evidence quotes verified by the platform.")}</p>
-      <div className="mt-5 grid gap-4 md:grid-cols-3">
-        {INSIGHT_TEMPLATES.map((option) => <button key={option.id} onClick={() => setTemplate(option.id)} className={`sketch p-5 text-left transition hover:-translate-y-1 ${template === option.id ? "bg-sky-pale outline-2 outline-sky-deep" : 'bg-paper-card'}`}><span className="block text-lg font-semibold">{t(option.name)}</span><span className="mt-2 block text-sm text-ink-soft">{t(option.tagline)}</span></button>)}
-      </div>
-      <div className="mt-5 grid gap-4 md:grid-cols-2">
-        <Field label={t("Content language")}><select aria-label={t("Content language")} value={outputLanguage} onChange={e=>setOutputLanguage(e.target.value as typeof outputLanguage)}><option value="en">English</option><option value="es">Español</option><option value="zh">简体中文</option></select></Field>
-        <Field label={t("AI model band")}><ModelBandPicker value={band} onChange={setBand} /></Field>
-        {template === 'daily_ops'
-          ? <Field label={t("Source")}><p className="rounded-md border border-ink/20 bg-paper p-3 text-xs text-ink-soft">{t("Automatic — your latest classified items plus the findings of your recent insight reports. A fresh report is also auto-generated every morning for subscribed workspaces.")}</p></Field>
-          : <Field label={`Source batches (${selectedBatchIds.length ? `${selectedBatchIds.length} selected` : t("latest classified")})`}>
-            <div className="max-h-36 space-y-1 overflow-y-auto rounded-md border border-ink/20 bg-paper p-2">
-              {batches.length === 0 && <p className="p-2 text-xs text-ink-soft">{t("No classified batches yet — import data first.")}</p>}
-              {batches.map((batch) => <label key={batch.id} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-sky-pale"><input type="checkbox" checked={selectedBatchIds.includes(batch.id)} onChange={() => setSelectedBatchIds(selectedBatchIds.includes(batch.id) ? selectedBatchIds.filter((id) => id !== batch.id) : [...selectedBatchIds, batch.id])} />{batch.label} · {batch.itemCount} {t("items")}</label>)}
-            </div>
-          </Field>}
-      </div>
-      <button disabled={busy || (batches.length === 0 && reports.length === 0)} onClick={onGenerate} className="mt-4 rounded-md bg-sunset px-5 py-3 font-medium text-white shadow-paint-sm disabled:cursor-not-allowed disabled:opacity-40">{busy ? t("Queuing…") : template === 'daily_ops' ? t("Generate today's tasks") : t("Generate insight report")}</button>
-    </section>
-
-    <section>
-      <p className="font-hand text-lg text-sky-deep">{t("History")}</p>
-      <h2 className="font-display text-3xl">{t("Reports")}</h2>
-      {reports.length === 0 ? <EmptyState title={t("No reports yet")} detail={t("Pick a template above and generate your first evidence-backed report.")} /> : <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{reports.map((report) => <article key={report.id} className="sketch bg-paper-card p-5 shadow-paint-sm"><div className="flex items-center justify-between gap-3"><StatusBadge status={report.status} /><span className="text-xs text-ink-soft">{report.modelBand}</span></div><h3 className="mt-4 text-lg font-semibold">{report.title}</h3><p className="mt-1 text-xs text-ink-soft">{INSIGHT_TEMPLATES.find((t) => t.id === report.template)?.name} · {report.itemCount} {t("items ·")} {new Date(report.createdAt).toLocaleString()}</p><button onClick={() => onOpenDetail(report.id)} className="mt-4 w-full rounded-md border border-ink/25 px-4 py-2 text-sm font-medium hover:bg-sky-pale">{t("Open report")}</button></article>)}</div>}
-    </section>
-
-    {detail && <div className="fixed inset-0 z-50 overflow-y-auto bg-ink/45 p-4 backdrop-blur-sm"><div className="mx-auto my-4 max-w-4xl rounded-2xl bg-paper shadow-2xl"><header className="flex items-start justify-between border-b border-ink/15 p-6"><div><p className="font-hand text-lg text-sky-deep">{INSIGHT_TEMPLATES.find((t) => t.id === detail.template)?.name} · {detail.itemCount} {t("items")}</p><h2 className="font-display text-3xl">{detail.title}</h2></div></header><DeliveryPanel report={detail} accounts={accounts} onDeliver={onDeliver} /><InsightReportBody report={detail} /></div></div>}
-  </div>;
-}
-
-/**
- * Module 2（全量主题聚类与可信计数）：对全部已分类条目按具体主题聚类。
- * "被提到 N 次"由平台 SQL COUNT 得出（不是 LLM 声明）；点开的每条证据
- * 都是原文逐字摘录，构成可核验的计数路径。
- */
-function TopicsSection({ data, band, setBand, busy, detail, hasClassifiedItems, onStart, onOpenDetail, onCloseDetail }: { data: TopicListView; band: ModelBand; setBand: (band: ModelBand) => void; busy: boolean; detail: TopicItemListView | null; hasClassifiedItems: boolean; onStart: () => void; onOpenDetail: (id: string) => void; onCloseDetail: () => void; }) {
+function TopicsSection({ token, data, band, setBand, busy, detail, hasClassifiedItems, onStart, onOpenDetail, onCloseDetail }: { token:string; data: TopicListView; band: ModelBand; setBand: (band: ModelBand) => void; busy: boolean; detail: TopicItemListView | null; hasClassifiedItems: boolean; onStart: () => void; onOpenDetail: (id: string) => void; onCloseDetail: () => void; }) {
   const run = data.run;
   const active = run !== null && ['pending', 'proposing', 'assigning'].includes(run.status);
   const runStatusLabel = run?.status === 'pending' ? 'Queued' : run?.status === 'proposing' ? 'Discovering topics' : run?.status === 'assigning' ? 'Assigning items' : run?.status === 'completed' ? 'Completed' : 'Failed';
   return <div className="space-y-8">
+    {run?.status==='completed'&&<ExecutionHistory token={token} apiBase={gatewayUrl} kind="topics" id={run.id} requested={run.modelBand}/>}
     <section className="sketch bg-paper-card p-6 shadow-paint-sm">
       <p className="font-hand text-lg text-sky-deep">{t("Verifiable demand counts")}</p>
       <h2 className="font-display text-3xl">{t("Topic clustering")}</h2>
@@ -1036,65 +933,9 @@ function DeliveryPanel({ report, accounts, onDeliver }: { report: InsightReportV
   </div>;
 }
 
-function ImportsSection({ batches, label, setLabel, band, setBand, busy, detail, onDiscordImport, onCsvFile, onOpenDetail, onCloseDetail }: { batches: ImportBatchView[]; label: string; setLabel: (value: string) => void; band: ModelBand; setBand: (band: ModelBand) => void; busy: boolean; detail: ImportDetailView | null; onDiscordImport: (id: string) => void; onCsvFile: (file: File) => void; onOpenDetail: (id: string) => void; onCloseDetail: () => void; }) {
-  const [discordChannel, setDiscordChannel] = useState('');
-  const { w } = useWorkspaceLanguage();
-  const [csvFile, setCsvFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<{ items: string[] } | null>(null);
-  const [previewError, setPreviewError] = useState('');
-  async function prepare() {
-    setPreviewError('');
-    if (!label.trim()) { setPreviewError(w('Give this import a title first.', 'Pon un título a esta importación.', '请先填写导入标题。')); document.getElementById('import-label')?.focus(); return; }
-    try {
-      if (!csvFile) throw new Error('file');
-      const text = await csvFile!.text();
-      setPreview({ items: previewImport(text, 'csv') });
-    } catch (error) {
-      const code = error instanceof Error ? error.message : '';
-      const errors: Record<string, string> = {
-        size: w('Use a file under 2 MiB.', 'Usa un archivo de menos de 2 MiB.', '请使用小于 2 MiB 的文件。'),
-        count: w('Use at most 5,000 items.', 'Usa como máximo 5.000 elementos.', '每批最多 5,000 条。'),
-        length: w('Each item must be at most 2,000 characters.', 'Cada elemento debe tener como máximo 2.000 caracteres.', '每条最多 2,000 个字符。'),
-        quotes: w('Fix the CSV quotation marks and retry.', 'Corrige las comillas del CSV y reintenta.', '请纠正 CSV 引号后重试。'),
-        headers: w('Add a text, comment, review or title column.', 'Añade una columna text, comment, review o title.', '请添加 text、comment、review 或 title 列。'),
-        file: w('Choose a CSV file first.', 'Elige un archivo CSV.', '请先选择 CSV 文件。'),
-        empty: w('Add at least one non-empty item.', 'Añade al menos un elemento con texto.', '请至少添加一条非空内容。'),
-      }; setPreviewError(errors[code] || w('The file could not be read.', 'No se pudo leer el archivo.', '无法读取文件。'));
-    }
-  }
-  return <div className="space-y-8">
-    {previewError && <p id="import-preview-error" role="alert" className="workspace-error">{previewError}</p>}
-    {preview && <WorkspaceDialog title={w('Confirm import','Confirmar importación','确认导入')} onClose={() => setPreview(null)}><p>{label} · {preview.items.length.toLocaleString()} {w('items','elementos','条内容')}</p><p>{w('Classification uses AI credits. The first five items are shown below.', 'La clasificación usa créditos de IA. Se muestran los primeros cinco elementos.', '分类会使用 AI 额度，以下预览前五条内容。')}</p>{preview.items.slice(0,5).map((text,index) => <pre className="approval-snapshot" key={index}>{text}</pre>)}<button className="workspace-primary" disabled={busy} onClick={() => { if (csvFile) onCsvFile(csvFile); setPreview(null); }}>{w('Confirm import','Confirmar importación','确认导入')}</button></WorkspaceDialog>}
-    <section className="sketch bg-paper-card p-6 shadow-paint-sm">
-      <p className="font-hand text-lg text-sky-deep">{t("Bring your own data")}</p>
-      <h2 className="font-display text-3xl">{t("Import content for AI tagging")}</h2>
-      <p className="mt-2 max-w-2xl text-sm text-ink-soft">{w("Upload a CSV export or import an authorized Discord channel. Every AI tag includes a verbatim quote from the source.", "Sube un archivo CSV o importa un canal de Discord autorizado. Cada etiqueta de IA incluye una cita textual de la fuente.", "上传 CSV 文件或导入已授权的 Discord 频道。每个 AI 标签均附有来源原文引述。")}</p>
-      <div className="mt-5 grid gap-4 md:grid-cols-2">
-        <Field label={t("Batch label")}><input id="import-label" aria-invalid={!!previewError && !label.trim()} aria-describedby={previewError ? "import-preview-error" : undefined} value={label} onChange={(event) => setLabel(event.target.value)} className="w-full rounded-md border border-ink/20 bg-paper p-3" placeholder={t("October comment export")} maxLength={120} /></Field>
-        <Field label={t("AI model band")}><ModelBandPicker value={band} onChange={setBand} /></Field>
-      </div>
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <label>{w('CSV file','Archivo CSV','CSV 文件')}<input type="file" accept=".csv,text/csv" disabled={busy} onChange={event => { setCsvFile(event.target.files?.[0] ?? null); setPreviewError(''); }} /></label>
-        <button disabled={busy || !csvFile} onClick={() => void prepare()}>{w('Preview CSV','Vista previa CSV','预览 CSV')}</button>
-        <span className="text-xs text-ink-soft">{t("Up to 5,000 items or 2 MB per batch. Classification runs in the background.")}</span>
-      </div>
-      <div className="mt-6 border-t border-ink/15 pt-4">
-        <Field label={t("Discord channel ID")}><input value={discordChannel} onChange={event => setDiscordChannel(event.target.value)} inputMode="numeric" maxLength={20} className="w-full rounded-md border border-ink/20 bg-paper p-3" /></Field>
-        <p className="my-2 text-xs text-ink-soft">{t("Admin-authorized channels only. Scans the latest 500 messages, imports new human text and queues paid AI classification. Bots, attachments and thread history are excluded; this is not continuous sync.")}</p>
-        <button disabled={busy || !/^\d{17,20}$/.test(discordChannel.trim()) || !label.trim()} onClick={() => onDiscordImport(discordChannel)} className="rounded-md border border-ink/25 px-5 py-3 disabled:opacity-40">{t("Import Discord messages")}</button>
-      </div>
-    </section>
-
-    <section>
-      <div className="flex items-end justify-between gap-4"><div><p className="font-hand text-lg text-sky-deep">{t("History")}</p><h2 className="font-display text-3xl">{t("Import batches")}</h2></div></div>
-      {batches.length === 0 ? <EmptyState title={t("No imports yet")} detail={t("Import a batch above. The AI will tag each item with intent labels and keep the exact evidence quote for every tag.")} /> : <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{batches.map((batch) => <article key={batch.id} className="sketch bg-paper-card p-5 shadow-paint-sm"><div className="flex items-center justify-between gap-3"><StatusBadge status={batch.status} /><span className="text-xs text-ink-soft">{(batch.sourceType || 'unknown').toUpperCase()} · {batch.modelBand}</span></div><h3 className="mt-4 text-lg font-semibold">{batch.label}</h3><p className="mt-1 text-xs text-ink-soft">{batch.itemCount} {t("item")}{batch.itemCount === 1 ? '' : 's'} · {new Date(batch.createdAt).toLocaleString()}</p>{Object.keys(batch.tagDistribution).length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{Object.entries(batch.tagDistribution).sort((a, b) => b[1] - a[1]).map(([tag, count]) => <span key={tag} className="rounded-full bg-sky-pale px-2 py-0.5 text-[11px]">{TAG_LABELS[tag] ?? tag} · {count}</span>)}</div>}<button onClick={() => onOpenDetail(batch.id)} className="mt-4 w-full rounded-md border border-ink/25 px-4 py-2 text-sm font-medium hover:bg-sky-pale">{t("View tagged items")}</button></article>)}</div>}
-    </section>
-
-    {detail && <WorkspaceDialog title={t("Details")} onClose={onCloseDetail}><div><header className="flex items-start justify-between border-b border-ink/15 p-6"><div><p className="font-hand text-lg text-sky-deep">{detail.batch.itemCount} {t("items ·")} {detail.batch.modelBand}</p><h2 className="font-display text-3xl">{detail.batch.label}</h2></div></header><div className="space-y-4 p-6 md:p-8">
-      {detail.items.length === 0 && <p className="text-sm text-ink-soft">{t("No items in this batch.")}</p>}
-      {detail.items.map((item) => <article key={item.id} className="rounded-xl border border-ink/15 bg-paper-card p-4"><div className="flex flex-wrap items-center gap-2 text-xs text-ink-soft"><span className="font-semibold uppercase tracking-wide text-sky-deep">{platformLabel(item.platform)}</span>{item.author && <span>· {item.author}</span>}</div><p className="mt-2 text-sm">{item.text}</p>{item.tags.length > 0 && <div className="mt-3 space-y-2">{item.tags.map((tag) => <div key={tag.tag} className="rounded-lg bg-sky-pale/70 p-3"><div className="flex items-center justify-between gap-3"><span className="text-xs font-semibold">{TAG_LABELS[tag.tag] ?? tag.tag}</span><span className="text-[11px] text-ink-soft">{Math.round(tag.confidence * 100)}%</span></div><blockquote className="mt-1 border-l-2 border-sky-deep/40 pl-2 text-xs italic text-ink-soft">“{tag.evidence}”</blockquote></div>)}</div>}</article>)}
-    </div></div></WorkspaceDialog>}
-  </div>;
+function SourceLibrary({batches,label,setLabel,band,setBand,busy,detail,onDiscordImport,onOpenDetail,onCloseDetail,token}:{batches:ImportBatchView[];label:string;setLabel:(s:string)=>void;band:ModelBand;setBand:(b:ModelBand)=>void;busy:boolean;detail:ImportDetailView|null;onDiscordImport:(s:string)=>void;onOpenDetail:(s:string)=>void;onCloseDetail:()=>void;token:string}){
+ const {w}=useWorkspaceLanguage();const [channel,setChannel]=useState('');
+ return <section className="workspace-card"><h2>{w('Source library','Biblioteca de fuentes','素材库')}</h2><p>{w('Paste text and CSV are imported from New task. Existing sources stay available for reuse and evidence checks.','Importa texto y CSV desde Nueva tarea. Las fuentes existentes se conservan para reutilizar y verificar evidencias.','文本和 CSV 从新建任务导入；已有素材继续保留，供复用与原文核对。')}</p><details><summary>{w('Import Discord messages','Importar mensajes de Discord','导入 Discord 消息')}</summary><label>{w('Source name','Nombre de fuente','来源名称')}<input value={label} maxLength={120} onChange={e=>setLabel(e.target.value)}/></label><label>{w('Discord channel ID','ID de canal de Discord','Discord 频道 ID')}<input inputMode="numeric" value={channel} onChange={e=>setChannel(e.target.value)}/></label><ModelBandPicker value={band} onChange={setBand}/><button disabled={busy||!label.trim()||!/^\d{17,20}$/.test(channel)} onClick={()=>onDiscordImport(channel)}>{w('Import Discord messages','Importar mensajes de Discord','导入 Discord 消息')}</button></details>{batches.map(batch=><div className="workspace-row" key={batch.id}><div><strong>{batch.label}</strong><small>{t(batch.status)} · {batch.itemCount} {w('items','elementos','条')}</small></div><button onClick={()=>onOpenDetail(batch.id)}>{w('View source','Ver fuente','查看素材')}</button></div>)}{detail&&<WorkspaceDialog title={detail.batch.label} onClose={onCloseDetail}><ExecutionHistory token={token} apiBase={gatewayUrl} kind="import" id={detail.batch.id} requested={detail.batch.modelBand}/>{detail.items.map(item=><article key={item.id}><small>{item.author} · {item.platform}</small><pre translate="no">{item.text}</pre>{item.tags?.map((tag,index)=><blockquote key={index}><strong>{tag.tag}</strong><p translate="no">{tag.evidence}</p></blockquote>)}{item.metrics&&Object.keys(item.metrics).length>0&&<details><summary>{w('Source metrics','Métricas de fuente','来源指标')}</summary><pre>{JSON.stringify(item.metrics,null,2)}</pre></details>}</article>)}</WorkspaceDialog>}</section>;
 }
 
 function AccountsSection({ accounts, connecting, onConnect, onRefresh, disconnecting, onDisconnect }: { accounts: ConnectedAccount[]; connecting: string; onConnect: (platform: typeof socialPlatforms[number][0]) => void; onRefresh: () => void; disconnecting: string; onDisconnect?: (account: ConnectedAccount) => Promise<void>; }) {
@@ -1118,13 +959,13 @@ function AccountsSection({ accounts, connecting, onConnect, onRefresh, disconnec
   </div>;
 }
 
-function ActivitySection({ approvals, taskEvents, auditEvents, runId, setRunId, run, onLoadRun, onDecision }: { approvals: ApprovalView[]; taskEvents: TaskEventView[]; auditEvents: AuditEventView[]; runId: string; setRunId: (value: string) => void; run: RunView | null; onLoadRun: () => void; onDecision: (id: string, decision: 'approved' | 'rejected') => Promise<boolean>; }) {
-  return <div className="space-y-8"><section><p className="font-hand text-lg text-sky-deep">{t("Human control")}</p><h2 className="font-display text-3xl">{t("Approvals & Activity")}</h2><div className="mt-5 grid gap-6 lg:grid-cols-3"><ApprovalQueue approvals={approvals} onDecision={onDecision} /><Feed title={t("Successful actions")} empty={t("No billable actions yet.")}>{taskEvents.map((event) => <div key={event.id} className="border-b border-ink/10 py-3 text-sm"><p>{event.actionType}: {event.actionType.startsWith('ai.') ? `${event.aiCredits} credit(s)` : `${event.billableUnits} unit(s)`}</p><p className="mt-1 text-xs text-ink-soft">{event.status} · {new Date(event.createdAt).toLocaleString()}</p></div>)}</Feed><Feed title={t("Audit trail")} empty={t("No audit events yet.")}>{auditEvents.map((event) => <div key={event.id} className="border-b border-ink/10 py-3 text-sm"><p>{event.eventType}</p><p className="mt-1 text-xs text-ink-soft">{new Date(event.createdAt).toLocaleString()}</p></div>)}</Feed></div></section><section className="rounded-xl border border-ink/20 bg-paper-card p-5"><h3 className="text-lg font-semibold">{t("Find a specific run")}</h3><div className="mt-4 flex flex-col gap-3 md:flex-row"><input aria-label={t("Workflow run UUID")} value={runId} onChange={(event) => setRunId(event.target.value)} className="flex-1 rounded-md border border-ink/20 bg-paper p-3" placeholder={t("Workflow run UUID")} /><button onClick={onLoadRun} className="rounded-md bg-sky-deep px-5 py-3 font-medium text-white">{t("Load run")}</button></div>{run && <div className="mt-5 grid gap-3 rounded-lg bg-sky-pale p-4 text-sm md:grid-cols-3"><span>{t("Status:")} <b>{run.status}</b></span><span>{t("Workflow:")} {run.workflowId}</span><span>{t("Created:")} {new Date(run.createdAt).toLocaleString()}</span></div>}</section></div>;
+function ActivitySection({ approvals, taskEvents, auditEvents, runId, setRunId, run, onLoadRun, token }: { approvals: ApprovalView[]; taskEvents: TaskEventView[]; auditEvents: AuditEventView[]; runId: string; setRunId: (value: string) => void; run: RunView | null; onLoadRun: () => void; token:string; }) {
+  return <div className="space-y-8"><section><p className="font-hand text-lg text-sky-deep">{t("Human control")}</p><h2 className="font-display text-3xl">{t("Approvals & Activity")}</h2><div className="mt-5 grid gap-6 lg:grid-cols-3"><a className="workspace-text-button" href="#review">{t("Review")} ({approvals.length})</a><Feed title={t("Successful actions")} empty={t("No billable actions yet.")}>{taskEvents.map((event) => <div key={event.id} className="border-b border-ink/10 py-3 text-sm"><p>{event.actionType}: {event.actionType.startsWith('ai.') ? `${event.aiCredits} credit(s)` : `${event.billableUnits} unit(s)`}</p><p className="mt-1 text-xs text-ink-soft">{event.status} · {new Date(event.createdAt).toLocaleString()}</p></div>)}</Feed><Feed title={t("Audit trail")} empty={t("No audit events yet.")}>{auditEvents.map((event) => <div key={event.id} className="border-b border-ink/10 py-3 text-sm"><p>{event.eventType}</p><p className="mt-1 text-xs text-ink-soft">{new Date(event.createdAt).toLocaleString()}</p></div>)}</Feed></div></section><section className="rounded-xl border border-ink/20 bg-paper-card p-5"><h3 className="text-lg font-semibold">{t("Find a specific run")}</h3><div className="mt-4 flex flex-col gap-3 md:flex-row"><input aria-label={t("Workflow run UUID")} value={runId} onChange={(event) => setRunId(event.target.value)} className="flex-1 rounded-md border border-ink/20 bg-paper p-3" placeholder={t("Workflow run UUID")} /><button onClick={onLoadRun} className="rounded-md bg-sky-deep px-5 py-3 font-medium text-white">{t("Load run")}</button></div>{run&&<ExecutionHistory token={token} apiBase={gatewayUrl} kind="workflow" id={run.id}/>} {run && <div className="mt-5 grid gap-3 rounded-lg bg-sky-pale p-4 text-sm md:grid-cols-3"><span>{t("Status:")} <b>{run.status}</b></span><span>{t("Workflow:")} {run.workflowId}</span><span>{t("Created:")} {new Date(run.createdAt).toLocaleString()}</span></div>}</section></div>;
 }
 
 function SettingsSection({me,locked,newPassword,setNewPassword,passwordStatus,onSavePassword,onSignOut,referralUrl,referralStatus,onReferral}:{me:MeView|null;locked:boolean;newPassword:string;setNewPassword:(v:string)=>void;passwordStatus:string;onSavePassword:()=>void;onSignOut:()=>void;referralUrl:string;referralStatus:string;onReferral:()=>void}){
  const {w}=useWorkspaceLanguage();const [copyStatus,setCopyStatus]=useState('');const canRefer=!locked&&!!me&&['owner','admin'].includes(me.role);
- return <div className="grid gap-6 lg:grid-cols-2"><section className="workspace-card"><h2>{w('Account & current plan','Cuenta y plan actual','账号与当前套餐')}</h2><p>{me?.user.email}</p><p>{me?.workspace.name} · {me?.role}</p><p>{w('Current plan','Plan actual','当前套餐')}: {me?.plan} · {me?.subscriptionStatus}</p>{me&&!me.user.passwordSet&&<label>{t('New password')}<input type="password" autoComplete="new-password" value={newPassword} onChange={e=>setNewPassword(e.target.value)} /><button disabled={newPassword.length<8||newPassword.length>128} onClick={onSavePassword}>{t('Save password')}</button></label>}{passwordStatus&&<p role="status">{passwordStatus}</p>}<button onClick={onSignOut}>{t('Sign out')}</button><details className="mt-6"><summary>{w('More tools','Más herramientas','更多工具')}</summary><div className="mt-3 flex flex-wrap gap-3">{(['dashboard','imports','insights','topics','notifications'] as Section[]).map(id=><a key={id} href={`#${id}`} onClick={()=>{location.hash=id;location.reload()}}>{t(({dashboard:'Today',imports:'Sources',insights:'Insights',topics:'Topics',notifications:'Notifications'} as Partial<Record<Section,string>>)[id]??id)}</a>)}</div></details></section><section className="workspace-card"><h2>{t('Refer & earn 20%')}</h2><p>{t('Earn account credit after an eligible referral clears its refund window.')}</p><label>{t('Referral link')}<input readOnly value={referralUrl} /></label><div className="mt-3 flex gap-3"><button disabled={!canRefer} onClick={onReferral}>{t('Generate link')}</button><button disabled={!referralUrl||!canRefer} onClick={()=>void navigator.clipboard.writeText(referralUrl).then(()=>setCopyStatus(w('Copied','Copiado','已复制'))).catch(()=>setCopyStatus(w('Select the link and copy manually.','Selecciona y copia el enlace.','请选择链接手动复制。')))}>{t('Copy')}</button></div>{!canRefer&&<p>{w('An active owner or admin session is required.','Se requiere sesión activa de propietario o administrador.','需要有效的负责人或管理员会话。')}</p>}{referralStatus&&<p role="status">{referralStatus}</p>}{copyStatus&&<p role="status">{copyStatus}</p>}</section></div>;
+ return <div className="grid gap-6 lg:grid-cols-2"><section className="workspace-card"><h2>{w('Account & current plan','Cuenta y plan actual','账号与当前套餐')}</h2><p>{me?.user.email}</p><p>{me?.workspace.name} · {me?.role}</p><p>{w('Current plan','Plan actual','当前套餐')}: {me?.plan} · {me?.subscriptionStatus}</p>{me&&!me.user.passwordSet&&<label>{t('New password')}<input type="password" autoComplete="new-password" value={newPassword} onChange={e=>setNewPassword(e.target.value)} /><button disabled={newPassword.length<8||newPassword.length>128} onClick={onSavePassword}>{t('Save password')}</button></label>}{passwordStatus&&<p role="status">{passwordStatus}</p>}<button onClick={onSignOut}>{t('Sign out')}</button></section><section className="workspace-card"><h2>{t('Refer & earn 20%')}</h2><p>{t('Earn account credit after an eligible referral clears its refund window.')}</p><label>{t('Referral link')}<input readOnly value={referralUrl} /></label><div className="mt-3 flex gap-3"><button disabled={!canRefer} onClick={onReferral}>{t('Generate link')}</button><button disabled={!referralUrl||!canRefer} onClick={()=>void navigator.clipboard.writeText(referralUrl).then(()=>setCopyStatus(w('Copied','Copiado','已复制'))).catch(()=>setCopyStatus(w('Select the link and copy manually.','Selecciona y copia el enlace.','请选择链接手动复制。')))}>{t('Copy')}</button></div>{!canRefer&&<p>{w('An active owner or admin session is required.','Se requiere sesión activa de propietario o administrador.','需要有效的负责人或管理员会话。')}</p>}{referralStatus&&<p role="status">{referralStatus}</p>}{copyStatus&&<p role="status">{copyStatus}</p>}</section></div>;
 }
 
 function PipelineWizard({ message, step, draft, setDraft, templates, selectedTemplate, accounts, savedPipeline, readiness, loading, onClose, onStep, onTemplate, onDescription, onToggleAccount, onSave, onTest, onActivate }: { message: string; step: WizardStep; draft: PipelineDraft; setDraft: React.Dispatch<React.SetStateAction<PipelineDraft>>; templates: PipelineTemplate[]; selectedTemplate?: PipelineTemplate; accounts: ConnectedAccount[]; savedPipeline: PipelineView | null; readiness: PipelineReadiness | null; loading: boolean; onClose: () => void; onStep: (step: WizardStep) => void; onTemplate: (template: PipelineTemplate) => void; onDescription: () => void; onToggleAccount: (id: string) => void; onSave: () => void; onTest: () => void; onActivate: () => void; }) {

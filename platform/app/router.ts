@@ -31,6 +31,9 @@ export default (app: Application) => {
   router.get('/api/notifications/events', controller.platform.listNotificationEvents);
   router.post('/api/notifications/events/:eventId/approve', controller.platform.approveNotificationEvent);
   router.post('/api/notifications/events/:eventId/act', controller.platform.actOnNotificationEvent);
+  router.get('/api/model-executions/:kind/:sourceId',controller.platform.modelExecutions);
+  router.get('/api/model-choices',controller.platform.modelChoices);
+  router.post('/api/model-choices/:jobId',controller.platform.chooseModel);
   router.get('/api/tasks',controller.platform.listTasks);
   router.post('/api/tasks',controller.platform.createTask);
   router.get('/api/task-preferences',controller.platform.taskPreferences);

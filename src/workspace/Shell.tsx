@@ -1,13 +1,13 @@
 import officialLogo from '../assets/piggybot-logo.png';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Sprout, Home, SquareCheck, ChartNoAxesColumn, BookOpen, Database, Link, Send, Activity, Settings, Menu, X, Bell, Search, CircleHelp, LogOut, Hash, CreditCard } from 'lucide-react';
+import { Sprout, SquareCheck, BookOpen, Link, Send, Activity, Settings, Menu, X, Bell, Search, CircleHelp, LogOut } from 'lucide-react';
 import { useWorkspaceLanguage } from './useWorkspaceLanguage';
 import './workspace.css';
 import { sections, type Section } from './routes';
 import { primarySections } from './routes';
 import './workspace-b.css';
-function useSectionLabels() { const { w } = useWorkspaceLanguage(); return { start:w('Current task','Tarea actual','当前任务'), dashboard:w('Today','Hoy','今日'), review:w('Review & schedule','Revisión y programación','审核与排期'), insights:w('Insights','Análisis','洞察与草稿'), reports:w('Report library','Informes','报告库'), pipelines:w('Publish','Publicar','发布'), imports:w('Sources','Fuentes','数据来源'), accounts:w('Channels','Canales','渠道账号'), topics:w('Topics','Temas','主题'), notifications:w('Notifications','Notificaciones','摘要与提醒'), activity:w('Activity','Actividad','活动'), billing:w('Plan & usage','Plan y uso','套餐与用量'), settings:w('Settings & usage','Ajustes y consumo','设置与用量') }; }
-const icons = { start: Sprout, dashboard: Home, review: SquareCheck, insights:ChartNoAxesColumn, reports:BookOpen, pipelines:Send, imports:Database, accounts:Link, topics:Hash, notifications:Bell, activity:Activity, billing:CreditCard, settings:Settings };
+function useSectionLabels() { const { w } = useWorkspaceLanguage(); return { start:w('Current task','Tarea actual','当前任务'), review:w('Review & schedule','Revisión y programación','审核与排期'), reports:w('Report library','Informes','报告库'), pipelines:w('Publish','Publicar','发布'), accounts:w('Channels','Canales','渠道账号'), activity:w('Activity','Actividad','活动'), settings:w('Settings & usage','Ajustes y consumo','设置与用量') }; }
+const icons = { start: Sprout, review: SquareCheck, reports:BookOpen, pipelines:Send, accounts:Link, activity:Activity, settings:Settings };
 export function WorkspaceShell({ section, navigate, name, email, pending, usage, signOut, support, children }: { section: Section; navigate:(s:Section)=>void; name:string; email:string; pending:number; usage:{taskUsed:number;taskQuota:number}|null;signOut:()=>void;support?:ReactNode;children:ReactNode }) {
   const {locale,setLocale,w}=useWorkspaceLanguage(); const labels=useSectionLabels();
   const [menu,setMenu]=useState(false); const [search,setSearch]=useState(false); const [query,setQuery]=useState('');
@@ -27,7 +27,7 @@ export function WorkspaceShell({ section, navigate, name, email, pending, usage,
       <button className="mobile-only close-menu" onClick={()=>{closeMenu();}} aria-label={w('Close navigation','Cerrar navegación','关闭导航')}><X/></button>
       <a className="workspace-brand" href="/"><img src={officialLogo} alt=""/><span>Piggybot<small>{w('Your thoughtful work buddy','Tu compañero de trabajo','你的贴心工作伙伴')}</small></span></a>
       <div className="workspace-name"><strong>{name}</strong><small>{w('Your workspace','Tu espacio de trabajo','你的工作区')}</small></div>
-      <nav>{primarySections.map(id=>{const Icon=icons[id];return <button key={id} data-nav={id} aria-current={section===id?'page':undefined} onClick={()=>go(id)}><Icon size={18} aria-hidden="true"/><span>{labels[id]}</span>{id==='review'&&pending>0&&<b>{pending}</b>}</button>;})}<details className="mt-4"><summary>{w('More tools','Más herramientas','更多工具')}</summary>{sections.filter(id=>!primarySections.includes(id)).map(id=>{const Icon=icons[id];return <button key={id} data-nav={id} aria-current={section===id?'page':undefined} onClick={()=>go(id)}><Icon size={18}/><span>{labels[id]}</span></button>})}</details></nav>
+      <nav>{primarySections.map(id=>{const Icon=icons[id];return <button key={id} data-nav={id} aria-current={section===id?'page':undefined} onClick={()=>go(id)}><Icon size={18} aria-hidden="true"/><span>{labels[id]}</span>{id==='review'&&pending>0&&<b>{pending}</b>}</button>;})}</nav>
       {usage&&<div className="workspace-meter"><span>{w('Task usage','Uso de tareas','任务用量')}</span><progress aria-label={w('Task usage','Uso de tareas','任务用量')} max={Math.max(usage.taskQuota,1)} value={usage.taskUsed}/><small>{usage.taskUsed.toLocaleString(locale)} / {usage.taskQuota.toLocaleString(locale)}</small></div>}
       <footer><button onClick={()=>window.dispatchEvent(new Event('piggybot:open-support'))}><CircleHelp size={16}/>{w('Help','Ayuda','帮助')}</button><button onClick={signOut}><LogOut size={16}/>{w('Sign out','Cerrar sesión','退出登录')}</button><small>{email}</small></footer>
     </aside>

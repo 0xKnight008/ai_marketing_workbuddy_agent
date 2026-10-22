@@ -23,9 +23,17 @@ async function fixture(page:Page){
  if(path==='/api/zernio/accounts')return route.fulfill({json:[{id:'account-1',displayName:'Studio North',platform:'instagram',status:'expired',capabilities:['publish']}]});
  if(path==='/api/imports/google/connection')return route.fulfill({json:{connected:false}});
  return route.fulfill({json:[]});});
- await page.goto('/app');await expect(page.locator('[data-nav=dashboard]')).toBeAttached();return mutations;
+ await page.goto('/app');await expect(page.locator('[data-nav=start]')).toBeAttached();return mutations;
 }
-async function nav(page:Page,route:string){const menu=page.locator('.workspace-topbar .mobile-only');if(await menu.isVisible())await menu.click();const target=page.locator(`[data-nav=${route}]`);if(!(await target.isVisible()))await page.locator('.workspace-sidebar details summary').click();await target.click();}
+async function nav(page:Page,route:string){
+ const menu=page.locator('.workspace-topbar .mobile-only');if(await menu.isVisible())await menu.click();
+ const canonical:Record<string,string>={dashboard:'start',imports:'start',insights:'start',topics:'reports',notifications:'settings'};
+ await page.locator(`[data-nav=${canonical[route]??route}]`).click();
+ if(route==='imports')await page.getByRole('button',{name:/^(Source library|Biblioteca de fuentes|素材库)$/}).click();
+ if(route==='insights')await page.getByRole('button',{name:/^(Structured templates|Plantillas|结构化模板)$/}).click();
+ if(route==='topics')await page.getByRole('tab',{name:/^(Topics|Temas|主题)$/}).click();
+ if(route==='notifications')await page.getByRole('tab',{name:/^(Digests & reminders|Resúmenes y recordatorios|摘要与提醒)$/}).click();
+}
 for(const locale of ['en','es','zh'])for(const size of ['desktop','mobile'])for(const route of ['dashboard','review','reports','imports','accounts','insights','pipelines','topics','notifications','activity','settings'])test(`${locale} ${size} ${route}: accessible and fits`,async({page})=>{
  await page.setViewportSize(size==='mobile'?{width:390,height:844}:{width:1440,height:1080});await fixture(page);await page.locator('#workspace-language').selectOption(locale);
 
@@ -33,52 +41,27 @@ for(const locale of ['en','es','zh'])for(const size of ['desktop','mobile'])for(
   await page.addScriptTag({content:axe.source});
   const result=await page.evaluate(async()=>{ const engine=(window as unknown as {axe: typeof axe}).axe; return engine.run(document, {runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21a','wcag21aa','wcag22aa']}}); });expect(result.violations,`${locale} ${route}`).toEqual([]);
 });
-test('approval has an explicit immutable confirmation and updates home count',async({page})=>{const requests=await fixture(page);await nav(page,'review');await page.getByRole('button',{name:'Approve',exact:true}).click();await expect(page.getByRole('dialog')).toBeVisible();expect(requests).toHaveLength(0);await expect(page.getByRole('dialog').locator('pre')).toHaveText(original);await page.getByRole('button',{name:'Confirm decision'}).click();await expect(page.getByRole('dialog')).not.toBeVisible();expect(requests[0]).toEqual({path:'/api/approval-requests/approval-1/approved',body:{}});await nav(page,'dashboard');await expect(page.locator('.workspace-stats button').first().locator('strong')).toHaveText('0');});
-test('CSV import preview preserves edits when language changes and submits only after confirmation', async ({ page }) => {
- // File.text() is asynchronous. Exercise a slow read so the assertion cannot
- // accidentally depend on the request arriving before Playwright click resolves.
- await page.addInitScript(() => {
-  const read = File.prototype.text;
-  File.prototype.text = async function () {
-   await new Promise(resolve => setTimeout(resolve, 150));
-   return read.call(this);
-  };
- });
- const requests = await fixture(page); await nav(page, 'imports');
- await page.getByLabel('Batch label', { exact: true }).fill('September');
- await page.locator('input[type=file]').setInputFiles({ name: 'feedback.csv', mimeType: 'text/csv', buffer: Buffer.from('text\nFirst feedback\nSecond feedback') });
- await page.getByRole('button', { name: 'Preview CSV', exact: true }).click();
- await expect(page.getByRole('dialog').locator('pre')).toHaveCount(2); expect(requests).toHaveLength(0);
- await page.keyboard.press('Escape'); await page.locator('#workspace-language').selectOption('es');
- await expect(page.locator('#import-label')).toHaveValue('September');
- await page.getByRole('button', { name: 'Vista previa CSV', exact: true }).click();
- await page.getByRole('button', { name: 'Confirmar importación', exact: true }).click();
- await expect.poll(() => requests.length).toBe(1);
- expect(requests[0]).toMatchObject({ path: '/api/imports', body: { label: 'September', sourceType: 'csv', content: 'text\nFirst feedback\nSecond feedback' } });
- await expect(page.getByRole('dialog')).not.toBeVisible();
-});
-
+test('approval has an explicit immutable confirmation and updates home count',async({page})=>{const requests=await fixture(page);await nav(page,'review');await page.getByRole('button',{name:'Approve',exact:true}).click();await expect(page.getByRole('dialog')).toBeVisible();expect(requests).toHaveLength(0);await expect(page.getByRole('dialog').locator('pre')).toHaveText(original);await page.getByRole('button',{name:'Confirm decision'}).click();await expect(page.getByRole('dialog')).not.toBeVisible();expect(requests[0]).toEqual({path:'/api/approval-requests/approval-1/approved',body:{}});await expect(page.locator('[data-nav=review] b')).toHaveCount(0);});
 for (const locale of ['en', 'zh', 'es']) test(`${locale}: Sources exposes only CSV and Discord, without Google requests`, async ({ page }) => {
  const googleRequests: string[] = [];
  page.on('request', request => { if (request.url().includes('/api/imports/google/')) googleRequests.push(request.url()); });
  const mutations = await fixture(page);
  await page.goto(`/login?locale=${locale}#imports`);
- await expect(page.locator('#import-label')).toBeVisible();
+ await page.getByText({en:'Import Discord messages',zh:'导入 Discord 消息',es:'Importar mensajes de Discord'}[locale],{exact:true}).first().click();
  await page.locator('#workspace-language').selectOption(locale);
  const main = page.locator('main');
- await expect(main.locator('input[type=file]')).toBeVisible();
+ await expect(main.locator('input[type=file]')).toHaveCount(0);
  await expect(main.locator('input[inputmode=numeric]')).toBeVisible();
  await expect(main.getByText('Google Sheets', { exact: true })).toHaveCount(0);
  await expect(main.locator('input[placeholder*="docs.google.com"]')).toHaveCount(0);
- await expect(main.locator('textarea')).toHaveCount(0);
+ await expect(main.locator('textarea:visible')).toHaveCount(0);
  expect(googleRequests).toEqual([]);
- await page.locator('#import-label').fill('Discord regression');
+ await page.getByLabel({en:'Source name',zh:'来源名称',es:'Nombre de fuente'}[locale],{exact:true}).last().fill('Discord regression');
  await main.locator('input[inputmode=numeric]').fill('123456789012345678');
  await main.getByRole('button', { name: { en: 'Import Discord messages', zh: '导入 Discord 消息', es: 'Importar mensajes de Discord' }[locale], exact: true }).click();
  await expect.poll(() => mutations.length).toBe(1);
  expect(mutations[0]).toMatchObject({ path: '/api/imports', body: { sourceType: 'discord', channelId: '123456789012345678' } });
 });
-test('content language reaches the backend independently of UI language',async({page})=>{const requests=await fixture(page);await nav(page,'insights');await page.getByLabel('Content language',{exact:true}).selectOption('es');await page.locator('#workspace-language').selectOption('zh');await page.getByRole('button',{name:'生成洞察报告',exact:true}).click();expect(requests[0]).toMatchObject({path:'/api/insights',body:{language:'es',template:'content_recap'}});});
 test('mobile navigation traps focus, restores focus and supports 320px',async({page})=>{await page.setViewportSize({width:320,height:780});await fixture(page);const menu=page.getByRole('button',{name:'Open navigation',exact:true});await menu.click();await expect(page.getByRole('button',{name:'Close navigation'})).toBeFocused();await page.keyboard.press('Shift+Tab');expect(await page.evaluate(()=>!!document.activeElement?.closest('.workspace-sidebar'))).toBeTruthy();await page.keyboard.press('Escape');await expect(menu).toBeFocused();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();});
 test('report evidence remains unchanged across UI language switches',async({page})=>{await fixture(page);await nav(page,'reports');await page.getByRole('button',{name:'Open report',exact:true}).click();await expect(page.locator('blockquote')).toContainText(original);await page.locator('#workspace-language').selectOption('zh');await expect(page.locator('blockquote')).toContainText(original);await expect(page.getByRole('button',{name:'保存核对与关注重点'})).toBeVisible();});
 
