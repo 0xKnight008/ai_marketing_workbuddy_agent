@@ -91,7 +91,7 @@ export function AudienceWorkspace({
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [error, setError] = useState("");
-  const [usage, setUsage] = useState<{ aiCreditsAvailable: number } | null>(
+  const [usage, setUsage] = useState<{ aiCreditsAvailable: number; trialConversionAvailable?: boolean } | null>(
     null,
   );
   const [quote, setQuote] = useState<{
@@ -152,7 +152,7 @@ export function AudienceWorkspace({
       api<Report[]>("/api/insights"),
       api<Batch[]>("/api/imports"),
       ["owner", "admin", "viewer"].includes(role)
-        ? api<{ aiCreditsAvailable: number }>("/api/billing/usage")
+        ? api<{ aiCreditsAvailable: number; trialConversionAvailable?: boolean }>("/api/billing/usage")
         : Promise.resolve(null),
     ]);
     setReports(list);
@@ -752,7 +752,7 @@ export function AudienceWorkspace({
               ),
               () => void importData(),
               true,
-              !allowed || (usage !== null && usage.aiCreditsAvailable <= 0),
+              !allowed || (usage !== null && usage.aiCreditsAvailable <= 0 && !usage.trialConversionAvailable),
             )}
           </div>
         </section>

@@ -1,3 +1,4 @@
+import {trialCreditHandoffRegression} from './trial-credit-handoff';
 import {reviewModelRegression} from './review-model-consent';
 import {assertTaskSchema} from '../src/task-service/readiness';
 import {taskContextRegression} from './task-context';
@@ -65,6 +66,7 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
     for (const name of names.filter(name=>name>='0037')) await migrate(name);
     await assertTaskSchema(database);
     await assertAuthSchema(database);
+    await t.test('trial to paid credit handoff and Stripe payment recovery',handoff=>trialCreditHandoffRegression(handoff,client,database));
     await t.test('Zernio JSONB capabilities, disconnect isolation, stale sync and reconnect', () => zernioDisconnectRegression(client, database));
     await t.test('referral concurrency, refund races, money boundaries and attribution ordering', () => referralIntegrityRegression(client, database));
     await t.test('admin links redeem atomically once, expire and revoke without workspace privileges', async () => {

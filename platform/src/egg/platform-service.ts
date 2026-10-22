@@ -1,3 +1,4 @@
+import {ModelChoiceService} from '../billing/model-choice';
 import {TaskService,findTask} from '../task-service/service';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
@@ -63,6 +64,7 @@ export class PlatformService {
   private readonly insights: InsightService;
   private readonly topics: TopicService;
   readonly tasks:TaskService;
+  readonly modelChoices:ModelChoiceService;
 
   constructor(
     private readonly config: GatewayConfig,
@@ -78,6 +80,7 @@ export class PlatformService {
     this.insights = new InsightService(database);
     this.topics = new TopicService(database);
     this.tasks=new TaskService(database);
+    this.modelChoices=new ModelChoiceService(database,config.STRIPE_SECRET_KEY);
   }
 
   actorFrom(authorization: string | undefined): ActorContext {

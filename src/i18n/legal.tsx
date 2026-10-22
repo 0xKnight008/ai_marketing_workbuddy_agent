@@ -173,7 +173,7 @@ const termsEn: LegalDoc = {
         "Paid plans are billed monthly in US dollars and renew automatically until cancelled. Current plans, included connected accounts, task quotas and AI credit allowances are described on the pricing page and form part of these Terms.",
       ],
       list: [
-        "Free trial — every paid plan starts with a 7-day free trial including 30 Eco AI credits. At the end of the trial your selected paid plan begins unless you cancel before renewal.",
+        "Free trial — every paid plan includes up to 7 days and 30 AI credits. Continuing a task beyond the remaining trial balance ends the trial early and immediately starts billing the selected subscription, unless cancelled. Remaining trial credits are used first; the difference uses paid plan credits only after payment is confirmed.",
         "Metering — triggers, filters and approval notifications are free. Only successful actions consume task quota or AI credits (Eco / Standard / Flagship generations consume credits per model cost as shown on the pricing page).",
         "Cost guardrails — we monitor your task quota and supplier costs. At 80% we notify you and the next publish may require approval; at 100% new AI generations and publishing pause automatically until you upgrade or the next cycle begins. Free actions are never blocked.",
         "Overage — additional tasks and AI credit top-ups are charged at the rates shown on the pricing page with your consent.",
@@ -433,7 +433,7 @@ const termsZh: LegalDoc = {
         "付费套餐以美元按月计费，自动续订直至取消。当前套餐、内含连接账号、task 额度与 AI credits 配额以定价页描述为准，并构成本条款的一部分。",
       ],
       list: [
-        "免费试用——每个付费套餐均含 7 天免费试用及 30 个 Eco AI credits。试用期结束且未取消的，将开始计收所选套餐费用。",
+        "免费试用——每个付费套餐包含最多 7 天及 30 AI 额度。继续超出剩余试用额度的任务会提前结束试用并立即启动已选订阅扣费；已取消的订阅不自动转付费。先使用剩余试用额度，付款确认后差额使用套餐额度。",
         "计量——触发、过滤与审批通知免费；仅成功的动作消耗 task 额度或 AI credits（Eco / Standard / Flagship 生成按定价页所示的模型成本消耗 credits）。",
         "成本结界——我们监控你的 task 额度与供应商成本：达到 80% 时通知你，下一次发布可能需要审批；达到 100% 时自动暂停新的 AI 生成与发布，直至升级或进入下一周期。免费动作永不受限。",
         "超额用量——额外 task 与 AI credits 加购按定价页费率经你同意后收取。",
@@ -693,7 +693,7 @@ const termsEs: LegalDoc = {
         "Los planes de pago se facturan mensualmente en dólares estadounidenses y se renuevan automáticamente hasta su cancelación. Los planes vigentes, cuentas conectadas incluidas, cuotas de tareas y asignaciones de créditos de IA se describen en la página de precios y forman parte de estos Términos.",
       ],
       list: [
-        "Prueba gratuita — todo plan de pago comienza con 7 días gratis y 30 créditos Eco de IA. Al finalizar la prueba comenzará el plan elegido salvo que canceles antes de la renovación.",
+        "Prueba gratuita — cada plan incluye hasta 7 días y 30 créditos de IA. Continuar una tarea que exceda el saldo restante termina la prueba e inicia inmediatamente el cobro del plan elegido, salvo cancelación. Se usan primero los créditos de prueba y, tras confirmar el pago, los créditos del plan para la diferencia.",
         "Medición — los disparadores, filtros y notificaciones de aprobación son gratuitos. Solo las acciones exitosas consumen cuota de tareas o créditos de IA (las generaciones Eco / Standard / Flagship consumen créditos según el costo del modelo indicado en la página de precios).",
         "Límites de costo — supervisamos tu cuota de tareas y los costos de proveedores. Al 80 % te avisamos y la siguiente publicación puede requerir aprobación; al 100 % las nuevas generaciones de IA y publicaciones se pausan automáticamente hasta que mejores el plan o comience el siguiente ciclo. Las acciones gratuitas nunca se bloquean.",
         "Excedentes — las tareas adicionales y recargas de créditos se cobran a las tarifas de la página de precios con tu consentimiento.",

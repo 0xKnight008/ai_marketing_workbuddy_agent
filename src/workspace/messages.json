@@ -2401,5 +2401,17 @@
   "Rejected": [
     "Rechazado",
     "已拒绝"
+  ],
+  "Tasks use remaining trial credits first. Continuing beyond that balance starts billing your selected subscription immediately. After payment succeeds, plan credits cover the difference; only an insufficient paid balance requires a model choice or top-up.": [
+    "Las tareas usan primero los créditos de prueba. Continuar con saldo insuficiente inicia el cobro inmediato del plan elegido. Tras el pago, los créditos del plan cubren la diferencia; solo un saldo de pago insuficiente requiere elegir modelo o recargar.",
+    "任务先使用剩余试用额度。继续超出该余额的任务将立即启动已选订阅扣费。付款成功后差额使用套餐额度；仅正式付费余额不足时才要求改档或充值。"
+  ],
+  "Trial usage is cumulative. A task exceeding the trial balance starts the selected paid subscription early; trial usage does not reduce your paid monthly allowance.": [
+    "El uso de prueba es acumulativo. Una tarea que supera el saldo inicia antes la suscripción elegida; el uso de prueba no reduce los créditos mensuales de pago.",
+    "试用用量累计计算。超出试用余额的任务会提前启动已选付费订阅；试用消耗不占用正式套餐的每月额度。"
+  ],
+  "Remaining trial credits used first:": [
+    "Créditos de prueba que se usan primero:",
+    "优先使用的剩余试用额度："
   ]
 }

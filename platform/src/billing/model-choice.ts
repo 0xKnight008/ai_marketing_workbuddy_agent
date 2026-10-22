@@ -1,3 +1,4 @@
+import { convertSubscribedTrial } from "./trial-conversion";
 import { z } from "zod";
 import type { ActorContext } from "../contracts/domain";
 import type { Database } from "../foundation/database";
@@ -23,7 +24,10 @@ export function modelChoices(requested: ModelBand, usage: UsageSnapshot) {
   );
 }
 export class ModelChoiceService {
-  constructor(private readonly database: Database) {}
+  constructor(
+    private readonly database: Database,
+    private readonly stripeSecretKey?: string,
+  ) {}
   async list(actor: ActorContext) {
     return this.database.withWorkspace(actor.workspaceId, async (tx) => {
       await taskActor(tx, actor);
@@ -43,15 +47,30 @@ export class ModelChoiceService {
       const usage = await usageSnapshot(tx);
       return rows.rows.map((row) => {
         const choice = row.payload.modelChoice;
+        const legacyTrial =
+          choice.reason === "credits" &&
+          usage.trialConversionAvailable &&
+          usage.aiCreditsAvailable <
+            MODEL_BAND_POLICIES[choice.requestedBand].credits;
         return {
           id: row.id,
           kind: row.kind,
           label: row.label,
           taskId: row.payload.taskId ?? null,
           requestedBand: choice.requestedBand,
-          reason: choice.reason,
+          reason: legacyTrial ? "trial_payment" : choice.reason,
           availableCredits: usage.aiCreditsAvailable,
-          choices: modelChoices(choice.requestedBand, usage),
+          choices: legacyTrial
+            ? [choice.requestedBand]
+            : choice.reason === "trial_payment"
+              ? usage.subscriptionStatus !== "active"
+                ? []
+                : modelChoices(choice.requestedBand, usage).includes(
+                      choice.requestedBand,
+                    )
+                  ? [choice.requestedBand]
+                  : modelChoices(choice.requestedBand, usage)
+              : modelChoices(choice.requestedBand, usage),
         };
       });
     });
@@ -62,6 +81,7 @@ export class ModelChoiceService {
       .object({
         modelBand: z.enum(MODEL_BANDS),
         reason: z.string().trim().min(3).max(1000),
+        requestId: z.string().uuid().optional(),
       })
       .parse(body);
     return this.database.withWorkspace(actor.workspaceId, async (tx) => {
@@ -69,7 +89,11 @@ export class ModelChoiceService {
       const result = await tx.query<{
         payload: {
           taskId?: string;
-          modelChoice?: { requestedBand: ModelBand };
+          modelChoice?: {
+            requestedBand: ModelBand;
+            reason?: string;
+            trialEndsAt?: string;
+          };
         };
       }>(
         "SELECT payload FROM job WHERE workspace_id=$1 AND id=$2 AND status='queued' AND last_error='model_choice_required' FOR UPDATE",
@@ -80,7 +104,70 @@ export class ModelChoiceService {
       const original = z
         .enum(MODEL_BANDS)
         .parse(result.rows[0].payload.modelChoice?.requestedBand);
-      const usage = await requireAutomationAccess(tx);
+      if (
+        result.rows[0].payload.modelChoice?.reason === "credits" &&
+        input.modelBand === original
+      ) {
+        const prior = await usageSnapshot(tx);
+        if (
+          prior.trialConversionAvailable &&
+          prior.aiCreditsAvailable < MODEL_BAND_POLICIES[original].credits
+        ) {
+          if (actor.role !== "owner")
+            throw new HttpError(403, "owner_required");
+          await tx.query(
+            "UPDATE job SET payload=payload||$3::jsonb,last_error=NULL,available_at=now(),updated_at=now() WHERE workspace_id=$1 AND id=$2",
+            [
+              actor.workspaceId,
+              jobId,
+              JSON.stringify({
+                modelBandOverride: original,
+                modelChoice: null,
+              }),
+            ],
+          );
+          await taskAudit(tx, actor, "billing.trial_handoff_requested", {
+            jobId,
+            requestedBand: original,
+            reason: input.reason,
+          });
+          return { id: jobId, modelBand: original };
+        }
+      }
+      if (result.rows[0].payload.modelChoice?.reason === "trial_payment") {
+        if (actor.role !== "owner") throw new HttpError(403, "owner_required");
+        const originalTrialEnd =
+          result.rows[0].payload.modelChoice?.trialEndsAt;
+        if (
+          !(await convertSubscribedTrial(
+            tx,
+            actor.workspaceId,
+            this.stripeSecretKey,
+            Date.parse(originalTrialEnd ?? "") > Date.now(),
+            input.requestId ?? jobId,
+          ))
+        )
+          throw new HttpError(409, "trial_payment_required");
+      }
+      const usage =
+        result.rows[0].payload.modelChoice?.reason === "trial_payment"
+          ? await usageSnapshot(tx)
+          : await requireAutomationAccess(tx);
+      if (
+        result.rows[0].payload.modelChoice?.reason === "trial_payment" &&
+        !modelChoices(original, usage).includes(input.modelBand)
+      ) {
+        await tx.query(
+          "UPDATE job SET payload=jsonb_set(payload,'{modelChoice,reason}','\"credits\"'::jsonb),updated_at=now() WHERE workspace_id=$1 AND id=$2",
+          [actor.workspaceId, jobId],
+        );
+        return { id: jobId, modelChoiceRequired: true };
+      }
+      if (
+        result.rows[0].payload.modelChoice?.reason === "trial_payment" &&
+        usage.subscriptionStatus !== "active"
+      )
+        throw new HttpError(409, "trial_payment_required");
       if (!modelChoices(original, usage).includes(input.modelBand))
         throw new HttpError(409, "model_choice_unavailable");
       await tx.query(

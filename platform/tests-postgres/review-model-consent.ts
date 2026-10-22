@@ -390,7 +390,8 @@ export async function reviewModelRegression(
       await worker.runOne();
       assert.equal(calls, before + 1);
       const waiting = await choices.list(actor);
-      assert.equal(waiting[0]!.availableCredits, 10);
+      // The earlier 1-credit trial step no longer consumes the paid allowance.
+      assert.equal(waiting[0]!.availableCredits, 11);
       assert.deepEqual(waiting[0]!.choices, ["eco", "standard"]);
       modelAction = "answer";
       await choices.choose(actor, waiting[0]!.id, {

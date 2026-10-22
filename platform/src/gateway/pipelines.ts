@@ -212,7 +212,7 @@ export async function inspectPipelineReadiness(tx: TenantTransaction, actor: Act
 
 export async function activatePipeline(tx: TenantTransaction, actor: ActorContext, pipelineId: string): Promise<PipelineView & { run: RunRecord }> {
   requirePermission(actor.role, 'workflow:edit');
-  await requireAutomationAccess(tx);
+  await requireAutomationAccess(tx, true);
   // Lock before checking readiness so concurrent edits cannot change the version
   // between validation, publishing, and enqueueing. All happen in one transaction.
   await loadPipeline(tx, actor.workspaceId, pipelineId, true);

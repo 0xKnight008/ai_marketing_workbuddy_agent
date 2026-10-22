@@ -10,11 +10,11 @@ test('current plan has an explicit upgrade action backed by the existing subscri
   assert.ok(heading >= 0 && heading < upgrade && upgrade < details);
   assert.match(source, /act\('portal', \{ action: 'upgrade' \}\)/);
 });
-test('topup button uses server permission rather than excluding trial status and explains trial limits', () => {
+test('topup stays permission-based and trial copy explains the paid credit handoff', () => {
   const button = source.split('\n').find(line => line.includes('t("Add AI Credits")'));
   assert.ok(button);
   assert.match(button, /disabled=\{busy \|\| !data.canTopup\}/);
   assert.doesNotMatch(button, /trialing|subscriptionStatus/);
-  assert.match(source, /Trial accounts can purchase credits/);
-  assert.match(source, /do not extend the 7-day \/ 30-credit trial/);
+  assert.match(source, /Tasks use remaining trial credits first/);
+  assert.match(source, /After payment succeeds, plan credits cover the difference/);
 });

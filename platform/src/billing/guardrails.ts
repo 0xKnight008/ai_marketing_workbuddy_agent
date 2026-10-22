@@ -24,6 +24,9 @@ export interface UsageSnapshot {
   aiCreditsUsed: number;
   aiCreditsAvailable: number;
   trialCreditsRemaining?: number;
+  trialCreditCarryover?: number;
+  trialConversionAvailable?: boolean;
+  trialPaymentPending?: boolean;
   supplierSpendMicros: number;
   supplierSpendLimitMicros: number;
   status: GuardrailStatus;
@@ -38,6 +41,9 @@ interface BillingRow {
   subscriptionStatus: string;
   trialEndsAt: string | null;
   paymentGraceEndsAt: string | null;
+  trialCreditCarryover?: string | number;
+  trialConversionBound?: boolean;
+  trialPaymentPending?: boolean;
 }
 interface UsageRow { taskUsed: string | number; aiCreditsUsed: string | number; supplierSpendMicros: string | number; }
 interface AccountRow { connectedAccounts: string | number; }
@@ -58,17 +64,18 @@ export function guardrailStatus(taskUsed: number, taskQuota: number, supplierSpe
 }
 
 /** Subscription restrictions must survive every projected usage calculation. */
-function executionStatus(usage: Pick<UsageSnapshot, 'subscriptionStatus' | 'trialEndsAt' | 'paymentGraceEndsAt' | 'trialCreditsRemaining'>, resourceStatus: GuardrailStatus): GuardrailStatus {
+function executionStatus(usage: Pick<UsageSnapshot, 'subscriptionStatus' | 'trialEndsAt' | 'paymentGraceEndsAt' | 'trialCreditsRemaining' | 'trialPaymentPending'>, resourceStatus: GuardrailStatus): GuardrailStatus {
   if (resourceStatus === 'paused') return 'paused';
+  if (usage.trialPaymentPending && usage.subscriptionStatus !== 'trialing') return 'paused';
   if (usage.subscriptionStatus === 'active' || usage.subscriptionStatus === 'manual') return resourceStatus;
   if (usage.subscriptionStatus === 'trialing' && Date.parse(usage.trialEndsAt ?? '') > Date.now() && (usage.trialCreditsRemaining ?? 0) > 0) return resourceStatus;
   if (usage.subscriptionStatus === 'past_due' && Date.parse(usage.paymentGraceEndsAt ?? '') > Date.now()) return 'approval_required';
   return 'paused';
 }
 
-export async function requireAutomationAccess(tx: TenantTransaction): Promise<UsageSnapshot> {
+export async function requireAutomationAccess(tx: TenantTransaction, allowTrialConversion = false): Promise<UsageSnapshot> {
   const usage = await usageSnapshot(tx);
-  if (usage.status === 'paused') throw new HttpError(402, 'automation_paused');
+  if (usage.status === 'paused' && !(allowTrialConversion && usage.trialConversionAvailable)) throw new HttpError(402, 'automation_paused');
   return usage;
 }
 
@@ -79,7 +86,7 @@ async function billingRow(tx: TenantTransaction): Promise<BillingRow> {
     ON CONFLICT (workspace_id) DO UPDATE
       SET period_start = EXCLUDED.period_start,
           updated_at = now()
-    RETURNING plan, purchased_ai_credits AS "purchasedCredits", subscription_status AS "subscriptionStatus", trial_ends_at::text AS "trialEndsAt", payment_grace_ends_at::text AS "paymentGraceEndsAt"`, []);
+    RETURNING plan, trial_credit_handoff_pending AS "trialPaymentPending", (stripe_subscription_id IS NOT NULL AND stripe_customer_id IS NOT NULL AND stripe_price_id IS NOT NULL) AS "trialConversionBound", trial_credit_carryover AS "trialCreditCarryover", purchased_ai_credits AS "purchasedCredits", subscription_status AS "subscriptionStatus", trial_ends_at::text AS "trialEndsAt", payment_grace_ends_at::text AS "paymentGraceEndsAt"`, []);
   const value = row.rows[0];
   if (!value) throw new Error('Workspace billing record was not available');
   return value;
@@ -94,7 +101,7 @@ export async function usageSnapshot(tx: TenantTransaction): Promise<UsageSnapsho
   const paymentGraceActive = billing.paymentGraceEndsAt !== null && new Date(billing.paymentGraceEndsAt).getTime() > Date.now();
   const periodUsage = await tx.query<UsageRow>(`
     SELECT COALESCE(SUM(CASE WHEN status = 'reversed' THEN -billable_units ELSE billable_units END), 0) AS "taskUsed",
-           COALESCE(SUM(CASE WHEN status = 'reversed' THEN -ai_credits ELSE ai_credits END), 0) AS "aiCreditsUsed",
+           COALESCE(SUM(CASE WHEN status = 'reversed' THEN -(ai_credits - trial_ai_credits) ELSE ai_credits - trial_ai_credits END), 0) AS "aiCreditsUsed",
            COALESCE(SUM(CASE WHEN status = 'reversed' THEN -supplier_cost_micros ELSE supplier_cost_micros END), 0) AS "supplierSpendMicros"
       FROM task_event
      WHERE workspace_id = current_setting('app.workspace_id')::uuid
@@ -116,11 +123,14 @@ export async function usageSnapshot(tx: TenantTransaction): Promise<UsageSnapsho
     taskUsed,
     taskQuota: entitlement.taskQuota,
     aiCreditsUsed: isTrial ? number(trialUsage?.rows[0]?.trialCreditsUsed) : aiCreditsUsed,
-    aiCreditsAvailable: isTrial ? (trialActive ? trialCreditsRemaining! : 0) : Math.max(0, entitlement.aiCredits - aiCreditsUsed) + number(billing.purchasedCredits),
+    aiCreditsAvailable: billing.trialPaymentPending && !isTrial ? 0 : isTrial ? (trialActive ? trialCreditsRemaining! : 0) : Math.max(0, entitlement.aiCredits - aiCreditsUsed) + number(billing.purchasedCredits) + number(billing.trialCreditCarryover),
     trialCreditsRemaining,
+    trialPaymentPending: billing.trialPaymentPending === true,
+    trialCreditCarryover: number(billing.trialCreditCarryover),
+    trialConversionAvailable: trialActive && billing.trialConversionBound === true && guardrailStatus(taskUsed, entitlement.taskQuota, supplierSpendMicros, supplierSpendLimitMicros) !== 'paused',
     supplierSpendMicros,
     supplierSpendLimitMicros,
-    status: executionStatus({ subscriptionStatus: billing.subscriptionStatus, trialEndsAt: billing.trialEndsAt ?? undefined, paymentGraceEndsAt: billing.paymentGraceEndsAt ?? undefined, trialCreditsRemaining }, guardrailStatus(taskUsed, entitlement.taskQuota, supplierSpendMicros, supplierSpendLimitMicros)),
+    status: executionStatus({ trialPaymentPending: billing.trialPaymentPending, subscriptionStatus: billing.subscriptionStatus, trialEndsAt: billing.trialEndsAt ?? undefined, paymentGraceEndsAt: billing.paymentGraceEndsAt ?? undefined, trialCreditsRemaining }, guardrailStatus(taskUsed, entitlement.taskQuota, supplierSpendMicros, supplierSpendLimitMicros)),
     subscriptionStatus: billing.subscriptionStatus,
     trialEndsAt: trialActive ? billing.trialEndsAt ?? undefined : undefined,
     paymentGraceEndsAt: paymentGraceActive ? billing.paymentGraceEndsAt ?? undefined : undefined,
@@ -157,9 +167,13 @@ export interface AiUsageSubject {
 }
 
 export class ModelChoiceRequired extends HttpError {
-  constructor(readonly requestedBand:ModelBand,readonly usage:UsageSnapshot,readonly reason:'credits'|'task_quota') {
+  constructor(readonly requestedBand:ModelBand,readonly usage:UsageSnapshot,readonly reason:'credits'|'task_quota'|'trial_payment') {
     super(409,'model_choice_required');
   }
+}
+
+export class TrialConversionRequired extends Error {
+  constructor(readonly requestedBand: ModelBand, readonly usage: UsageSnapshot) { super('trial_conversion_required'); }
 }
 
 export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: string[], subject: string | AiUsageSubject, requestedBand?: ModelBand): Promise<AiReservation> {
@@ -208,6 +222,12 @@ export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: s
   }
   const requested = requestedBand ?? requestedModelBand(allowedModelClasses);
   const requestedPolicy = MODEL_BAND_POLICIES[requested];
+  // Resolve a subscribed trial before offering a downgrade. The worker performs
+  // the external payment outside this reservation transaction, then retries the
+  // unchanged step. Already-paid attempts above never trigger a second payment.
+  if (current.trialConversionAvailable && current.aiCreditsAvailable < requestedPolicy.credits
+      && current.supplierSpendMicros + requestedPolicy.supplierCostMicros < current.supplierSpendLimitMicros
+      && current.taskUsed < current.taskQuota) throw new TrialConversionRequired(requested,current);
   const useFallbackEco = requested !== 'eco' && current.aiCreditsAvailable < requestedPolicy.credits;
   const band = useFallbackEco ? 'eco' : requested;
   const policy = MODEL_BAND_POLICIES[band];
@@ -226,8 +246,9 @@ export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: s
   if (requestedBand && effectiveBand !== requestedBand) {
     throw new ModelChoiceRequired(requestedBand,current,useFallbackEco?'credits':'task_quota');
   }
-  const recorded = await tx.query(`INSERT INTO task_event (workspace_id, run_id, subject_id, action_type, billable_units, ai_credits, supplier_cost_micros, supplier, status, attempt, model_band)
-    VALUES (current_setting('app.workspace_id')::uuid, $1, $2, $7, 0, $3, $4, $5, 'succeeded', $6, $8) ON CONFLICT DO NOTHING RETURNING id`, [resolved.runId ?? null, resolved.subjectId ?? null, credits, effectivePolicy.supplierCostMicros, provider, attempt, actionPrefix, effectiveBand]);
+  const trialCredits = current.subscriptionStatus === 'trialing' ? credits : Math.min(credits,current.trialCreditCarryover ?? 0);
+  const recorded = await tx.query(`INSERT INTO task_event (workspace_id, run_id, subject_id, action_type, billable_units, ai_credits, supplier_cost_micros, supplier, status, attempt, model_band, trial_ai_credits)
+    VALUES (current_setting('app.workspace_id')::uuid, $1, $2, $7, 0, $3, $4, $5, 'succeeded', $6, $8, $9) ON CONFLICT DO NOTHING RETURNING id`, [resolved.runId ?? null, resolved.subjectId ?? null, credits, effectivePolicy.supplierCostMicros, provider, attempt, actionPrefix, effectiveBand, trialCredits]);
   if (!recorded.rowCount) {
     // 并发/重试竞争：同一幂等键的行已存在，按回放处理（上面没查到是因为
     // 并发事务尚未可见；ON CONFLICT 保证不会写入第二条）。
@@ -254,8 +275,10 @@ export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: s
     }
   }
   if (recorded.rowCount && current.subscriptionStatus !== 'trialing') {
+    if (trialCredits) await tx.query(`UPDATE workspace_billing SET trial_credit_carryover = trial_credit_carryover - $1
+      WHERE workspace_id = current_setting('app.workspace_id')::uuid`, [trialCredits]);
     const includedRemaining = Math.max(0, PLAN_CATALOG[current.plan].aiCredits - current.aiCreditsUsed);
-    const purchasedSpent = Math.max(0, credits - includedRemaining);
+    const purchasedSpent = Math.max(0, credits - trialCredits - includedRemaining);
     if (purchasedSpent) await tx.query(`UPDATE workspace_billing SET purchased_ai_credits = purchased_ai_credits - $1
       WHERE workspace_id = current_setting('app.workspace_id')::uuid`, [purchasedSpent]);
   }
@@ -331,7 +354,7 @@ export async function activateStripeSubscription(tx: TenantTransaction, activati
         stripe_customer_id = $2,
         stripe_subscription_id = $3,
         stripe_price_id = $4,
-        subscription_status = $5,
+        subscription_status = CASE WHEN trial_credit_handoff_at IS NOT NULL AND stripe_subscription_id=$3 AND $5='trialing' THEN subscription_status ELSE $5 END,
         trial_ends_at = $6::timestamptz,
         trial_started_at = COALESCE($7::timestamptz, $6::timestamptz - interval '7 days'),
         payment_grace_ends_at = NULL,
@@ -373,7 +396,7 @@ export async function updateStripeSubscriptionStatus(
   if (!recorded.rows[0]) return { applied: false };
   await billingRow(tx);
   const updated = await tx.query(`UPDATE workspace_billing
-    SET subscription_status = $1, plan = COALESCE($5, plan), stripe_price_id = COALESCE($6, stripe_price_id),
+    SET subscription_status = CASE WHEN trial_credit_handoff_at IS NOT NULL AND $1='trialing' THEN subscription_status ELSE $1 END, plan = COALESCE($5, plan), stripe_price_id = COALESCE($6, stripe_price_id),
         payment_grace_ends_at = CASE WHEN $1 = 'past_due' THEN COALESCE($2::timestamptz, payment_grace_ends_at) ELSE NULL END,
         updated_at = now()
     WHERE workspace_id = current_setting('app.workspace_id')::uuid

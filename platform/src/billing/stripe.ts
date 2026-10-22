@@ -112,6 +112,8 @@ export async function createStripeCheckoutSession(config: GatewayConfig, input: 
   }
   const body = new URLSearchParams();
   body.set('mode', 'subscription');
+  const trialNotice = input.locale==='zh' ? '试用最多 7 天或 30 AI 额度。继续超出试用额度的任务将立即启动已选套餐扣费，剩余试用额度优先使用，差额使用套餐额度。' : input.locale==='es' ? 'Prueba de hasta 7 días o 30 créditos de IA. Continuar una tarea que exceda el saldo de prueba inicia inmediatamente el cobro del plan elegido; usamos primero el saldo de prueba y después los créditos del plan.' : 'Trial lasts up to 7 days or 30 AI credits. Continuing a task beyond the trial balance starts billing your selected plan immediately; remaining trial credits are used first, then plan credits.';
+  body.set('custom_text[submit][message]',trialNotice);
   body.set('line_items[0][price]', stripe.priceId);
   body.set('line_items[0][quantity]', '1');
   body.set('client_reference_id', input.workspaceId);

@@ -1,4 +1,4 @@
-import {ModelChoiceService,executionHistory} from '../../src/billing/model-choice';
+import {executionHistory} from '../../src/billing/model-choice';
 import {assertTaskSchema} from '../../src/task-service/readiness';
 import { Controller } from 'egg';
 import { pendingConnectionPage } from '../../src/zernio/connection-pages';
@@ -398,8 +398,8 @@ export default class PlatformController extends Controller {
   }
   async auditEvents(): Promise<void> { this.ctx.body = await this.app.platform.service.auditEvents(this.actor()); }
   async modelExecutions(){this.ctx.set('Cache-Control','no-store');this.ctx.body=await executionHistory(this.app.platform.database,this.actor(),this.ctx.params.kind,this.ctx.params.sourceId);}
-  async modelChoices(){this.ctx.set('Cache-Control','no-store');this.ctx.body=await new ModelChoiceService(this.app.platform.database).list(this.actor());}
-  async chooseModel(){this.ctx.set('Cache-Control','no-store');this.ctx.body=await new ModelChoiceService(this.app.platform.database).choose(this.actor(),this.ctx.params.jobId,this.ctx.request.body);}
+  async modelChoices(){this.ctx.set('Cache-Control','no-store');this.ctx.body=await this.app.platform.service.modelChoices.list(this.actor());}
+  async chooseModel(){this.ctx.set('Cache-Control','no-store');this.ctx.body=await this.app.platform.service.modelChoices.choose(this.actor(),this.ctx.params.jobId,this.ctx.request.body);}
   async listTasks(){this.ctx.set('Cache-Control','no-store');this.ctx.body=await this.app.platform.service.tasks.list(this.actor(),this.ctx.query);}
   async createTask(){this.ctx.set('Cache-Control','no-store');this.ctx.status=201;this.ctx.body=await this.app.platform.service.tasks.create(this.actor(),this.ctx.request.body);}
   async taskDetail(){this.ctx.set('Cache-Control','no-store');this.ctx.body=await this.app.platform.service.tasks.detail(this.actor(),this.ctx.params.taskId);}

@@ -61,7 +61,7 @@ interface RunView { id: string; status: string; workflowId: string; createdAt: s
 interface ApprovalView { id: string; runId: string | null; requestedAction: { summary?: string; parameters?: { content?: string; subject?: string } }; requestedAt: string; }
 interface TaskEventView { id: string; runId: string | null; actionType: string; billableUnits: string; aiCredits: string; status: string; createdAt: string; }
 interface AuditEventView { id: string; runId?: string; eventType: string; createdAt: string; }
-interface UsageView { status: string; taskUsed: number; taskQuota: number; aiCreditsUsed: number; aiCreditsAvailable: number; subscriptionStatus: string; plan: string; }
+interface UsageView { trialConversionAvailable?: boolean; status: string; taskUsed: number; taskQuota: number; aiCreditsUsed: number; aiCreditsAvailable: number; subscriptionStatus: string; plan: string; }
 interface MeView {
   user: { email: string; displayName: string; passwordSet: boolean };
   workspace: { id: string; name: string };
@@ -651,7 +651,7 @@ function PlatformWorkspace() {
     else { setSection('reports'); void loadInsightDetail(id); }
   }
 
-  const locked = !ACTIVE_SUBSCRIPTIONS.has(me.subscriptionStatus) || usage?.status === 'paused';
+  const locked = !ACTIVE_SUBSCRIPTIONS.has(me.subscriptionStatus) || (usage?.status === 'paused' && !usage?.trialConversionAvailable);
   async function recoverCheckout() {
     setRecoveringCheckout(true);
     try {
@@ -669,6 +669,7 @@ function PlatformWorkspace() {
     <WorkspaceShell section={section} navigate={setSection} name={me.workspace.name} email={me.user.email} pending={approvals.length} usage={usage} signOut={signOut} support={<SupportWidget token={token} apiBase={gatewayUrl} />}>
 
       <ModelChoiceQueue token={token} apiBase={gatewayUrl} role={me.role} onChange={() => void loadWorkspace()}/>
+      {me.subscriptionStatus==='trialing' && <section className="workspace-card" role="note"><p>{w('Your remaining trial credits are used first. If a model step needs more, continuing starts billing your selected Stripe subscription immediately; the task keeps its model and uses paid credits for the difference. Payment must succeed before paid execution continues.','Primero usamos los créditos de prueba restantes. Si un paso necesita más, continuar inicia de inmediato el cobro de tu suscripción de Stripe elegida; la tarea conserva el modelo y usa créditos de pago para la diferencia. El pago debe completarse antes de continuar.','系统先使用剩余试用额度。如果模型步骤所需额度更高，继续执行将立即启动已选 Stripe 订阅的正式扣费；任务保持原模型，差额使用套餐额度。付款确认成功后才会继续付费执行。')}</p></section>}
       {locked && <section className="mx-auto mt-8 max-w-7xl rounded-xl border-2 border-sunset/50 bg-sunset/10 p-5"><h2 className="text-lg font-semibold">{t("Automation is paused")}</h2><p className="mt-1 text-sm text-ink-soft">{t("Complete your subscription or review your usage limits. A free trial pauses after 7 days or 30 AI credits, whichever comes first.")}</p><div className="mt-4 flex flex-wrap gap-3">{me.role === 'owner' && <button disabled={recoveringCheckout} onClick={() => void recoverCheckout()} className="rounded-md bg-sky-deep px-5 py-3 font-medium text-white disabled:opacity-50">{recoveringCheckout ? t("Checking Stripe…") : t("Check / resume checkout")}</button>}<a href={`/activate?plan=growth${audience(new URLSearchParams(location.search).get('persona')) ? `&persona=${audience(new URLSearchParams(location.search).get('persona'))}` : ''}`} className="inline-block rounded-md bg-sunset px-5 py-3 font-medium text-white shadow-paint-sm">{t("View plans")}</a></div></section>}
 
       <div className={`workspace-content ${locked && section === 'pipelines' ? "pointer-events-none select-none opacity-40 grayscale" : ''}`} aria-disabled={locked && section === 'pipelines'} inert={locked && section === 'pipelines'}>

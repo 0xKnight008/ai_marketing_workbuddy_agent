@@ -7,6 +7,8 @@ const workspace = "44444444-4444-4444-8444-444444444444",
 function initial() {
   return {
     pending: true,
+    trial: false,
+    reason: "credits",
     failed: false,
     paused: false,
     viewer: false,
@@ -71,14 +73,16 @@ async function setup(page: Page, s: ReturnType<typeof initial>) {
           workspace: { id: workspace, name: "Production fixes" },
           role: s.viewer ? "viewer" : "owner",
           plan: "growth",
-          subscriptionStatus: "active",
+          subscriptionStatus: s.trial ? "trialing" : "active",
+          trialConversionAvailable: s.trial,
         },
       });
     if (path === "/api/billing/usage")
       return route.fulfill({
         json: {
           status: s.paused ? "paused" : "normal",
-          subscriptionStatus: "active",
+          subscriptionStatus: s.trial ? "trialing" : "active",
+          trialConversionAvailable: s.trial,
           taskUsed: 1,
           taskQuota: 100,
           aiCreditsAvailable: s.available,
@@ -90,7 +94,8 @@ async function setup(page: Page, s: ReturnType<typeof initial>) {
         json: {
           usage: {
             status: s.paused ? "paused" : "normal",
-            subscriptionStatus: "active",
+            subscriptionStatus: s.trial ? "trialing" : "active",
+          trialConversionAvailable: s.trial,
             taskUsed: 1,
             taskQuota: 100,
             aiCreditsAvailable: s.available,
@@ -116,7 +121,7 @@ async function setup(page: Page, s: ReturnType<typeof initial>) {
                 kind: "task.turn",
                 taskId,
                 requestedBand: "flagship",
-                reason: "credits",
+                reason: s.reason,
                 availableCredits: s.available,
                 choices: s.choices,
               },
@@ -685,4 +690,30 @@ test("publishing approval, completed topic results and run activity show actual 
     "Actual execution: Standard",
   );
   expect(s.requests).toHaveLength(0);
+});
+
+for (const locale of ['en','zh','es']) test(`trial ${locale}: exhausted trial can start AI handoff and payment recovery never suggests a downgrade`, async ({page})=>{
+ const s=initial();s.trial=true;s.paused=true;s.available=0;s.reason='trial_payment';s.choices=[];
+ await page.setViewportSize({width:390,height:844});await setup(page,s);await page.goto("/app");
+ await page.locator('#workspace-language').selectOption(locale);
+ const note=page.getByRole('note');await expect(note).toBeVisible();
+ await expect(note).toContainText({en:'starts billing',zh:'正式扣费',es:'cobro'}[locale]);
+ await expect(page.getByRole('heading',{name:/^(Automation is paused|自动化已暂停|La automatización está pausada)$/})).toHaveCount(0);
+ await expect(page.getByText({en:'Your subscription payment must be confirmed',zh:'正式订阅付款尚未确认',es:'Debemos confirmar el pago'}[locale],{exact:false})).toBeVisible();
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
+ expect(s.requests).toEqual([]);
+});
+
+test('zero trial balance can confirm a structured analysis while paid handoff is available',async({page})=>{
+ const s=initial();s.trial=true;s.paused=true;s.available=0;s.awaitingModel=false;await setup(page,s);await page.goto('/app?mode=template&persona=creators#start');
+ await page.getByLabel('Source name',{exact:true}).fill('Trial source');await page.getByLabel('Date / scope',{exact:true}).fill('This week');await page.getByLabel('One item per line',{exact:true}).fill('Please explain the onboarding steps.');
+ await page.getByRole('button',{name:'Preview scope'}).click();await expect(page.getByRole('button',{name:'Confirm goal & run analysis'})).toBeEnabled();
+ expect(s.requests).toEqual([]);
+});
+
+test('owner can confirm subscription payment recovery with zero available model choices',async({page})=>{
+ const s=initial();s.trial=true;s.paused=true;s.available=0;s.reason='trial_payment';s.choices=[];await setup(page,s);await page.goto('/app');
+ await page.getByRole('button',{name:'Review subscription payment'}).click();const dialog=page.getByRole('dialog');
+ await expect(dialog.getByRole('combobox')).toHaveCount(0);const confirm=dialog.getByRole('button',{name:'Confirm billing & resume original model'});await expect(confirm).toBeEnabled();expect(s.requests).toEqual([]);await confirm.click();
+ await expect(dialog).not.toBeVisible();expect(s.requests[0].body).toMatchObject({modelBand:'flagship'});expect(s.requests[0].body.requestId).toMatch(/^[0-9a-f-]{36}$/);
 });

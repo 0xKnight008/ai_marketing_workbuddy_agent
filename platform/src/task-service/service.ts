@@ -126,7 +126,7 @@ export class TaskService {
           throw new HttpError(409, "task_request_conflict");
         return exists.rows[0];
       }
-      await requireAutomationAccess(tx);
+      await requireAutomationAccess(tx, true);
       if (input.parentTaskId) {
         const parent = await findTask(tx, input.parentTaskId);
         if (!input.batchIds.length) input.batchIds = parent.batchIds;
@@ -194,7 +194,7 @@ export class TaskService {
         throw new HttpError(409, "task_version_conflict");
       if (["queued", "running"].includes(task.status))
         throw new HttpError(409, "task_turn_in_progress");
-      await requireAutomationAccess(tx);
+      await requireAutomationAccess(tx, true);
       await tx.query(
         `INSERT INTO workspace_task_message(workspace_id,task_id,request_id,role,content,model_band,created_by) VALUES($1,$2,$3,'user',$4,$5,$6)`,
         [
@@ -340,7 +340,7 @@ export class TaskService {
       await taskActor(tx, actor, true);
       const task = await findTask(tx, taskId);
       if (task.archivedAt) throw new HttpError(409, "task_not_editable");
-      await requireAutomationAccess(tx);
+      await requireAutomationAccess(tx, true);
       const jobs = await tx.query(
         "UPDATE job SET available_at=now(),updated_at=now() WHERE workspace_id=$1 AND status='queued' AND last_error='ai_credits_deferred' AND (payload->>'taskId'=$2 OR payload->>'batchId'=ANY($3::text[])) RETURNING id",
         [actor.workspaceId, taskId, task.batchIds],
