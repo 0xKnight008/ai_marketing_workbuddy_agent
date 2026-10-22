@@ -234,12 +234,16 @@ describe('Egg production gateway', () => {
       .expect(200).expect({ email: 'admin@example.invalid' });
   });
 
+  for(const route of ['/api/tasks','/api/task-preferences','/api/tasks/11111111-1111-4111-8111-111111111111'])it(`requires authentication for ${route}`,async()=>{await app.httpRequest().get(route).expect(401)});
+  for(const suffix of ['messages','archive','resume'])it(`requires authentication for task ${suffix}`,async()=>{await app.httpRequest().post(`/api/tasks/11111111-1111-4111-8111-111111111111/${suffix}`).send({}).expect(401)});
+  it('reports a missing task migration without leaking SQL details',async()=>{mm(app.platform.database,'withAdmin',async(operation:(tx:TenantTransaction)=>Promise<unknown>)=>operation({query:async(sql:string)=>{if(sql.includes('workspace_task'))throw new Error('relation workspace_task missing');return {rows:[],rowCount:0}}} as TenantTransaction));await app.httpRequest().get('/internal/ready').expect(503).expect({error:'task_database_not_ready'});});
+
   it('reports ready only after checking the auth database', async () => {
     mm(app.platform.database, 'withAdmin', async (operation: (tx: TenantTransaction) => Promise<void>) => operation({
       query: async () => ({ rows: [], rowCount: 0 }),
     }));
     await app.httpRequest().get('/internal/ready').expect('Cache-Control', 'no-store')
-      .expect(200).expect({ ok: true, service: 'gateway', authSchema: 'ready' });
+      .expect(200).expect({ ok: true, service: 'gateway', authSchema: 'ready',taskSchema:'ready' });
   });
 
   it('returns 503 without private SQL details when auth schema is missing', async () => {

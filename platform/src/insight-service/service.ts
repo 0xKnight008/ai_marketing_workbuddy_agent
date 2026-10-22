@@ -125,7 +125,7 @@ export class InsightService {
     return this.database.withWorkspace(actor.workspaceId, async (tx) => {
       const rows = await tx.query<{ id: string }>(
         `SELECT id FROM insight_report
-          WHERE workspace_id = current_setting('app.workspace_id')::uuid
+          WHERE workspace_id = current_setting('app.workspace_id')::uuid AND NOT EXISTS(SELECT 1 FROM workspace_task t WHERE t.workspace_id=insight_report.workspace_id AND t.source_kind='report' AND t.source_id=insight_report.id AND t.archived_at IS NOT NULL)
           ORDER BY created_at DESC LIMIT 50`,
         [],
       );

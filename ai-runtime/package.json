@@ -12,7 +12,8 @@
     "build": "mastra build",
     "start": "node .mastra/output/index.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/*.test.ts src/**/*.test.ts"
+    "test": "tsx --test src/*.test.ts src/**/*.test.ts",
+    "test:task-bundle": "node scripts/task-bundle-smoke.mjs"
   },
   "dependencies": {
     "@libsql/client": "0.15.15",

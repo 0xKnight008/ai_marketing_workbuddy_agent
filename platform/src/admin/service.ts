@@ -1,3 +1,4 @@
+import {reasonSchema} from '../task-service/contracts';
 import { timingSafeEqual } from 'node:crypto';
 
 import { z } from 'zod';
@@ -118,6 +119,7 @@ export class AdminService {
     this.authorize(actor, adminToken);
     const targetWorkspaceId = z.string().uuid().parse(workspaceId);
     const parsed = z.object({
+      reason:reasonSchema,
       plan: z.enum(PLAN_KEYS).optional(),
       additionalAiCredits: z.number().int().nonnegative()
         .refine((value) => value % 1_000 === 0, 'additionalAiCredits must be a multiple of 1000')
@@ -132,7 +134,7 @@ export class AdminService {
         operatorWorkspaceId: actor.workspaceId,
         plan: usage.plan,
         additionalAiCredits: parsed.additionalAiCredits,
-        resumedRuns,
+        resumedRuns,reason:parsed.reason,
       });
       return { usage, resumedRuns };
     });
@@ -148,7 +150,7 @@ export class AdminService {
       const result = await tx.query<FeedbackRow>(`
         SELECT f.id, f.ticket_no AS "ticketNo", f.workspace_id AS "workspaceId",
                w.name AS "workspaceName", f.email::text, f.name, f.category, f.message,
-               f.status, f.discord_thread_id AS "discordThreadId", f.replied_by AS "repliedBy",
+               f.task_id AS "taskId",f.task_context AS "taskContext",f.status, f.discord_thread_id AS "discordThreadId", f.replied_by AS "repliedBy",
                f.created_at::text AS "createdAt", f.replied_at::text AS "repliedAt"
           FROM feedback_message f
           LEFT JOIN workspace w ON w.id = f.workspace_id
@@ -169,7 +171,7 @@ export class AdminService {
   ): Promise<FeedbackRow> {
     this.authorize(actor, adminToken);
     const ticket = z.string().regex(/^FB-[0-9A-F]{8}$/).parse(ticketNo);
-    const { status } = z.object({ status: feedbackStatusSchema }).parse(body ?? {});
+    const { status,reason } = z.object({ status: feedbackStatusSchema,reason:reasonSchema }).parse(body ?? {});
     const location = await this.database.withAdmin(async (tx) => {
       const result = await tx.query<{ workspaceId: string | null }>(
         'SELECT workspace_id AS "workspaceId" FROM feedback_message WHERE ticket_no = $1',
@@ -194,7 +196,7 @@ export class AdminService {
       const row = result.rows[0];
       if (!row) throw new HttpError(404, 'feedback_not_found');
       await this.audit(tx, auditWorkspaceId, actor, 'admin.feedback_status_changed', {
-        ticketNo: ticket,
+        ticketNo: ticket,reason,
         status,
         ticketWorkspaceId: location.workspaceId,
         operatorWorkspaceId: actor.workspaceId,
@@ -229,14 +231,14 @@ export class AdminService {
   ): Promise<{ id: string; status: 'queued' }> {
     this.authorize(actor, adminToken);
     const id = z.string().uuid().parse(jobId);
-    const { workspaceId } = z.object({ workspaceId: z.string().uuid() }).parse(body ?? {});
+    const { workspaceId,reason } = z.object({ workspaceId: z.string().uuid(),reason:reasonSchema }).parse(body ?? {});
     return this.database.withWorkspace(workspaceId, async (tx) => {
       const result = await tx.query<{ id: string; runId: string | null }>(`
         UPDATE job
            SET status = 'queued', attempt = 0, available_at = now(), locked_at = NULL,
                locked_by = NULL, last_error = NULL, updated_at = now()
          WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid
-           AND status = 'dead_lettered'
+           AND status = 'dead_lettered' AND kind NOT IN ('issue_referral_credit','clawback_referral_credit')
          RETURNING id, run_id AS "runId"`, [id]);
       const replayed = result.rows[0];
       if (!replayed) throw new HttpError(409, 'job_not_dead_lettered');
@@ -250,7 +252,7 @@ export class AdminService {
           { jobId: id, operatorWorkspaceId: actor.workspaceId },
         ]);
       }
-      await this.audit(tx, workspaceId, actor, 'admin.job_replayed', { jobId: id, runId: replayed.runId, operatorWorkspaceId: actor.workspaceId });
+      await this.audit(tx, workspaceId, actor, 'admin.job_replayed', { jobId: id, runId: replayed.runId, operatorWorkspaceId: actor.workspaceId,reason });
       return { id, status: 'queued' as const };
     });
   }
@@ -296,7 +298,7 @@ export class AdminService {
   ): Promise<{ id: string; status: string }> {
     this.authorize(actor, adminToken);
     const id = z.string().uuid().parse(ledgerId);
-    const { workspaceId } = z.object({ workspaceId: z.string().uuid() }).parse(body ?? {});
+    const { workspaceId,reason } = z.object({ workspaceId: z.string().uuid(),reason:reasonSchema }).parse(body ?? {});
     return this.database.withWorkspace(workspaceId, async (tx) => {
       const locked = await tx.query<{ stripeInvoiceId: string; status: string }>(`
         SELECT stripe_invoice_id AS "stripeInvoiceId", status
@@ -310,7 +312,7 @@ export class AdminService {
       await this.audit(tx, workspaceId, actor, 'admin.referral_credit_reversed', {
         ledgerId: id,
         stripeInvoiceId: ledger.stripeInvoiceId,
-        previousStatus: ledger.status,
+        previousStatus: ledger.status,reason,
         status,
         operatorWorkspaceId: actor.workspaceId,
       });

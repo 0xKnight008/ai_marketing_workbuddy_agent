@@ -1,3 +1,5 @@
+import {assertTaskSchema} from '../src/task-service/readiness';
+import {taskContextRegression} from './task-context';
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -57,7 +59,10 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
     await assert.rejects(auth.login(credentials, 'test-client'), { code: '42703' });
     await assert.rejects(auth.register(credentials, 'test-client'), { code: '42703' });
 
-    for (const name of names.filter((name) => name >= '0013')) await migrate(name);
+    for (const name of names.filter((name) => name >= '0013'&&name<'0037')) await migrate(name);
+    await assert.rejects(assertTaskSchema(database));
+    for (const name of names.filter(name=>name>='0037')) await migrate(name);
+    await assertTaskSchema(database);
     await assertAuthSchema(database);
     await t.test('Zernio JSONB capabilities, disconnect isolation, stale sync and reconnect', () => zernioDisconnectRegression(client, database));
     await t.test('referral concurrency, refund races, money boundaries and attribution ordering', () => referralIntegrityRegression(client, database));
@@ -75,9 +80,9 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
       assert.equal(adminPrincipal(actor)?.email, email);
       assert.deepEqual(await new AdminService(config, database).newsletter(actor, undefined, {}), []);
       await client.query("INSERT INTO feedback_message(ticket_no,email,message) VALUES('FB-AAAAAAAA','sender@example.invalid','admin audit test')");
-      await new AdminService(config, database).updateFeedback(actor, undefined, 'FB-AAAAAAAA', { status: 'closed' });
-      const audit = await client.query("SELECT email,workspace_id FROM platform_admin_audit WHERE event_type='admin.feedback_status_changed'");
-      assert.deepEqual(audit.rows, [{ email, workspace_id: null }]);
+      await new AdminService(config, database).updateFeedback(actor, undefined, 'FB-AAAAAAAA', { status: 'closed',reason:'Regression audit confirmation' });
+      const audit = await client.query("SELECT email,workspace_id,details->>'reason' AS reason FROM platform_admin_audit WHERE event_type='admin.feedback_status_changed'");
+      assert.deepEqual(audit.rows, [{ email, workspace_id: null,reason:'Regression audit confirmation' }]);
       await assert.rejects(new AdminService(config, database).newsletter({ ...actor }, undefined, {}), /platform_admin_required/);
       await assert.rejects(new AdminEmailLogin({ PLATFORM_ADMIN_EMAILS: '' } as GatewayConfig, database).authenticate(session), /admin_session_required/);
       await login.logout(session);
@@ -87,6 +92,7 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
       await client.query("UPDATE platform_admin_session SET revoked_at=NULL,expires_at=now()-interval '1 second' WHERE token_hash=$1", [hash(session)]);
       await assert.rejects(login.authenticate(session), /admin_session_required/);
     });
+    await t.test('workspace task persistence, orchestration and isolation',async t=>taskContextRegression(t,client,database));
     const registration = await auth.register(credentials, 'test-client');
     const registered = verifyAccessToken(registration.accessToken, secret);
     await t.test('real import service persists UUID batches, crosses chunk boundaries, and rolls back atomically', async () => {

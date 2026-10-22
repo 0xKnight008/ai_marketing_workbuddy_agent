@@ -1019,5 +1019,10 @@
   "Preparing CSV:": "正在准备 CSV：",
   "Exported": "已导出",
   "records. Blank token cells mean usage was not reported.": "条记录。Token 空单元格表示提供方未报告用量。",
-  "Welcome status “accepted” means Resend accepted the email, not confirmed inbox delivery. Check the provider ID in Resend for delivery or bounce details.": "欢迎邮件状态 accepted 表示 Resend 已接收，不等于送达收件箱。请使用提供方 ID 在 Resend 核查送达或退信。"
+  "Welcome status “accepted” means Resend accepted the email, not confirmed inbox delivery. Check the provider ID in Resend for delivery or bounce details.": "欢迎邮件状态 accepted 表示 Resend 已接收，不等于送达收件箱。请使用提供方 ID 在 Resend 核查送达或退信。",
+  "Confirm administrative action": "确认管理员操作",
+  "A reason is required and will be recorded with the operator and target.": "请填写操作原因，将与操作者及操作对象一并保存到审计记录。",
+  "Operation reason": "操作原因",
+  "Task context": "关联任务上下文",
+  "Confirm": "确认"
 }

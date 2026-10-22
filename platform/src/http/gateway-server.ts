@@ -1,3 +1,4 @@
+import {assertTaskSchema} from '../task-service/readiness';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { pendingConnectionPage } from '../zernio/connection-pages';
 
@@ -26,7 +27,7 @@ async function main(): Promise<void> {
 const config = loadGatewayConfig();
 
 const database = new Database(config.DATABASE_URL);
-try { await assertAuthSchema(database); } catch (error) { await database.close(); throw error; }
+try { await assertAuthSchema(database);await assertTaskSchema(database); } catch (error) { await database.close(); throw error; }
 const platformService = new PlatformService(config, database, {} as PlatformOrm);
 const app = Fastify({ logger: true, bodyLimit: 16 * 1024 * 1024 });
 const rawBodies = new WeakMap<FastifyRequest, string>();
@@ -120,7 +121,8 @@ app.get('/internal/ready', async () => {
     app.log.error(error);
     throw new HttpError(503, 'auth_database_not_ready');
   }
-  return { ok: true, service: 'gateway', authSchema: 'ready' };
+  try{await assertTaskSchema(database)}catch(error){app.log.error(error);throw new HttpError(503,'task_database_not_ready')}
+  return { ok: true, service: 'gateway', authSchema: 'ready',taskSchema:'ready' };
 });
 
 app.post('/internal/ai-runtime-events', async (request, reply) => {

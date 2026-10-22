@@ -1,3 +1,5 @@
+import {createHash} from 'node:crypto';
+import {findTask,taskActor} from '../task-service/service';
 import { z } from 'zod';
 import { uniqueImportItems } from './deduplicate';
 
@@ -20,6 +22,7 @@ const MAX_ITEMS_PER_BATCH = 5_000;
 const MAX_CONTENT_BYTES = 2 * 1024 * 1024;
 
 const createImportSchema = z.object({
+  taskId:z.string().uuid().optional(),
   label: z.string().trim().min(1).max(120),
   sourceType: z.enum(['csv', 'paste']),
   deduplicate: z.boolean().default(false),
@@ -85,6 +88,9 @@ export class ImportService {
     }
 
     return this.database.withWorkspace(actor.workspaceId, async (tx) => {
+      const taskId='taskId' in input?input.taskId:undefined;
+      const fingerprint=taskId?createHash('sha256').update(JSON.stringify(input)).digest('hex'):null;
+      if(taskId){await taskActor(tx,actor,true);await tx.query('SELECT id FROM workspace_task WHERE workspace_id=$1 AND id=$2 FOR UPDATE',[actor.workspaceId,taskId]);const task=await findTask(tx,taskId);if(task.sourceKind!=='conversation'||task.archivedAt||['queued','running'].includes(task.status))throw new HttpError(409,'task_not_editable');if(task.batchIds.length){const saved=await tx.query<{fingerprint:string}>('SELECT import_fingerprint AS fingerprint FROM workspace_task WHERE workspace_id=$1 AND id=$2',[actor.workspaceId,taskId]);if(saved.rows[0]?.fingerprint!==fingerprint)throw new HttpError(409,'task_import_already_attached');return this.batchView(tx,task.batchIds[0]!);}}
       // 未订阅工作区只允许预览（灰度）；导入会触发 LLM 分类，必须在付费态。
       const billing = await tx.query<{ status: string; trialEndsAt: string | null }>(
         `SELECT subscription_status AS status, trial_ends_at::text AS "trialEndsAt"
@@ -151,6 +157,7 @@ export class ImportService {
       const batchId = batch.rows[0]?.id;
       if (!batchId) throw new Error('import_batch_insert_failed');
 
+      if(taskId)await tx.query('UPDATE workspace_task SET batch_ids=$3,import_fingerprint=$4,version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2',[actor.workspaceId,taskId,JSON.stringify([batchId]),fingerprint]);
       const CHUNK = 200;
       for (let offset = 0; offset < items.length; offset += CHUNK) {
         const slice = items.slice(offset, offset + CHUNK);
@@ -287,7 +294,7 @@ export class ImportService {
   async listImports(actor: ActorContext): Promise<ImportBatchView[]> {
     return this.database.withWorkspace(actor.workspaceId, async (tx) => {
       const batches = await tx.query<{ id: string }>(
-        'SELECT id FROM import_batch WHERE workspace_id = current_setting(\'app.workspace_id\')::uuid ORDER BY created_at DESC LIMIT 50',
+        'SELECT id FROM import_batch WHERE workspace_id = current_setting(\'app.workspace_id\')::uuid AND NOT EXISTS(SELECT 1 FROM workspace_task t WHERE t.workspace_id=import_batch.workspace_id AND t.source_kind=\'import\' AND t.source_id=import_batch.id AND t.archived_at IS NOT NULL) ORDER BY created_at DESC LIMIT 50',
         [],
       );
       const views: ImportBatchView[] = [];

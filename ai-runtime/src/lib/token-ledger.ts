@@ -44,7 +44,7 @@ interface StepUsage {
   finishReason?: string;
 }
 
-export function tokenUsageOptions(model: string, operation: string, store = ledger, env = process.env) {
+export function tokenUsageOptions(model: string, operation: string, store = ledger, env = process.env, contextRunId?: string) {
   const official = officialChannelModel(model, env);
   const provider = official ? (official.url.includes('deepseek.com') ? 'deepseek' : 'zai') : 'configured-proxy';
   return {
@@ -53,7 +53,7 @@ export function tokenUsageOptions(model: string, operation: string, store = ledg
     onStepFinish: async (event: StepUsage) => {
       await store.record({
         event_id: randomUUID(), created_at: new Date().toISOString(),
-        run_id: event.runId ?? null, operation, provider, requested_model: model,
+        run_id: contextRunId ?? event.runId ?? null, operation, provider, requested_model: model,
         model_name: event.response?.modelId ?? official?.id.replace(/^openai\//, '') ?? model,
         response_id: event.response?.id ?? null,
         prompt_tokens: tokenCount(event.usage?.inputTokens), completion_tokens: tokenCount(event.usage?.outputTokens),

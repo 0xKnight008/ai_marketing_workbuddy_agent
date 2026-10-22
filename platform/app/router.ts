@@ -31,6 +31,16 @@ export default (app: Application) => {
   router.get('/api/notifications/events', controller.platform.listNotificationEvents);
   router.post('/api/notifications/events/:eventId/approve', controller.platform.approveNotificationEvent);
   router.post('/api/notifications/events/:eventId/act', controller.platform.actOnNotificationEvent);
+  router.get('/api/tasks',controller.platform.listTasks);
+  router.post('/api/tasks',controller.platform.createTask);
+  router.get('/api/task-preferences',controller.platform.taskPreferences);
+  router.put('/api/task-preferences',controller.platform.saveTaskPreferences);
+  router.get('/api/tasks/:taskId',controller.platform.taskDetail);
+  router.get('/api/tasks/:taskId/evidence/:ref',controller.platform.taskEvidence);
+  router.put('/api/tasks/:taskId/review',controller.platform.saveTaskReview);
+  router.post('/api/tasks/:taskId/messages',controller.platform.taskMessage);
+  router.post('/api/tasks/:taskId/resume',controller.platform.resumeTask);
+  router.post('/api/tasks/:taskId/archive',controller.platform.archiveTask);
   router.get('/api/insights/:reportId', controller.platform.insightDetail);
   router.post('/api/insights/:reportId/deliver', controller.platform.requestInsightDelivery);
   router.get('/api/insights/:reportId/review', controller.platform.insightReview);
