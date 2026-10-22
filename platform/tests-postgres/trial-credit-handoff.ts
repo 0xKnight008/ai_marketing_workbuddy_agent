@@ -231,10 +231,14 @@ export async function trialCreditHandoffRegression(
       const { ModelChoiceService } =
         await import("../src/billing/model-choice");
       const service = new ModelChoiceService(database, "test-only");
-      const pending = await service.list(actor);
-      assert.equal(pending[0].reason, "trial_payment");
-      assert.deepEqual(pending[0].choices, ["flagship"]);
-      await service.choose(actor, pending[0].id, {
+      const [pending] = await service.list(actor);
+      assert.ok(
+        pending,
+        "The original trial task must remain available for payment recovery",
+      );
+      assert.equal(pending.reason, "trial_payment");
+      assert.deepEqual(pending.choices, ["flagship"]);
+      await service.choose(actor, pending.id, {
         modelBand: "flagship",
         reason: "Continue original model with subscribed trial handoff",
       });
@@ -383,9 +387,13 @@ export async function trialCreditHandoffRegression(
         requestId: randomUUID(),
       });
       assert.equal("modelChoiceRequired" in response, true);
-      const choices = await service.list(actor);
-      assert.equal(choices[0].reason, "credits");
-      assert.deepEqual(choices[0].choices, ["eco", "standard"]);
+      const [choice] = await service.list(actor);
+      assert.ok(
+        choice,
+        "An insufficient paid balance must retain the model confirmation",
+      );
+      assert.equal(choice.reason, "credits");
+      assert.deepEqual(choice.choices, ["eco", "standard"]);
       await service.choose(actor, id, {
         modelBand: "standard",
         reason: "Confirm Standard for remaining paid steps",
