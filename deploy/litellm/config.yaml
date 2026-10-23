@@ -1,0 +1,26 @@
+# Only Flagship is exposed. Eco and Standard remain direct in ai-runtime.
+model_list:
+  - model_name: primary-flagship
+    litellm_params:
+      # Include the LiteLLM provider prefix, e.g. openai/<reviewed wire model>.
+      model: os.environ/FLAGSHIP_UPSTREAM_MODEL
+      api_base: os.environ/FLAGSHIP_UPSTREAM_BASE_URL
+      api_key: os.environ/FLAGSHIP_UPSTREAM_API_KEY
+      # Piggybot's durable job owns retry policy; no hidden extra paid attempts.
+      num_retries: 0
+router_settings:
+  num_retries: 0
+  timeout: 180
+  fallbacks: []
+  context_window_fallbacks: []
+  content_policy_fallbacks: []
+litellm_settings:
+  num_retries: 0
+  request_timeout: 180
+  drop_params: false
+  turn_off_message_logging: true
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+  store_model_in_db: false
+  background_health_checks: false

@@ -1,3 +1,4 @@
+import {refundAiReservations,settleAiReservations} from '../billing/ai-refunds';
 import type { ActorContext, RunStatus, WorkflowRunRequest } from '../contracts/domain';
 import { actionPlanSchema, type ActionPlan, type AiRuntimeEvent } from '../contracts/ai-runtime-event';
 import type { TenantTransaction } from '../foundation/database';
@@ -77,6 +78,7 @@ export async function decideApproval(tx: TenantTransaction, actor: ActorContext,
 }
 
 export async function ingestAiRuntimeEvent(tx: TenantTransaction, event: AiRuntimeEvent): Promise<void> {
+  await tx.query(`SELECT workspace_id FROM workspace_billing WHERE workspace_id=current_setting('app.workspace_id')::uuid FOR UPDATE`);
   const run = await tx.query<{ id: string; status: RunStatus }>(
     'SELECT id, status FROM workflow_run WHERE id = $1 AND workspace_id = $2',
     [event.platformRunId, event.workspaceId],
@@ -99,6 +101,7 @@ export async function ingestAiRuntimeEvent(tx: TenantTransaction, event: AiRunti
         "UPDATE workflow_run SET status = 'failed', finished_at = now() WHERE id = $1 AND workspace_id = $2 AND status IN ('pending', 'queued', 'running')",
         [event.platformRunId, event.workspaceId],
       );
+      if (['pending','queued','running','failed'].includes(run.rows[0].status)) await refundAiReservations(tx,{runId:event.platformRunId},'content_blocked');
       return;
     }
     const transitioned = await tx.query<{ id: string }>(
@@ -106,6 +109,7 @@ export async function ingestAiRuntimeEvent(tx: TenantTransaction, event: AiRunti
       [event.platformRunId, event.workspaceId],
     );
     if (!transitioned.rows[0]) return;
+    await settleAiReservations(tx,{runId:event.platformRunId});
     if (actionPlan.requiresApproval) {
       await tx.query('INSERT INTO approval_request (workspace_id, run_id, status, requested_action) VALUES ($1, $2, \'pending\', $3)', [event.workspaceId, event.platformRunId, actionPlan]);
     } else {
@@ -116,6 +120,7 @@ export async function ingestAiRuntimeEvent(tx: TenantTransaction, event: AiRunti
   }
 
   if (event.type === 'ai_run.failed') {
+    if (['pending','queued','running','failed'].includes(run.rows[0].status)) await refundAiReservations(tx,{runId:event.platformRunId},'ai_run_failed');
     await tx.query("UPDATE workflow_run SET status = 'failed', finished_at = now() WHERE id = $1 AND workspace_id = $2 AND status IN ('pending', 'queued', 'running')", [event.platformRunId, event.workspaceId]);
   }
 }

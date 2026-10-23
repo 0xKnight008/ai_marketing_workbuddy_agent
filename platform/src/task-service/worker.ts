@@ -1,3 +1,4 @@
+import {settleAiReservations} from '../billing/ai-refunds';
 import type {
   RunWorkerDatabase,
   ClaimedJob,
@@ -225,6 +226,7 @@ export async function executeTaskTurn(
         )
           throw new Error("task_unverified_citation");
       }
+      if (!prepared.final) await settleAiReservations(tx,{subjectId:messageId,actionType:'ai.task',attempt:prepared.reply.steps.length+1});
       if (!prepared.final)
         await tx.query(
           "UPDATE workspace_task_message SET steps=steps||$3::jsonb WHERE workspace_id=$1 AND id=$2",

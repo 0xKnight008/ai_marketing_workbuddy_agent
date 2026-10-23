@@ -79,6 +79,7 @@ test('workspace inventory keeps billing and usage reads inside tenant RLS transa
     async withWorkspace(workspaceId: string, operation: (tx: TenantTransaction) => Promise<unknown>) {
       scoped.push(workspaceId);
       return operation(txFor((sql) => {
+        if (sql.startsWith('SELECT e.id,e.run_id')) return [];
         if (sql.includes('INSERT INTO workspace_billing')) return [{ plan: 'growth', purchasedCredits: '2000', subscriptionStatus: 'active', trialEndsAt: null, paymentGraceEndsAt: null }];
         if (sql.includes('FROM task_event')) return [{ taskUsed: '12', aiCreditsUsed: '3', supplierSpendMicros: '1000' }];
         if (sql.includes('FROM connected_account')) return [{ connectedAccounts: '0' }];

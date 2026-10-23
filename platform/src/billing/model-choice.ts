@@ -217,7 +217,7 @@ export async function executionHistory(
       throw new HttpError(404, "model_execution_source_not_found");
     return (
       await tx.query(
-        `SELECT attempt AS step,model_band AS band,supplier AS provider,ai_credits AS credits FROM task_event WHERE workspace_id=$1 AND (subject_id=$2 OR run_id=$2) AND status='succeeded' AND action_type LIKE 'ai%' ORDER BY created_at LIMIT 1000`,
+        `SELECT attempt AS step,model_band AS band,supplier AS provider,CASE WHEN ai_reservation_state='refunded' THEN 0 ELSE ai_credits END AS credits,ai_reservation_state AS "reservationState" FROM task_event WHERE workspace_id=$1 AND (subject_id=$2 OR run_id=$2) AND status='succeeded' AND action_type LIKE 'ai%' ORDER BY created_at LIMIT 1000`,
         [actor.workspaceId, sourceId],
       )
     ).rows;

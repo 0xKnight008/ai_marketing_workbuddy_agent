@@ -1,0 +1,45 @@
+name: piggybot-flagship
+services:
+  proxy:
+    image: ${LITELLM_IMAGE:?Set a reviewed LiteLLM image pinned by sha256 digest}
+    restart: unless-stopped
+    env_file:
+      - ${LITELLM_ENV_FILE:-/etc/piggybot/litellm.env}
+    environment:
+      DATABASE_URL: postgresql://litellm:${LITELLM_DB_PASSWORD:?Set a hex database password}@db:5432/litellm
+    ports:
+      - "127.0.0.1:4400:4000"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "1"]
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/readiness', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+  db:
+    image: ${LITELLM_POSTGRES_IMAGE:?Set a reviewed PostgreSQL image pinned by sha256 digest}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: ${LITELLM_DB_PASSWORD:?Set a hex database password}
+    volumes:
+      - litellm-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm -d litellm"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+volumes:
+  litellm-data:

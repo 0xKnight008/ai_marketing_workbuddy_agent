@@ -11,16 +11,16 @@ import { createTokenLedger, tokenUsageOptions } from './token-ledger';
 
 test('installed Mastra sends channel-specific Chat Completions requests and parses structured results', async (t) => {
   const env = {
-    AI_MODEL_ROUTING_MODE: 'three-channel', OPENAI_BASE_URL: 'https://proxy.test/v1',
-    OPENAI_API_KEY: 'proxy-test', DEEPSEEK_API_KEY: 'ds-test', ZAI_API_KEY: 'glm-test',
-    AI_MODEL_FLAGSHIP: 'openai/sol-router-alias',
+    AI_MODEL_ROUTING_MODE: 'three-channel', OPENAI_BASE_URL: 'https://litellm.test/v1',
+    OPENAI_API_KEY: 'litellm-virtual-test', DEEPSEEK_API_KEY: 'ds-test', ZAI_API_KEY: 'glm-test',
+    AI_MODEL_FLAGSHIP: 'openai/primary-flagship',
   };
   const config = loadConfig(env);
   const cases = [
     ['eco', 'primary', 'https://api.deepseek.com/v1/chat/completions', 'deepseek-flash', 'ds-test'],
     ['eco', 'fallback', 'https://api.deepseek.com/v1/chat/completions', 'deepseek-flash', 'ds-test'],
     ['standard', 'primary', 'https://api.z.ai/api/paas/v4/chat/completions', 'glm-5.3-flash', 'glm-test'],
-    ['flagship', 'primary', 'https://proxy.test/v1/chat/completions', 'sol-router-alias', 'proxy-test'],
+    ['flagship', 'primary', 'https://litellm.test/v1/chat/completions', 'primary-flagship', 'litellm-virtual-test'],
   ] as const;
   for (const [band, provider, url, wireModel, key] of cases) {
     let requests = 0;

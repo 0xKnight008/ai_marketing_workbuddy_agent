@@ -255,7 +255,7 @@ app.post('/api/approval-requests/:approvalId/:decision', async (request) => {
 app.get('/api/billing/task-events', async (request) => {
   const actor = actorFrom(request);
   requirePermission(actor.role, 'billing:view');
-  const events = await database.withWorkspace(actor.workspaceId, (tx) => tx.query('SELECT id, run_id AS "runId", action_type AS "actionType", billable_units AS "billableUnits", ai_credits AS "aiCredits", supplier_cost_micros AS "supplierCostMicros", status, created_at AS "createdAt" FROM task_event WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 100', [actor.workspaceId]));
+  const events = await database.withWorkspace(actor.workspaceId, (tx) => tx.query('SELECT id, run_id AS "runId", action_type AS "actionType", billable_units AS "billableUnits", ai_credits AS "aiCredits", ai_reservation_state AS "reservationState", reversal_of AS "reversalOf", supplier_cost_micros AS "supplierCostMicros", status, created_at AS "createdAt" FROM task_event WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 100', [actor.workspaceId]));
   return events.rows;
 });
 

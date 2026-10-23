@@ -49,6 +49,9 @@ jobs:
       - name: Verify public npm registries
         run: npm run check:lockfile-registries
 
+      - name: Test Flagship proxy preflight and credential-safe probes
+        run: node --test scripts/litellm-preflight.test.mjs ai-runtime/scripts/check-flagship-proxy.test.mjs
+
       - name: Test deployment preflight
         run: node --test scripts/deploy-production.test.mjs
 
@@ -155,6 +158,10 @@ jobs:
           cp docker-compose.yml deploy-package/
           cp -r server deploy-package/
           cp -r platform ai-runtime deploy-package/
+          mkdir -p deploy-package/deploy deploy-package/scripts deploy-package/docs
+          cp -r deploy/litellm deploy-package/deploy/
+          cp scripts/litellm-preflight.mjs deploy-package/scripts/
+          cp docs/FLAGSHIP_LITELLM_MIGRATION.md docs/AI_CREDIT_REFUNDS.md deploy-package/docs/
           cp scripts/deploy-production.sh deploy-package/deploy.sh
           chmod +x deploy-package/deploy.sh
           

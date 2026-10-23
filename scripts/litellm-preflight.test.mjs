@@ -1,0 +1,5 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {validateLiteLlmEnvironment} from './litellm-preflight.mjs';
+const env={LITELLM_IMAGE:'registry.example/litellm@sha256:'+'a'.repeat(64),LITELLM_POSTGRES_IMAGE:'postgres@sha256:'+'b'.repeat(64),LITELLM_DB_PASSWORD:'c'.repeat(64),LITELLM_MASTER_KEY:'sk-'+'d'.repeat(64),LITELLM_SALT_KEY:'sk-'+'e'.repeat(64),FLAGSHIP_UPSTREAM_MODEL:'openai/reviewed-model',FLAGSHIP_UPSTREAM_BASE_URL:'https://provider.example/v1',FLAGSHIP_UPSTREAM_API_KEY:'test-upstream'};
+test('accepts pinned Flagship-only configuration without making upstream calls',()=>assert.equal(validateLiteLlmEnvironment(env),true));
+for(const name of Object.keys(env))test(`rejects missing ${name} without echoing secrets`,()=>{assert.throws(()=>validateLiteLlmEnvironment({...env,[name]:''}),new RegExp(name));});
+test('rejects moving image tags and credential-bearing upstream URLs',()=>{assert.throws(()=>validateLiteLlmEnvironment({...env,LITELLM_IMAGE:'image:latest'}),/sha256/);assert.throws(()=>validateLiteLlmEnvironment({...env,FLAGSHIP_UPSTREAM_BASE_URL:'https://key:secret@provider.example/v1'}),/credential-free/);});

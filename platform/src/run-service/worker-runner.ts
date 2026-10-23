@@ -1,3 +1,4 @@
+import {refundAiReservations,settleAiReservations} from '../billing/ai-refunds';
 import {convertSubscribedTrial} from '../billing/trial-conversion';
 import {ModelChoiceRequired,TrialConversionRequired} from '../billing/guardrails';
 import {executeTaskTurn} from '../task-service/worker';
@@ -429,6 +430,7 @@ export class RunWorker {
 
       const assignments = validatedClassifications(result, items.rows);
       await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+        await settleAiReservations(tx,{subjectId:batchId,actionType:'ai.classify',attempt:chunkAttemptKey(items.rows.map(row=>row.id))});
         // Index completeness and all quotes have already been checked.
         // Empty tags mean explicitly no signal, never a missing assignment.
         for (const assignment of assignments) {
@@ -530,6 +532,7 @@ export class RunWorker {
       });
       const taxonomy = validatedTopicTaxonomy(proposed);
       await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+        await settleAiReservations(tx,{subjectId:runId,actionType:'ai.topics.propose',attempt:1});
         for (const entry of taxonomy) {
           await tx.query(
             `INSERT INTO topic (workspace_id, run_id, topic_key, label, description)
@@ -628,6 +631,7 @@ export class RunWorker {
       const assignments = validatedTopicAssignments(assigned, chunk.rows, new Set(chunk.taxonomy.map((row) => row.key)));
       const topicIdByKey = new Map(chunk.taxonomy.map((row) => [row.key, row.id]));
       await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+        await settleAiReservations(tx,{subjectId:runId,actionType:'ai.topics.assign',attempt:chunkAttemptKey(chunk.rows.map(row=>row.id))});
         for (const assignment of assignments) {
           const item = chunk.rows[assignment.itemIndex]!;
           for (const topicRef of assignment.topics) {
@@ -745,6 +749,7 @@ export class RunWorker {
              WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND status = 'generating'`,
           [reportId, error],
         );
+        await refundAiReservations(tx,{subjectId:reportId,actionType:'ai.insight'},'insight_validation_failed');
         await tx.query(
           'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
           [job.workspaceId, grounding.groundedConclusions === 0 ? 'insight.insufficient_evidence' : 'insight.acceptance_failed', { reportId, template: prepared.template, acceptanceIssues, droppedCitations: stats.dropped, droppedConclusions: grounding.droppedConclusions, totalConclusions: grounding.totalConclusions }],
@@ -760,6 +765,7 @@ export class RunWorker {
     const groundedRate = grounding.totalConclusions ? grounding.groundedConclusions / grounding.totalConclusions : 1;
 
     await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+      await settleAiReservations(tx,{subjectId:reportId,actionType:'ai.insight'});
       await tx.query(
         `UPDATE insight_report
             SET status = 'generated', report = $2::jsonb, dropped_citations = $3, generated_at = now()
@@ -1006,6 +1012,15 @@ export class RunWorker {
     const message = error instanceof Error ? error.message : String(error);
     await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
       const result = await tx.query<{ status: string }>("UPDATE job SET status = CASE WHEN attempt >= max_attempts THEN 'dead_lettered'::job_status ELSE 'queued'::job_status END, available_at = now() + interval '30 seconds', locked_at = NULL, locked_by = NULL, last_error = $3, updated_at = now() WHERE id = $1 AND workspace_id = $2 RETURNING status", [job.id, job.workspaceId, message]);
+      if (result.rows[0]?.status === 'dead_lettered') {
+        // Publication/delivery failures do not refund successfully generated AI.
+        const subject = job.kind==='task.turn' ? {subjectId:String(job.payload.messageId),actionType:'ai.task'}
+          : job.kind==='import.classify' ? {subjectId:String(job.payload.batchId),actionType:'ai.classify'}
+          : job.kind==='insight.generate' ? {subjectId:String(job.payload.reportId),actionType:'ai.insight'}
+          : job.kind==='topics.cluster' ? {subjectId:String(job.payload.runId),actionType:'ai.topics'}
+          : job.kind==='prepare_ai_run' && job.runId ? {runId:job.runId} : undefined;
+        if(subject) await refundAiReservations(tx,subject,'generation_dead_lettered');
+      }
       if (result.rows[0]?.status === 'dead_lettered' && job.runId) {
         await tx.query("UPDATE workflow_run SET status = 'dead_lettered', finished_at = now() WHERE id = $1 AND workspace_id = $2 AND status IN ('pending', 'queued', 'running')", [job.runId, job.workspaceId]);
         await tx.query('INSERT INTO run_event (workspace_id, run_id, event_key, event_type, payload) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (run_id, event_key) DO NOTHING', [job.workspaceId, job.runId, `job:${job.id}:dead_lettered`, 'run.dead_lettered', { error: message }]);
