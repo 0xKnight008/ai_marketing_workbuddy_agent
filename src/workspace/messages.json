@@ -2415,5 +2415,10 @@
     "优先使用的剩余试用额度："
   ],
   "AI credit reservations & actions": ["Reservas de créditos de IA y acciones", "AI 额度预扣与操作"],
-  "AI credits are reserved before generation. A reservation does not confirm model success or a provider payment.": ["Los créditos se reservan antes de generar. Una reserva no confirma una generación correcta ni un pago al proveedor.", "AI 额度会在生成前预扣。预扣记录不代表模型已成功生成，也不代表供应商已完成扣款。"]
+  "AI credits are reserved before generation. A reservation does not confirm model success or a provider payment.": ["Los créditos se reservan antes de generar. Una reserva no confirma una generación correcta ni un pago al proveedor.", "AI 额度会在生成前预扣。预扣记录不代表模型已成功生成，也不代表供应商已完成扣款。"],
+  "Credits refunded": ["Créditos devueltos", "额度已退回"],
+  "Refunded": ["Reembolsado", "已退款"],
+  "Reserved": ["Reservado", "已预扣"],
+  "Settled": ["Liquidado", "已结算"],
+  "AI credit refund": ["Reembolso de créditos de IA", "AI 额度退款"]
 }

@@ -1,3 +1,5 @@
+import {reconcileTerminalAiReservations} from './ai-refunds';
+import {randomUUID} from 'node:crypto';
 import type { TenantTransaction } from '../foundation/database';
 import { HttpError } from '../http/errors';
 import { MODEL_BAND_POLICIES, PLAN_CATALOG, planKey, requestedModelBand, type ModelBand, type PlanKey } from './plans';
@@ -94,6 +96,10 @@ async function billingRow(tx: TenantTransaction): Promise<BillingRow> {
 
 export async function usageSnapshot(tx: TenantTransaction): Promise<UsageSnapshot> {
   const billing = await billingRow(tx);
+  await reconcileTerminalAiReservations(tx);
+  // Refund reconciliation may have returned purchased/free carryover buckets.
+  const refundedBilling=await tx.query<{purchasedCredits:string;trialCreditCarryover:string}>(`SELECT purchased_ai_credits AS "purchasedCredits",trial_credit_carryover AS "trialCreditCarryover" FROM workspace_billing WHERE workspace_id=current_setting('app.workspace_id')::uuid`);
+  if(refundedBilling.rows[0]) Object.assign(billing,refundedBilling.rows[0]);
   const plan = planKey(billing.plan);
   const entitlement = PLAN_CATALOG[plan];
   const isTrial = billing.subscriptionStatus === 'trialing';
@@ -105,13 +111,13 @@ export async function usageSnapshot(tx: TenantTransaction): Promise<UsageSnapsho
            COALESCE(SUM(CASE WHEN status = 'reversed' THEN -supplier_cost_micros ELSE supplier_cost_micros END), 0) AS "supplierSpendMicros"
       FROM task_event
      WHERE workspace_id = current_setting('app.workspace_id')::uuid
-       AND created_at >= date_trunc('month', now())`, []);
+       AND credit_period = date_trunc('month', now())::date`, []);
   const accounts = await tx.query<AccountRow>(`SELECT COUNT(*) AS "connectedAccounts" FROM connected_account WHERE workspace_id = current_setting('app.workspace_id')::uuid AND status = 'connected'`, []);
   const usage = periodUsage.rows[0] ?? { taskUsed: 0, aiCreditsUsed: 0, supplierSpendMicros: 0 };
   const trialUsage = isTrial ? await tx.query<{ trialCreditsUsed: string | number }>(`
-    SELECT COALESCE(SUM(CASE WHEN status = 'reversed' THEN -ai_credits ELSE ai_credits END), 0) AS "trialCreditsUsed"
-    FROM task_event WHERE workspace_id = current_setting('app.workspace_id')::uuid
-      AND created_at >= (SELECT COALESCE(trial_started_at, trial_ends_at - interval '7 days') FROM workspace_billing
+    SELECT COALESCE(SUM(CASE WHEN e.status = 'reversed' THEN -e.ai_credits ELSE e.ai_credits END), 0) AS "trialCreditsUsed"
+    FROM task_event e LEFT JOIN task_event original ON original.id=e.reversal_of WHERE e.workspace_id = current_setting('app.workspace_id')::uuid
+      AND COALESCE(original.created_at,e.created_at) >= (SELECT COALESCE(trial_started_at, trial_ends_at - interval '7 days') FROM workspace_billing
         WHERE workspace_id = current_setting('app.workspace_id')::uuid)`, []) : undefined;
   const trialCreditsRemaining = isTrial ? Math.max(0, 30 - number(trialUsage?.rows[0]?.trialCreditsUsed)) : undefined;
   const taskUsed = number(usage.taskUsed);
@@ -189,21 +195,21 @@ export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: s
   // 幂等回放优先于额度/暂停校验（审核 #5）：同一主体 + 动作 + attempt 已
   // 计费过就直接复用。旧格式（action_type 带 .band.provider 后缀）的历史
   // 行通过 LIKE 前缀一并匹配，部署边界上的在途任务不会重复扣费。
-  const existing = await tx.query<{ band: string | null; provider: string | null; credits: string | number; cost: string | number }>(
+  const existing = await tx.query<{ band: string | null; provider: string | null; credits: string | number; cost: string | number; state?: string; generation?: number }>(
     `SELECT COALESCE(model_band, (regexp_match(action_type, '\\.(eco|standard|flagship)\\.(primary|fallback)$'))[1]) AS band,
             COALESCE(supplier, (regexp_match(action_type, '\\.(eco|standard|flagship)\\.(primary|fallback)$'))[2]) AS provider,
-            ai_credits AS credits, supplier_cost_micros AS cost
+            ai_credits AS credits, supplier_cost_micros AS cost, ai_reservation_state AS state, reservation_generation AS generation
        FROM task_event
       WHERE workspace_id = current_setting('app.workspace_id')::uuid
         AND (run_id = $1::uuid OR subject_id = $1::uuid)
         AND (action_type = $2 OR action_type LIKE $2 || '.%')
-        AND attempt = $3
-      ORDER BY created_at
+        AND attempt = $3 AND status='succeeded'
+      ORDER BY reservation_generation DESC,created_at DESC,id DESC
       LIMIT 1`,
     [resolved.runId ?? resolved.subjectId, actionPrefix, attempt],
   );
   const replay = existing.rows[0];
-  if (replay) {
+  if (replay && replay.state !== 'refunded') {
     return {
       band: (replay.band ?? requestedModelBand(allowedModelClasses)) as ModelBand,
       provider: replay.provider === 'fallback' ? 'fallback' : 'primary',
@@ -247,13 +253,19 @@ export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: s
     throw new ModelChoiceRequired(requestedBand,current,useFallbackEco?'credits':'task_quota');
   }
   const trialCredits = current.subscriptionStatus === 'trialing' ? credits : Math.min(credits,current.trialCreditCarryover ?? 0);
-  const recorded = await tx.query(`INSERT INTO task_event (workspace_id, run_id, subject_id, action_type, billable_units, ai_credits, supplier_cost_micros, supplier, status, attempt, model_band, trial_ai_credits)
-    VALUES (current_setting('app.workspace_id')::uuid, $1, $2, $7, 0, $3, $4, $5, 'succeeded', $6, $8, $9) ON CONFLICT DO NOTHING RETURNING id`, [resolved.runId ?? null, resolved.subjectId ?? null, credits, effectivePolicy.supplierCostMicros, provider, attempt, actionPrefix, effectiveBand, trialCredits]);
+  const includedRemaining = Math.max(0, PLAN_CATALOG[current.plan].aiCredits - current.aiCreditsUsed);
+  const purchasedSpent = current.subscriptionStatus === 'trialing' ? 0 : Math.max(0, credits - trialCredits - includedRemaining);
+  // A refunded attempt may be explicitly retried, but must reserve again. Each
+  // refund/debit cycle remains an immutable journal entry. The billing lock
+  // held by usageSnapshot serializes this decision across concurrent workers.
+  const debitAction = replay?.state === 'refunded' ? `${actionPrefix}.retry.${randomUUID()}` : actionPrefix;
+  const recorded = await tx.query(`INSERT INTO task_event (workspace_id, run_id, subject_id, action_type, billable_units, ai_credits, supplier_cost_micros, supplier, status, attempt, model_band, trial_ai_credits, purchased_ai_credits, ai_reservation_state, reservation_generation)
+    VALUES (current_setting('app.workspace_id')::uuid, $1, $2, $7, 0, $3, $4, $5, 'succeeded', $6, $8, $9, $10, 'reserved', $11) ON CONFLICT DO NOTHING RETURNING id`, [resolved.runId ?? null, resolved.subjectId ?? null, credits, effectivePolicy.supplierCostMicros, provider, attempt, debitAction, effectiveBand, trialCredits, purchasedSpent, (replay?.generation ?? 0)+1]);
   if (!recorded.rowCount) {
     // 并发/重试竞争：同一幂等键的行已存在，按回放处理（上面没查到是因为
     // 并发事务尚未可见；ON CONFLICT 保证不会写入第二条）。
-    const raced = await tx.query<{ band: string | null; provider: string | null; credits: string | number; cost: string | number }>(
-      `SELECT model_band AS band, supplier AS provider, ai_credits AS credits, supplier_cost_micros AS cost
+    const raced = await tx.query<{ band: string | null; provider: string | null; credits: string | number; cost: string | number; state?: string; generation?: number }>(
+      `SELECT model_band AS band, supplier AS provider, ai_credits AS credits, supplier_cost_micros AS cost, ai_reservation_state AS state, reservation_generation AS generation
          FROM task_event
         WHERE workspace_id = current_setting('app.workspace_id')::uuid
           AND (run_id = $1::uuid OR subject_id = $1::uuid)
@@ -277,8 +289,6 @@ export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: s
   if (recorded.rowCount && current.subscriptionStatus !== 'trialing') {
     if (trialCredits) await tx.query(`UPDATE workspace_billing SET trial_credit_carryover = trial_credit_carryover - $1
       WHERE workspace_id = current_setting('app.workspace_id')::uuid`, [trialCredits]);
-    const includedRemaining = Math.max(0, PLAN_CATALOG[current.plan].aiCredits - current.aiCreditsUsed);
-    const purchasedSpent = Math.max(0, credits - trialCredits - includedRemaining);
     if (purchasedSpent) await tx.query(`UPDATE workspace_billing SET purchased_ai_credits = purchased_ai_credits - $1
       WHERE workspace_id = current_setting('app.workspace_id')::uuid`, [purchasedSpent]);
   }

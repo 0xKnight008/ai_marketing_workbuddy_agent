@@ -10,10 +10,10 @@ export async function assertAuthSchema(database: Pick<Database, 'withAdmin'>): P
       await tx.query('SELECT id, name, slug FROM workspace LIMIT 0');
       await tx.query('SELECT workspace_id, user_id, role, created_at FROM workspace_membership LIMIT 0');
       await tx.query('SELECT workspace_id, plan, subscription_status, trial_credit_handoff_at, trial_credit_handoff_pending, trial_credit_carryover FROM workspace_billing LIMIT 0');
-      await tx.query('SELECT ai_credits, trial_ai_credits FROM task_event LIMIT 0');
+      await tx.query('SELECT ai_credits, trial_ai_credits, ai_reservation_state, reversal_of, credit_period, purchased_ai_credits, reservation_generation FROM task_event LIMIT 0');
       await tx.query('SELECT workspace_id, actor_id, event_type, payload FROM audit_event LIMIT 0');
     });
   } catch (cause) {
-    throw new Error('Authentication database is not ready. Apply pending platform migrations to the configured DATABASE_URL (including 0013_email_password_auth.sql and 0038_trial_credit_handoff.sql), then retry. Do not recreate user tables.', { cause });
+    throw new Error('Authentication database is not ready. Apply pending platform migrations to the configured DATABASE_URL (including 0013_email_password_auth.sql 0038_trial_credit_handoff.sql and 0039_ai_reservation_refunds.sql), then retry. Do not recreate user tables.', { cause });
   }
 }

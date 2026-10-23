@@ -97,7 +97,7 @@ export class TaskService {
       await taskActor(tx, actor);
       const task = await findTask(tx, taskId);
       const messages = await tx.query(
-        `SELECT id,role,content,status,model_band AS "modelBand",citations,error,created_at::text AS "createdAt",COALESCE((SELECT jsonb_agg(jsonb_build_object('step',e.attempt,'band',e.model_band,'provider',e.supplier,'credits',e.ai_credits) ORDER BY e.created_at) FROM task_event e WHERE e.workspace_id=m.workspace_id AND e.subject_id=m.id AND e.action_type='ai.task' AND e.status='succeeded'),'[]'::jsonb) AS executions FROM workspace_task_message m WHERE workspace_id=$1 AND task_id=$2 ORDER BY sequence`,
+        `SELECT id,role,content,status,model_band AS "modelBand",citations,error,created_at::text AS "createdAt",COALESCE((SELECT jsonb_agg(jsonb_build_object('step',e.attempt,'band',e.model_band,'provider',e.supplier,'credits',CASE WHEN e.ai_reservation_state='refunded' THEN 0 ELSE e.ai_credits END,'reservationState',e.ai_reservation_state) ORDER BY e.created_at) FROM task_event e WHERE e.workspace_id=m.workspace_id AND e.subject_id=m.id AND (e.action_type='ai.task' OR e.action_type LIKE 'ai.task.retry.%') AND e.status='succeeded'),'[]'::jsonb) AS executions FROM workspace_task_message m WHERE workspace_id=$1 AND task_id=$2 ORDER BY sequence`,
         [actor.workspaceId, taskId],
       );
       return { task, messages: messages.rows };

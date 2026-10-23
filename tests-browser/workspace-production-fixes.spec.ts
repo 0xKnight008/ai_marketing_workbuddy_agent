@@ -722,7 +722,7 @@ test('Activity meters legacy ai reservations as credits and shows the blocked ge
  const s=initial();s.awaitingModel=false;await setup(page,s);
  await page.route('**/api/billing/task-events',route=>route.fulfill({json:[{id:'legacy-ai',runId:taskId,actionType:'ai',aiCredits:'6.000',billableUnits:'0.000',status:'succeeded',createdAt:'2026-10-23T01:26:04Z'}]}));
  await page.route(`**/api/runs/${taskId}`,route=>route.fulfill({json:{id:jobId,status:'failed',workflowId:jobId,createdAt:'2026-10-23',modelBand:'standard',failure:{kind:'content_blocked',issues:['X: 708 characters including hashtags exceeds the 280-character limit.']},drafts:[{platform:'x',content:'Saved generated announcement',hashtags:['#Piggybot']}]}}));
- await page.goto('/app#activity');await expect(page.getByText('ai: 6.000 credit(s)',{exact:true})).toBeVisible();
+ await page.goto('/app#activity');await expect(page.getByText('ai: −6.000 credit(s)',{exact:true})).toBeVisible();
  await page.getByLabel('Workflow run UUID',{exact:true}).fill(taskId);await page.getByRole('button',{name:'Load run',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Content needs correction before review'})).toBeVisible();await expect(page.getByRole('alert')).toContainText('708');
  await page.getByText('Generated drafts',{exact:true}).click();await expect(page.locator('pre')).toContainText('Saved generated announcement');expect(s.requests).toEqual([]);
@@ -734,3 +734,13 @@ test('workflow task details expose provider authentication failure and the selec
  await page.goto(`/app#start/task/${taskId}`);await expect(page.getByRole('heading',{name:'Model provider authentication failed'})).toBeVisible();await expect(page.getByText('Selected model: flagship',{exact:true})).toBeVisible();
  expect(s.requests).toEqual([]);
 });
+
+for(const [language,label,title] of [['en','Credits refunded','AI credit refund'],['zh','额度已退回','AI 额度退款'],['es','Créditos devueltos','Reembolso de créditos de IA']] as const){
+ test(`Activity shows the linked 20 credit refund in ${language}`,async({page})=>{
+  const s=initial();s.awaitingModel=false;await setup(page,s);
+  await page.route('**/api/billing/task-events',route=>route.fulfill({json:[{id:'refund',runId:taskId,actionType:'credit_refund.original',aiCredits:'20.000',billableUnits:'0.000',status:'reversed',reversalOf:'original',createdAt:'2026-10-23T01:40:05Z'},{id:'original',runId:taskId,actionType:'ai',aiCredits:'20.000',billableUnits:'0.000',status:'succeeded',reservationState:'refunded',createdAt:'2026-10-23T01:40:02Z'}]}));
+  await page.goto(`/app?locale=${language}#activity`);
+  await expect(page.getByText(`${title}: +20.000 credit(s)`,{exact:true})).toBeVisible();
+  await expect(page.getByText(label+' ·',{exact:false})).toBeVisible();expect(s.requests).toEqual([]);
+ });
+}

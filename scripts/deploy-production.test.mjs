@@ -10,6 +10,8 @@ function preflight(t, privilegedAccess) {
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   // No real sudo or production secrets are used by these tests.
   writeFileSync(join(dir, 'sudo'), `#!/bin/sh\nexit ${privilegedAccess ? 0 : 1}\n`, { mode: 0o755 });
+  // --check must only discover the backup tool, never execute it.
+  writeFileSync(join(dir, 'pg_dump'), '#!/bin/sh\nexit 99\n', { mode: 0o755 });
   const env = { ...process.env, PATH: `${dir}:${process.env.PATH}`,
     PLATFORM_ENV_FILE: join(dir, 'platform.env'), AI_RUNTIME_ENV_FILE: join(dir, 'runtime.env'),
     PUBLIC_API_ENV_FILE: join(dir, 'public.env'), DEPLOY_DIR: join(dir, 'must-not-be-touched') };

@@ -47,6 +47,7 @@ for (const kind of ['prepare_ai_run', 'execute_approved_actions']) {
     const statements: string[] = [];
     const tx: TenantTransaction = { query: (async (sql: string) => {
       statements.push(sql);
+        if (sql.startsWith('SELECT e.id,e.run_id')) return {rows:[],rowCount:0};
       if (sql.includes('FROM workflow_run r')) return { rows: [{ id: 'run-1', input: {}, context: { allowedModelClasses: ['eco'] }, definition: { steps: [{ type: 'ai.prepare_announcement' }, { type: 'approval' }, { type: 'social.schedule_post' }] } }], rowCount: 1 };
       if (sql.startsWith('SELECT status FROM workflow_run')) return { rows: [{ status: 'queued' }], rowCount: 1 };
       if (sql.includes('RETURNING plan')) return { rows: [{ plan: 'creator', subscriptionStatus: 'inactive', trialEndsAt: null, paymentGraceEndsAt: null }], rowCount: 1 };
@@ -765,6 +766,7 @@ test('import.classify replays the paid chunk reservation after an LLM failure on
       if (sql.includes('connectedAccounts')) return { rows: [{ connectedAccounts: 0 }] as unknown as Row[], rowCount: 1 };
       if (sql.startsWith('INSERT INTO task_event')) { taskEventCalls += 1; chargeEvents.push([...(values ?? [])]); return { rows: [{ id: 'evt-1' }] as unknown as Row[], rowCount: 1 }; }
       // 幂等回放查询：首轮无既有事件；重试轮命中首次写入的事件。
+      if (sql.startsWith('SELECT e.id,e.run_id')) return {rows:[],rowCount:0};
       if (sql.includes('FROM task_event')) {
         const replayed = taskEventCalls > 0;
         return { rows: (replayed ? [{ band: 'standard', provider: 'fallback', credits: 6, cost: 200_000 }] : []) as unknown as Row[], rowCount: 0 };

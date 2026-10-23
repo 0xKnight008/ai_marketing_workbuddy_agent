@@ -1,3 +1,4 @@
+import {aiRefundRegression,legacyRefundMigrationFixture} from './ai-refunds';
 import {runDiagnosticsRegression} from './run-diagnostics';
 import {trialCreditHandoffRegression} from './trial-credit-handoff';
 import {reviewModelRegression} from './review-model-consent';
@@ -64,9 +65,13 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
 
     for (const name of names.filter((name) => name >= '0013'&&name<'0037')) await migrate(name);
     await assert.rejects(assertTaskSchema(database));
-    for (const name of names.filter(name=>name>='0037')) await migrate(name);
+    for (const name of names.filter(name=>name>='0037')) {
+      if(name==='0039_ai_reservation_refunds.sql') await t.test('incremental refund migration retains old debits and protects completed output',async()=>{const verify=await legacyRefundMigrationFixture(client);await migrate(name);await verify();});
+      else await migrate(name);
+    }
     await assertTaskSchema(database);
     await assertAuthSchema(database);
+    await t.test('AI reservation refunds, source buckets, replay and isolation',ctx=>aiRefundRegression(ctx,client,database));
     await t.test('workflow diagnosis and selected model isolation',ctx=>runDiagnosticsRegression(ctx,client,database));
     await t.test('trial to paid credit handoff and Stripe payment recovery',handoff=>trialCreditHandoffRegression(handoff,client,database));
     await t.test('Zernio JSONB capabilities, disconnect isolation, stale sync and reconnect', () => zernioDisconnectRegression(client, database));
