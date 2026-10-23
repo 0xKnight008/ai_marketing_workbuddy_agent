@@ -1,3 +1,4 @@
+import {runDiagnostics} from '../run-service/diagnostics';
 import {ModelChoiceService} from '../billing/model-choice';
 import {TaskService,findTask} from '../task-service/service';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
@@ -638,11 +639,13 @@ export class PlatformService {
   async run(actor: ActorContext, runId: string): Promise<unknown | undefined> {
     requirePermission(actor.role, 'workflow:run');
     const parsed = z.string().uuid().parse(runId);
-    const result = await this.database.withWorkspace(actor.workspaceId, (tx) => tx.query<{ id: string; status: string; workflowId: string; createdAt: string }>(
-      'SELECT id, status, workflow_id AS "workflowId", created_at::text AS "createdAt" FROM workflow_run WHERE id = $1 AND workspace_id = $2',
-      [parsed, actor.workspaceId],
-    ));
-    return result.rows[0];
+    return this.database.withWorkspace(actor.workspaceId, async tx=>{
+      const result=await tx.query<{id:string;status:string;workflowId:string;createdAt:string;modelBand:string}>(
+        `SELECT r.id,r.status,r.workflow_id AS "workflowId",r.created_at::text AS "createdAt",r.input->>'modelBand' AS "modelBand" FROM workflow_run r WHERE r.workspace_id=$2 AND (r.id=$1 OR EXISTS(SELECT 1 FROM workspace_task t WHERE t.workspace_id=r.workspace_id AND t.id=$1 AND t.source_kind='workflow' AND t.source_id=r.id))`,[parsed,actor.workspaceId]);
+      const run=result.rows[0];if(!run)return undefined;
+      const events=await tx.query<{type:string;payload:Record<string,unknown>}>("SELECT event_type AS type,payload FROM run_event WHERE workspace_id=$1 AND run_id=$2 AND event_type IN ('ai_run.failed','ai_step.failed','action_plan.created') ORDER BY created_at DESC",[actor.workspaceId,run.id]);
+      return {...run,...runDiagnostics(events.rows)};
+    });
   }
 
   async decideApproval(actor: ActorContext, approvalId: string, decision: string, reason: unknown): Promise<unknown> {

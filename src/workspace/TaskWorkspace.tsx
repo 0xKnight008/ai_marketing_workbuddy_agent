@@ -1,3 +1,4 @@
+import {WorkflowRunDetails} from './WorkflowRunDetails';
 import {ExecutionSummary,type ModelExecution} from './ModelControls';
 import { useEffect, useRef, useState } from "react";
 import { AudienceWorkspace } from "../audience/AudienceWorkspace";
@@ -988,6 +989,7 @@ function TaskConversation(
               </small>
             </div>
           )}
+          {task.sourceKind === "workflow" && task.sourceId && <WorkflowRunDetails token={props.token} apiBase={props.apiBase} id={task.sourceId} status={task.status}/>}
           {task.sourceKind === "report" && task.sourceId && (
             <button onClick={() => props.onFullReport(task.sourceId!)}>
               {w("Open report", "Abrir informe", "打开报告")}

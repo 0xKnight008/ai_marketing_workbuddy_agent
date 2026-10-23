@@ -7,7 +7,7 @@ import { tokenUsageOptions } from '../lib/token-ledger';
  * 输入：brief + targets + 品牌上下文；输出：ContentPlan（每平台切入角度与要点）。
  * 只做规划，不产出最终文案，也不感知 connector / 发布动作。
  */
-export function createAnnouncementPlannerAgent(model: string) {
+export function createAnnouncementPlannerAgent(model: string, contextRunId?: string) {
   return new Agent({
   id: 'announcement-planner-agent',
   name: 'announcement-planner-agent',
@@ -26,6 +26,6 @@ Rules:
 - Write in the language specified by the brand profile.
 - Output strictly follows the structured schema. No commentary outside the schema.`,
     model: chatCompletionsModel(model),
-    defaultOptions: tokenUsageOptions(model, 'announcement-planner'),
+    defaultOptions: tokenUsageOptions(model, 'announcement-planner', undefined, process.env, contextRunId),
   });
 }
