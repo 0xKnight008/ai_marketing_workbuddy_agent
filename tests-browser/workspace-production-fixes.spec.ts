@@ -717,3 +717,20 @@ test('owner can confirm subscription payment recovery with zero available model 
  await expect(dialog.getByRole('combobox')).toHaveCount(0);const confirm=dialog.getByRole('button',{name:'Confirm billing & resume original model'});await expect(confirm).toBeEnabled();expect(s.requests).toEqual([]);await confirm.click();
  await expect(dialog).not.toBeVisible();expect(s.requests[0].body).toMatchObject({modelBand:'flagship'});expect(s.requests[0].body.requestId).toMatch(/^[0-9a-f-]{36}$/);
 });
+
+test('Activity meters legacy ai reservations as credits and shows the blocked generated draft',async({page})=>{
+ const s=initial();s.awaitingModel=false;await setup(page,s);
+ await page.route('**/api/billing/task-events',route=>route.fulfill({json:[{id:'legacy-ai',runId:taskId,actionType:'ai',aiCredits:'6.000',billableUnits:'0.000',status:'succeeded',createdAt:'2026-10-23T01:26:04Z'}]}));
+ await page.route(`**/api/runs/${taskId}`,route=>route.fulfill({json:{id:jobId,status:'failed',workflowId:jobId,createdAt:'2026-10-23',modelBand:'standard',failure:{kind:'content_blocked',issues:['X: 708 characters including hashtags exceeds the 280-character limit.']},drafts:[{platform:'x',content:'Saved generated announcement',hashtags:['#Piggybot']}]}}));
+ await page.goto('/app#activity');await expect(page.getByText('ai: 6.000 credit(s)',{exact:true})).toBeVisible();
+ await page.getByLabel('Workflow run UUID',{exact:true}).fill(taskId);await page.getByRole('button',{name:'Load run',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Content needs correction before review'})).toBeVisible();await expect(page.getByRole('alert')).toContainText('708');
+ await page.getByText('Generated drafts',{exact:true}).click();await expect(page.locator('pre')).toContainText('Saved generated announcement');expect(s.requests).toEqual([]);
+});
+test('workflow task details expose provider authentication failure and the selected Flagship band',async({page})=>{
+ const s=initial();s.awaitingModel=false;await setup(page,s);
+ await page.route(`**/api/tasks/${taskId}`,route=>route.fulfill({json:{task:{...s.task,sourceKind:'workflow',sourceId:jobId,status:'failed',modelBand:'flagship'},messages:[]}}));
+ await page.route(`**/api/runs/${jobId}`,route=>route.fulfill({json:{id:jobId,status:'failed',modelBand:'flagship',failure:{kind:'provider_auth',issues:[]},drafts:[]}}));
+ await page.goto(`/app#start/task/${taskId}`);await expect(page.getByRole('heading',{name:'Model provider authentication failed'})).toBeVisible();await expect(page.getByText('Selected model: flagship',{exact:true})).toBeVisible();
+ expect(s.requests).toEqual([]);
+});

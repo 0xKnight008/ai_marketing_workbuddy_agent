@@ -59,7 +59,7 @@ export class TaskService {
       `INSERT INTO workspace_task(workspace_id,source_kind,source_id,goal,model_band,batch_ids,created_by,created_at,updated_at) SELECT workspace_id,'import',id,left(label,4000),model_band,jsonb_build_array(id::text),created_by,created_at,created_at FROM import_batch WHERE workspace_id=current_setting('app.workspace_id')::uuid AND status='failed' AND NOT EXISTS(SELECT 1 FROM workspace_task c WHERE c.workspace_id=import_batch.workspace_id AND c.source_kind='conversation' AND c.batch_ids @> jsonb_build_array(import_batch.id::text)) ON CONFLICT(workspace_id,source_kind,source_id) DO NOTHING`,
     );
     await tx.query(
-      `INSERT INTO workspace_task(workspace_id,source_kind,source_id,goal,created_by,created_at,updated_at) SELECT r.workspace_id,'workflow',r.id,left(w.name,4000),r.requested_by,r.created_at,r.created_at FROM workflow_run r JOIN workflow w ON w.id=r.workflow_id AND w.workspace_id=r.workspace_id WHERE r.workspace_id=current_setting('app.workspace_id')::uuid ON CONFLICT(workspace_id,source_kind,source_id) DO NOTHING`,
+      `INSERT INTO workspace_task(workspace_id,source_kind,source_id,goal,model_band,created_by,created_at,updated_at) SELECT r.workspace_id,'workflow',r.id,left(w.name,4000),CASE WHEN r.input->>'modelBand' IN ('eco','standard','flagship') THEN r.input->>'modelBand' ELSE 'standard' END,r.requested_by,r.created_at,r.created_at FROM workflow_run r JOIN workflow w ON w.id=r.workflow_id AND w.workspace_id=r.workspace_id WHERE r.workspace_id=current_setting('app.workspace_id')::uuid ON CONFLICT(workspace_id,source_kind,source_id) DO NOTHING`,
     );
   }
   async list(actor: ActorContext, query: unknown) {

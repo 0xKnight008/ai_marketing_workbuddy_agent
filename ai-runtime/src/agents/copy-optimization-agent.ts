@@ -7,7 +7,7 @@ import { tokenUsageOptions } from '../lib/token-ledger';
  * 输入：ContentPlan + 品牌上下文；输出：DraftSet —— 每个 target 一条可直接进入
  * 审批流的平台化草稿。只生成文本，绝不执行任何外部副作用动作。
  */
-export function createCopyOptimizationAgent(model: string) {
+export function createCopyOptimizationAgent(model: string, contextRunId?: string) {
   return new Agent({
   id: 'copy-optimization-agent',
   name: 'copy-optimization-agent',
@@ -30,6 +30,6 @@ Rules:
 - Write in the language specified by the brand profile.
 - Output strictly follows the structured schema.`,
     model: chatCompletionsModel(model),
-    defaultOptions: tokenUsageOptions(model, 'copy-optimization'),
+    defaultOptions: tokenUsageOptions(model, 'copy-optimization', undefined, process.env, contextRunId),
   });
 }

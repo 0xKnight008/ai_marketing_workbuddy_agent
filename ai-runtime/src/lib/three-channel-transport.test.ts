@@ -53,13 +53,16 @@ test('installed Mastra sends channel-specific Chat Completions requests and pars
       const client = createClient({ url: 'file::memory:' });
       const ledger = createTokenLedger(client);
       const model = modelForBand(config, band, provider);
-      const agent = new Agent({ id: `test-${band}-${provider}`, name: 'transport-test', instructions: 'Return JSON with ok true.', model: chatCompletionsModel(model, env), defaultOptions: tokenUsageOptions(model, 'transport-test', ledger, env) });
+      const contextRunId = `workflow-${band}-${provider}`;
+      const agent = new Agent({ id: `test-${band}-${provider}`, name: 'transport-test', instructions: 'Return JSON with ok true.', model: chatCompletionsModel(model, env), defaultOptions: tokenUsageOptions(model, 'transport-test', ledger, env, contextRunId) });
       const result = await agent.generate('Return JSON.', { structuredOutput: structuredOutputForBand(z.object({ ok: z.boolean() }), band, env) });
       assert.deepEqual(result.object, { ok: true });
       assert.equal(requests, 1);
       const rows = await ledger.list(Number.MAX_SAFE_INTEGER, '');
       assert.equal(rows.length, 1);
       assert.ok(rows[0]);
+      assert.equal(rows[0].run_id, contextRunId);
+      assert.equal((await ledger.list(Number.MAX_SAFE_INTEGER,contextRunId)).length,1);
       assert.equal(rows[0].prompt_tokens, 10);
       assert.equal(rows[0].completion_tokens, 5);
       assert.equal(rows[0].model_name, wireModel);

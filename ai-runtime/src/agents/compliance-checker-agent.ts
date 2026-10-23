@@ -7,7 +7,7 @@ import { tokenUsageOptions } from '../lib/token-ledger';
  * 负责语义层面的执行时校验：语气漂移、夸大承诺、平台政策风险。
  * 只输出 ComplianceReport，不修改文案 —— 修改属于 copy-optimization-agent 的职责。
  */
-export function createComplianceCheckerAgent(model: string) {
+export function createComplianceCheckerAgent(model: string, contextRunId?: string) {
   return new Agent({
   id: 'compliance-checker-agent',
   name: 'compliance-checker-agent',
@@ -32,6 +32,6 @@ Rules:
 - passed=false if and only if at least one blocker exists.
 - Output strictly follows the structured schema.`,
     model: chatCompletionsModel(model),
-    defaultOptions: tokenUsageOptions(model, 'compliance-checker'),
+    defaultOptions: tokenUsageOptions(model, 'compliance-checker', undefined, process.env, contextRunId),
   });
 }

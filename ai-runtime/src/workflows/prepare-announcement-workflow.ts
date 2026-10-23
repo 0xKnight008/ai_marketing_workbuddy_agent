@@ -72,7 +72,7 @@ const contentPlanningStep = createStep({
       const { input, executionContext } = inputData;
       const brand = executionContext.brandProfile;
       assertRunInputWithinPolicy(input, executionContext);
-      const announcementPlannerAgent = createAnnouncementPlannerAgent(modelForBand(config, executionContext.runPolicy.modelBand, executionContext.runPolicy.llmProvider));
+      const announcementPlannerAgent = createAnnouncementPlannerAgent(modelForBand(config, executionContext.runPolicy.modelBand, executionContext.runPolicy.llmProvider),inputData.platformRunId);
 
       const { object } = await announcementPlannerAgent.generate(
         [
@@ -111,7 +111,7 @@ const copyOptimizationStep = createStep({
       runId,
       WORKFLOW_STEP_IDS.copyOptimization,
       async () => {
-        const copyOptimizationAgent = createCopyOptimizationAgent(modelForBand(config, inputData.executionContext.runPolicy.modelBand, inputData.executionContext.runPolicy.llmProvider));
+        const copyOptimizationAgent = createCopyOptimizationAgent(modelForBand(config, inputData.executionContext.runPolicy.modelBand, inputData.executionContext.runPolicy.llmProvider),inputData.platformRunId);
         const { object } = await copyOptimizationAgent.generate(
           [
             `Content plan: ${JSON.stringify(inputData.contentPlan)}`,
@@ -154,7 +154,7 @@ const complianceCheckStep = createStep({
       WORKFLOW_STEP_IDS.complianceCheck,
       async () => {
         const brand = inputData.executionContext.brandProfile;
-        const complianceCheckerAgent = createComplianceCheckerAgent(modelForBand(config, inputData.executionContext.runPolicy.modelBand, inputData.executionContext.runPolicy.llmProvider));
+        const complianceCheckerAgent = createComplianceCheckerAgent(modelForBand(config, inputData.executionContext.runPolicy.modelBand, inputData.executionContext.runPolicy.llmProvider),inputData.platformRunId);
 
         // 1) 确定性校验：禁用词 / 平台长度上限 / 字数一致性
         const deterministicIssues = runDeterministicChecks(inputData.drafts, brand);
@@ -233,6 +233,7 @@ const buildActionPlanStep = createStep({
           blockedByCompliance,
           summary: actionPlan.summary,
           actionPlan,
+          compliance: inputData.compliance,
         });
 
         return result;
