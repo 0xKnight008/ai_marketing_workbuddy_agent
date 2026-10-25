@@ -151,6 +151,10 @@ export async function costMeteringRegression(
           (await available()).aiCreditsAvailable,
           before.aiCreditsAvailable,
         );
+        const row = (
+          await db.withWorkspace(workspaceId, (tx) => costOperations(tx))
+        ).find((row) => row.subjectId === op.subjectId)!;
+        assert.equal(row.releasedCredits, 0);
       },
     );
     await t.test(

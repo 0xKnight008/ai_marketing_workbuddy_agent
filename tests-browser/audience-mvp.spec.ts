@@ -61,6 +61,8 @@ async function fixture(
   await page.route("**/api/**", async (route) => {
     const req = route.request(),
       path = new URL(req.url()).pathname;
+    // This fixture exercises legacy billing; quote lookup is not a business mutation.
+    if(path==='/api/billing/ai-quote')return route.fulfill({json:{mode:'legacy'}});
     if (req.method() !== "GET")
       mutations.push({ path, body: req.postDataJSON() });
     if (path === "/api/auth/me")

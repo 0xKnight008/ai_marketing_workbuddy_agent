@@ -65,6 +65,8 @@ async function setup(page: Page, s: ReturnType<typeof initial>) {
     const req = route.request(),
       path = new URL(req.url()).pathname,
       body = req.method() === "GET" ? null : req.postDataJSON();
+    // Keep legacy consent/payment assertions scoped to the requested business write.
+    if(path==='/api/billing/ai-quote')return route.fulfill({json:{mode:'legacy'}});
     if (body) s.requests.push({ path, body });
     if (path === "/api/auth/me")
       return route.fulfill({
