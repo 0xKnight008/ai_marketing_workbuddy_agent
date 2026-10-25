@@ -1,3 +1,4 @@
+import { bindCostQuote } from '../billing/cost-metering';
 import {createHash} from 'node:crypto';
 import {findTask,taskActor} from '../task-service/service';
 import { z } from 'zod';
@@ -156,6 +157,7 @@ export class ImportService {
       );
       const batchId = batch.rows[0]?.id;
       if (!batchId) throw new Error('import_batch_insert_failed');
+      await bindCostQuote(tx,actor,body,batchId,input.modelBand,'import.classify');
 
       if(taskId)await tx.query('UPDATE workspace_task SET batch_ids=$3,import_fingerprint=$4,version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2',[actor.workspaceId,taskId,JSON.stringify([batchId]),fingerprint]);
       const CHUNK = 200;

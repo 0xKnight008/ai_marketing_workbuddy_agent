@@ -22,7 +22,8 @@
     "stop": "egg-scripts stop --title=piggybot-platform",
     "dev:gateway": "egg-bin dev --ts",
     "dev:legacy-gateway": "tsx src/http/gateway-server.ts",
-    "dev:worker": "tsx src/run-service/worker.ts"
+    "dev:worker": "tsx src/run-service/worker.ts",
+    "metering:check": "tsx src/billing/metering-preflight.ts"
   },
   "dependencies": {
     "@fastify/cors": "10.0.1",

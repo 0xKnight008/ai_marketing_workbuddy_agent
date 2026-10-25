@@ -1,3 +1,4 @@
+import { bindCostQuote, costOperations } from '../billing/cost-metering';
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { ActorContext, WorkspaceRole } from "../contracts/domain";
@@ -100,6 +101,8 @@ export class TaskService {
         `SELECT id,role,content,status,model_band AS "modelBand",citations,error,created_at::text AS "createdAt",COALESCE((SELECT jsonb_agg(jsonb_build_object('step',e.attempt,'band',e.model_band,'provider',e.supplier,'credits',CASE WHEN e.ai_reservation_state='refunded' THEN 0 ELSE e.ai_credits END,'reservationState',e.ai_reservation_state) ORDER BY e.created_at) FROM task_event e WHERE e.workspace_id=m.workspace_id AND e.subject_id=m.id AND (e.action_type='ai.task' OR e.action_type LIKE 'ai.task.retry.%') AND e.status='succeeded'),'[]'::jsonb) AS executions FROM workspace_task_message m WHERE workspace_id=$1 AND task_id=$2 ORDER BY sequence`,
         [actor.workspaceId, taskId],
       );
+      const receipts=await costOperations(tx,false,messages.rows.map(row=>String(row.id)));
+      for(const message of messages.rows){const receipt=receipts.find(r=>r.subjectId===message.id);if(receipt)message.costReceipt=receipt;message.costReceipts=receipts.filter(r=>r.subjectId===message.id);}
       return { task, messages: messages.rows };
     });
   }
@@ -217,6 +220,7 @@ export class TaskService {
         ],
       );
       const messageId = reply.rows[0]!.id;
+      await bindCostQuote(tx,actor,body,messageId,input.modelBand,'task.turn');
       await tx.query(
         "UPDATE workspace_task SET status='queued',model_band=$3,version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2",
         [actor.workspaceId, taskId, input.modelBand],

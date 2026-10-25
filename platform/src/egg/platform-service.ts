@@ -1,3 +1,4 @@
+import { quoteCost, bindCostQuote } from '../billing/cost-metering';
 import {runDiagnostics} from '../run-service/diagnostics';
 import {ModelChoiceService} from '../billing/model-choice';
 import {TaskService,findTask} from '../task-service/service';
@@ -265,6 +266,7 @@ export class PlatformService {
     return createWorkflowRun(actor, body, {
       createRun: (context, request) => this.database.withWorkspace(context.workspaceId, async (tx) => {
         const run = await createDurableRun(tx, context, request);
+        await bindCostQuote(tx,context,body,run.id,String((request.input as Record<string,unknown>).modelBand??'standard'),'prepare_ai_run');
         return { runId: run.id, status: 'pending' as const };
       }),
     });
@@ -468,6 +470,7 @@ export class PlatformService {
     return this.admin.newsletter(actor, adminToken, query);
   }
 
+  async adminAiCosts(actor:ActorContext,adminToken:string|undefined,query:unknown){return this.admin.aiCosts(actor,adminToken,query);}
   async adminTokenUsage(actor: ActorContext, adminToken: string | undefined, query: unknown): Promise<unknown[]> {
     return this.admin.tokenUsage(actor, adminToken, query);
   }
@@ -518,8 +521,14 @@ export class PlatformService {
     return this.database.withWorkspace(actor.workspaceId, (tx) => inspectPipelineReadiness(tx, actor, pipelineId));
   }
 
-  async activatePipeline(actor: ActorContext, pipelineId: string): Promise<unknown> {
-    return this.database.withWorkspace(actor.workspaceId, (tx) => activatePipeline(tx, actor, pipelineId));
+  async aiQuote(actor:ActorContext,body:unknown){return quoteCost(this.database,actor,body);}
+  async activatePipeline(actor: ActorContext, pipelineId: string, body:unknown={}): Promise<unknown> {
+    return this.database.withWorkspace(actor.workspaceId, async tx => {
+      const activated=await activatePipeline(tx,actor,pipelineId);
+      const saved=await tx.query<{input:{modelBand:string}}>('SELECT input FROM workflow_run WHERE id=$1 AND workspace_id=$2',[activated.run.id,actor.workspaceId]);
+      await bindCostQuote(tx,actor,body,activated.run.id,saved.rows[0]!.input.modelBand,'prepare_ai_run');
+      return activated;
+    });
   }
 
   async connectedAccounts(actor: ActorContext): Promise<unknown[]> {

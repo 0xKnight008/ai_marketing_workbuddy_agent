@@ -15,7 +15,7 @@ function state() {
       goal: "",
     },
     requests: [] as Array<{ path: string; body: any }>,
-    failTurn: false,paused:false,
+    failTurn: false,paused:false,costMode:false,trialBudget:false,
     turns: 0,
   };
 }
@@ -35,6 +35,7 @@ async function fixture(page: Page, s: ReturnType<typeof state>) {
       path = url.pathname,
       body = request.method() === "GET" ? null : request.postDataJSON();
     if (body) s.requests.push({ path, body });
+    if(path==='/api/billing/ai-quote')return route.fulfill({json:s.costMode?{mode:'cost-v1',quoteId:'55555555-5555-4555-8555-555555555555',estimatedCredits:12,maxCredits:body.maxCredits??30,expiresAt:new Date(Date.now()+600000).toISOString(),subscriptionPaymentRequired:s.trialBudget&&(body.maxCredits??30)>30}:{mode:'legacy'}});
     if (path === "/api/auth/me")
       return route.fulfill({
         json: {
@@ -140,6 +141,7 @@ async function fixture(page: Page, s: ReturnType<typeof state>) {
               : "## Reply\n\nWelcome! Here is the guide.",
           status: "completed",
           citations: [{ ref: itemId, snippet: quote }],
+          ...(s.costMode?{costReceipt:{id:'55555555-5555-4555-8555-555555555555',band:body.modelBand,state:'settled',maxCredits:30,heldCredits:0,settledCredits:12,releasedCredits:18,actualModels:['actual-fixture']}}:{}),
         },
       );
       s.task.status = "completed";
@@ -484,3 +486,25 @@ test('paused billing still allows saving an existing task review without another
 
 
 test('mobile conversation keeps exports and sending clear of the support launcher',async({page})=>{await page.setViewportSize({width:390,height:844});const s=state();await fixture(page,s);await createTask(page);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();await page.getByLabel('Continue this task',{exact:true}).fill('Write a short reply');await page.getByRole('button',{name:'Send follow-up'}).click();await expect(page.locator('.task-message')).toHaveCount(4);await page.screenshot({path:'/tmp/piggy-phase-two-mobile-conversation.png',fullPage:true});});
+
+for(const locale of ['en','zh','es'] as const)test(`${locale}: budget cancellation makes no generation request, confirmation binds the quote and shows actual settlement`,async({page})=>{
+ const s=state();await fixture(page,s);await createTask(page);s.costMode=true;
+ await page.setViewportSize({width:390,height:950});await page.goto(`/app?locale=${locale}#start/task/${s.task.id}`);
+ const label={en:'Continue this task',zh:'继续这个任务',es:'Continuar tarea'}[locale],send={en:'Send follow-up',zh:'发送后续目标',es:'Enviar seguimiento'}[locale];
+ await page.getByLabel(label,{exact:true}).fill('Analyze another goal');const before=s.requests.filter(r=>r.path.endsWith('/messages')).length;
+ await page.getByRole('button',{name:send,exact:true}).click();let dialog=page.getByRole('dialog');await expect(dialog).toBeVisible();
+ await page.keyboard.press('Escape');await expect(dialog).not.toBeVisible();expect(s.requests.filter(r=>r.path.endsWith('/messages'))).toHaveLength(before);
+ await page.getByRole('button',{name:send,exact:true}).click();dialog=page.getByRole('dialog');await dialog.getByRole('spinbutton').fill('40');
+ await dialog.getByRole('button',{name:{en:'Confirm budget and continue',zh:'确认预算并继续',es:'Confirmar y continuar'}[locale],exact:true}).click();
+ await expect(dialog).not.toBeVisible();await expect(page.locator('.task-message')).toHaveCount(4);
+ expect(s.requests.filter(r=>r.path.endsWith('/messages')).at(-1)!.body.aiQuoteId).toBe('55555555-5555-4555-8555-555555555555');
+ await expect(page.getByRole('note').filter({hasText:'actual-fixture'})).toContainText('12');
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
+});
+test('raising a trial budget requires a visible subscription charge notice and another confirmation',async({page})=>{
+ const s=state();await fixture(page,s);await createTask(page);s.costMode=true;s.trialBudget=true;
+ await page.getByLabel('Continue this task',{exact:true}).fill('Another goal');await page.getByRole('button',{name:'Send follow-up',exact:true}).click();
+ const before=s.requests.filter(r=>r.path.endsWith('/messages')).length,dialog=page.getByRole('dialog');await dialog.getByRole('spinbutton').fill('40');
+ await dialog.getByRole('button',{name:'Confirm budget and continue',exact:true}).click();await expect(dialog.getByRole('alert')).toContainText('starts billing');
+ expect(s.requests.filter(r=>r.path.endsWith('/messages'))).toHaveLength(before);await page.keyboard.press('Escape');
+});

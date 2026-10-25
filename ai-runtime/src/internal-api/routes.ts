@@ -1,3 +1,5 @@
+import { installMeteredFetch, meteredRequestMiddleware, runtimeCostContext } from '../lib/cost-metering';
+installMeteredFetch();
 import {createTaskAgent,taskStepRequestSchema,taskStepResultSchema} from '../agents/task-agent';
 import { registerApiRoute } from '@mastra/core/server';
 
@@ -26,13 +28,13 @@ import { createAiRunRecord, getAiRunRecord, updateAiRunRecord } from './run-regi
  * Mastra Studio 调试）。
  */
 export const internalApiRoutes = [
-  registerApiRoute('/internal/task-step',{method:'POST',middleware:[internalAuth],handler:async c=>{
+  registerApiRoute('/internal/task-step',{method:'POST',middleware:[internalAuth,meteredRequestMiddleware],handler:async c=>{
     let body:unknown;try{body=await c.req.json()}catch{return c.json({error:'invalid_request'},400)}
     const parsed=taskStepRequestSchema.safeParse(body);if(!parsed.success)return c.json({error:'invalid_request',issues:parsed.error.issues},400);
     try{const request=parsed.data;const agent=createTaskAgent(modelForBand(config,request.modelBand,request.provider),request.taskId);const {object}=await agent.generate(JSON.stringify({goal:request.goal,language:request.language,history:request.history,priorResult:request.priorResult,sources:request.sources,steps:request.steps,remainingSteps:request.remainingSteps}),{structuredOutput:structuredOutputForBand(taskStepResultSchema,request.modelBand)});return c.json(object,200)}catch{return c.json({error:'task_step_failed'},502)}
   }}),
   registerApiRoute('/internal/token-usage', {
-    method: 'GET', middleware: [internalAuth],
+    method: 'GET', middleware: [internalAuth,meteredRequestMiddleware],
     handler: async (c) => {
       const before = Number(c.req.query('before') ?? Number.MAX_SAFE_INTEGER);
       const q = c.req.query('q') ?? '';
@@ -42,12 +44,12 @@ export const internalApiRoutes = [
   }),
   registerApiRoute('/internal/health', {
     method: 'GET',
-    handler: async (c) => c.json({ ok: true, service: 'ai-runtime' }),
+    handler: async (c) => c.json({ ok: true, service: 'ai-runtime', meteringProtocol:'cost-v1' }),
   }),
 
   registerApiRoute('/internal/ai-runs/prepare-announcement', {
     method: 'POST',
-    middleware: [internalAuth],
+    middleware: [internalAuth,meteredRequestMiddleware],
     handler: async (c) => {
       const mastra = c.get('mastra');
       const logger = mastra.getLogger();
@@ -126,7 +128,7 @@ export const internalApiRoutes = [
               compliancePassed: outcome.result.compliance.passed,
             });
           } else if (outcome.status === 'failed') {
-            const message = outcome.error?.message ?? 'workflow failed';
+            const message = runtimeCostContext.getStore()?.guardError ?? outcome.error?.message ?? 'workflow failed';
             await updateAiRunRecord(aiRunId, {
               status: 'failed',
               error: message,
@@ -146,7 +148,7 @@ export const internalApiRoutes = [
             });
           }
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
+          const message = runtimeCostContext.getStore()?.guardError ?? (err instanceof Error ? err.message : String(err));
           logger?.error(`workflow run ${aiRunId} crashed: ${message}`);
           await updateAiRunRecord(aiRunId, {
             status: 'failed',
@@ -166,7 +168,7 @@ export const internalApiRoutes = [
 
   registerApiRoute('/internal/classify', {
     method: 'POST',
-    middleware: [internalAuth],
+    middleware: [internalAuth,meteredRequestMiddleware],
     handler: async (c) => {
       let body: unknown;
       try {
@@ -195,7 +197,7 @@ export const internalApiRoutes = [
 
   registerApiRoute('/internal/topics/propose', {
     method: 'POST',
-    middleware: [internalAuth],
+    middleware: [internalAuth,meteredRequestMiddleware],
     handler: async (c) => {
       let body: unknown;
       try {
@@ -224,7 +226,7 @@ export const internalApiRoutes = [
 
   registerApiRoute('/internal/topics/assign', {
     method: 'POST',
-    middleware: [internalAuth],
+    middleware: [internalAuth,meteredRequestMiddleware],
     handler: async (c) => {
       let body: unknown;
       try {
@@ -253,7 +255,7 @@ export const internalApiRoutes = [
 
   registerApiRoute('/internal/insight-report', {
     method: 'POST',
-    middleware: [internalAuth],
+    middleware: [internalAuth,meteredRequestMiddleware],
     handler: async (c) => {
       let body: unknown;
       try {
@@ -301,7 +303,7 @@ export const internalApiRoutes = [
 
   registerApiRoute('/internal/ai-runs/:aiRunId', {
     method: 'GET',
-    middleware: [internalAuth],
+    middleware: [internalAuth,meteredRequestMiddleware],
     handler: async (c) => {
       const aiRunId = c.req.param('aiRunId');
       const record = await getAiRunRecord(aiRunId);

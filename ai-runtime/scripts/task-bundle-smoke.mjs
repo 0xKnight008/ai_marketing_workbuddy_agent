@@ -37,7 +37,13 @@ try{
  response=await fetch(`${base}/internal/task-step`,{method:'POST',headers,body:JSON.stringify({taskId,goal:'Write a welcome draft',language:'en',modelBand:'eco',provider:'primary',history:[{role:'user',content:'Write a welcome draft'}],sources:[],steps:[],remainingSteps:4}),signal:AbortSignal.timeout(20000)});
  const result=await response.json();assert.equal(response.status,200,JSON.stringify(result));assert.equal(result.action,'answer');assert.match(result.markdown,/Welcome/);assert.equal(requests.length,1);assert.equal(requests[0].path,'/v1/chat/completions');
  response=await fetch(`${base}/internal/token-usage?q=${taskId}`,{headers});const rows=await response.json();assert.equal(response.status,200);assert.equal(rows.length,1);assert.equal(rows[0].run_id,taskId);assert.equal(rows[0].operation,'workspace-task');assert.equal(rows[0].total_tokens,16);
- console.log('Built task API: auth, schema validation, chat-completions execution and task-linked token ledger passed.');
+ const metered={taskId,goal:'Write a welcome draft',language:'en',modelBand:'eco',provider:'primary',history:[{role:'user',content:'Write a welcome draft'}],sources:[],steps:[],remainingSteps:4,
+ _metering:{workspaceId:'22222222-2222-4222-8222-222222222222',operationId:'33333333-3333-4333-8333-333333333333',requestId:'44444444-4444-4444-8444-444444444444',band:'eco',maxCostNanos:'10000000',maxInputTokens:8000,maxOutputTokens:1500,rate:{version:'fixture-v1',model:'mock-eco',responseModels:['mock-eco'],inputUsdPerMillion:'2',outputUsdPerMillion:'10',cacheUsdPerMillion:'0.2',source:'local fixture only',verifiedAt:'2026-10-24T00:00:00Z'}}};
+ const execute=()=>fetch(`${base}/internal/task-step`,{method:'POST',headers,body:JSON.stringify(metered),signal:AbortSignal.timeout(20000)});
+ response=await execute();const paid=await response.json();assert.equal(response.status,200,JSON.stringify(paid));assert.equal(paid.action,'answer');assert.equal(paid._metering.length,1);assert.equal(paid._metering[0].status,'known');assert.equal(paid._metering[0].costNanos,'64000');
+ assert.equal(requests.length,2);assert.ok(requests[1].body.max_tokens<=1500);
+ response=await execute();const replay=await response.json();assert.equal(response.status,200);assert.equal(replay.markdown,paid.markdown);assert.deepEqual(replay._metering,paid._metering);assert.equal(requests.length,2);
+ console.log('Built task API: auth, schema validation, execution, token ledger, cost receipts, output budget and durable replay passed.');
 }finally{
  child.kill('SIGTERM');await Promise.race([once(child,'exit'),new Promise(resolve=>setTimeout(resolve,5000))]);if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');await new Promise(resolve=>model.close(resolve));await rm(scratch,{recursive:true,force:true});
 }

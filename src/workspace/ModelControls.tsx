@@ -1,8 +1,11 @@
+import {CostReceiptView,type CostReceipt} from './CostReceipt';
+import { useAiBudgetFetch } from './AiBudget';
 import { useEffect, useRef, useState } from "react";
 import { useWorkspaceLanguage } from "./useWorkspaceLanguage";
 import { WorkspaceDialog } from "./Shell";
 type Band = "eco" | "standard" | "flagship";
 export type ModelExecution = {
+  costReceipt?:CostReceipt;
   step: number;
   band: Band | null;
   provider: string | null;
@@ -19,7 +22,7 @@ type Choice = {
   choices: Band[];
 };
 const names = { eco: "Eco", standard: "Standard", flagship: "Flagship" };
-const costs = { eco: 1, standard: 6, flagship: 20 };
+
 export function ExecutionSummary({
   executions,
   requested,
@@ -38,6 +41,7 @@ export function ExecutionSummary({
   ];
   return (
     <div className="model-execution" role="note">
+      {executions.filter(e=>e.costReceipt).map(e=><CostReceiptView key={e.costReceipt!.id} receipt={e.costReceipt!}/>)}
       <strong>
         {w("Actual execution", "Ejecución real", "实际执行档位")}:{" "}
         {bands.join(" / ")}
@@ -51,7 +55,7 @@ export function ExecutionSummary({
       )}
       <p>
         {executions.length}{" "}
-        {w("paid model steps", "pasos de modelo de pago", "个已计费模型步骤")} ·{" "}
+        {w("billing records", "registros de cobro", "条计费记录")} ·{" "}
         {executions.reduce((n, e) => n + Number(e.credits), 0)} AI credits
       </p>
       {requested && executions.some((e) => e.band && e.band !== requested) && (
@@ -126,6 +130,7 @@ export function ModelChoiceQueue({
   onChange: () => void;
 }) {
   const { w } = useWorkspaceLanguage();
+  const fetch=useAiBudgetFetch();
   const [rows, setRows] = useState<Choice[]>([]),
     [choice, setChoice] = useState<Choice | null>(null),
     [band, setBand] = useState<Band>("eco"),
@@ -214,9 +219,9 @@ export function ModelChoiceQueue({
                     "当前任务配额要求使用 Eco。",
                   )
                 : w(
-                    `The selected model needs ${costs[row.requestedBand]} credits per step; ${row.availableCredits} available.`,
-                    `El modelo necesita ${costs[row.requestedBand]} créditos por paso; tienes ${row.availableCredits}.`,
-                    `所选模型每步需要 ${costs[row.requestedBand]} credits，当前可用 ${row.availableCredits}。`,
+                    `Review the task budget before continuing; ${row.availableCredits} credits available.`,
+                    `Revisa el presupuesto antes de continuar; tienes ${row.availableCredits} créditos.`,
+                    `继续前请确认任务预算；当前可用 ${row.availableCredits} credits。`,
                   )}
             </p>
           </div>
@@ -260,7 +265,7 @@ export function ModelChoiceQueue({
             >
               {choice.choices.map((b) => (
                 <option key={b} value={b}>
-                  {names[b]} · {costs[b]} credits/{w("step", "paso", "步")}
+                  {names[b]} · {w("Review budget", "Revisar presupuesto", "确认预算")}
                 </option>
               ))}
             </select>
@@ -296,6 +301,7 @@ export function ModelChoiceQueue({
                       },
                       body: JSON.stringify({
                         modelBand: band,
+                        _aiKind: choice.kind,
                         requestId: crypto.randomUUID(),
                         reason: choice.reason==='trial_payment' ? `Owner confirmed subscription billing and resuming ${band}` : `User explicitly confirmed ${band} for remaining model steps`,
                       }),

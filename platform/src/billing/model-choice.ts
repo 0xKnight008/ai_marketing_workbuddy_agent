@@ -1,3 +1,5 @@
+import { bindCostQuote, finishCost, costOperations } from './cost-metering';
+import { meteringMode } from '../../../shared/ai-metering';
 import { convertSubscribedTrial } from "./trial-conversion";
 import { z } from "zod";
 import type { ActorContext } from "../contracts/domain";
@@ -60,7 +62,7 @@ export class ModelChoiceService {
           requestedBand: choice.requestedBand,
           reason: legacyTrial ? "trial_payment" : choice.reason,
           availableCredits: usage.aiCreditsAvailable,
-          choices: legacyTrial
+          choices: choice.reason==='budget' ? MODEL_BANDS.filter((_,i)=>i<=MODEL_BANDS.indexOf(choice.requestedBand)) : legacyTrial
             ? [choice.requestedBand]
             : choice.reason === "trial_payment"
               ? usage.subscriptionStatus !== "active"
@@ -152,7 +154,17 @@ export class ModelChoiceService {
       const usage =
         result.rows[0].payload.modelChoice?.reason === "trial_payment"
           ? await usageSnapshot(tx)
-          : await requireAutomationAccess(tx);
+          : await requireAutomationAccess(tx,result.rows[0].payload.modelChoice?.reason==="budget");
+      if(meteringMode()!=='legacy'&&(body as Record<string,unknown>).aiQuoteId){
+        if(MODEL_BANDS.indexOf(input.modelBand)>MODEL_BANDS.indexOf(original))throw new HttpError(409,'model_choice_unavailable');
+        const pending=await tx.query<{payload:Record<string,unknown>;run_id:string|null;kind:string}>('SELECT payload,run_id,kind FROM job WHERE workspace_id=$1 AND id=$2',[actor.workspaceId,jobId]);
+        const row=pending.rows[0]!;const subject=String(row.payload.messageId??row.payload.batchId??row.payload.reportId??row.payload.runId??row.run_id);
+        await finishCost(tx,subject,true);
+        await bindCostQuote(tx,actor,body,subject,input.modelBand,row.kind);
+        await tx.query("UPDATE job SET payload=payload||$3::jsonb,last_error=NULL,available_at=now(),updated_at=now() WHERE workspace_id=$1 AND id=$2",[actor.workspaceId,jobId,JSON.stringify({modelBandOverride:input.modelBand,modelChoice:null})]);
+        await taskAudit(tx,actor,'ai.cost_budget_confirmed',{jobId,modelBand:input.modelBand,reason:input.reason});
+        return {id:jobId,modelBand:input.modelBand};
+      }
       if (
         result.rows[0].payload.modelChoice?.reason === "trial_payment" &&
         !modelChoices(original, usage).includes(input.modelBand)
@@ -215,11 +227,13 @@ export async function executionHistory(
     );
     if (!owned.rows[0])
       throw new HttpError(404, "model_execution_source_not_found");
-    return (
+    const legacy = (
       await tx.query(
         `SELECT attempt AS step,model_band AS band,supplier AS provider,CASE WHEN ai_reservation_state='refunded' THEN 0 ELSE ai_credits END AS credits,ai_reservation_state AS "reservationState" FROM task_event WHERE workspace_id=$1 AND (subject_id=$2 OR run_id=$2) AND status='succeeded' AND action_type LIKE 'ai%' ORDER BY created_at LIMIT 1000`,
         [actor.workspaceId, sourceId],
       )
     ).rows;
+    const costs=await costOperations(tx,false,[sourceId]);
+    return [...legacy,...costs.map(row=>({step:0,band:row.band,provider:row.band==='flagship'?'configured-proxy':'direct',credits:row.settledCredits,reservationState:row.state,costReceipt:row}))];
   });
 }

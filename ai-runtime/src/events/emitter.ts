@@ -1,3 +1,4 @@
+import { requestReceipts, runtimeCostContext } from '../lib/cost-metering';
 import { createHmac, randomUUID } from 'node:crypto';
 import { config } from '../config';
 import {
@@ -18,6 +19,7 @@ import {
  * - 回调目的地只由运行时配置决定，绝不接受请求中的 URL，避免内部服务请求伪造。
  */
 export class RunServiceEventEmitter {
+  private readonly cost = runtimeCostContext.getStore();
   constructor(
     private readonly platformRunId: string,
     private readonly workspaceId: string,
@@ -25,6 +27,7 @@ export class RunServiceEventEmitter {
   ) {}
 
   async emit(type: AiRuntimeEventType, payload: Record<string, unknown> = {}): Promise<void> {
+    if(this.cost) payload={...payload,_meteringOperationId:this.cost.operationId,_metering:await requestReceipts(this.cost.requestId)};
     const event: AiRuntimeEvent = aiRuntimeEventSchema.parse({
       eventId: `evt_${randomUUID()}`,
       platformRunId: this.platformRunId,

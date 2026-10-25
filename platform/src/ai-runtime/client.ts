@@ -1,3 +1,5 @@
+import { CostBudgetRequired, costContext, receiveCostReceipts } from '../billing/cost-metering';
+
 // AI runtime call timeouts (ms). Tune for slow upstream LLM gateways:
 // the routing proxy may take several minutes per chunk depending on
 // model band and load. Defaults are 3-4x the worst observed latency.
@@ -24,7 +26,17 @@ export class AiRuntimeClient {
   private readonly fetchImpl: typeof fetch;
 
   constructor(private readonly options: AiRuntimeClientOptions) {
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    const original=options.fetchImpl ?? fetch;
+    this.fetchImpl=async(input,init)=>{
+      const ctx=costContext.getStore();
+      if(ctx?.envelope && init?.method==='POST' && init.body){const payload=JSON.parse(String(init.body));payload._metering=ctx.envelope;init={...init,body:JSON.stringify(payload)};}
+      const response=await original(input,init);
+      if(ctx){let data:any;try{data=await response.clone().json()}catch{data={}}
+        if(data._metering)await ctx.database.withWorkspace(ctx.workspaceId,tx=>receiveCostReceipts(tx,ctx.workspaceId,data._metering));
+        if(data.error==='ai_confirmed_budget_exhausted')throw new CostBudgetRequired(ctx.envelope?.band??'standard','ai_confirmed_budget_exhausted');
+      }
+      return response;
+    };
   }
 
   async prepareAnnouncement(payload: Record<string, unknown>): Promise<{ aiRunId: string; status: 'accepted' }> {

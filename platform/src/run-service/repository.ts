@@ -1,3 +1,4 @@
+import { finishCost, receiveCostReceipts } from '../billing/cost-metering';
 import {refundAiReservations,settleAiReservations} from '../billing/ai-refunds';
 import type { ActorContext, RunStatus, WorkflowRunRequest } from '../contracts/domain';
 import { actionPlanSchema, type ActionPlan, type AiRuntimeEvent } from '../contracts/ai-runtime-event';
@@ -78,6 +79,7 @@ export async function decideApproval(tx: TenantTransaction, actor: ActorContext,
 }
 
 export async function ingestAiRuntimeEvent(tx: TenantTransaction, event: AiRuntimeEvent): Promise<void> {
+  await receiveCostReceipts(tx,event.workspaceId,event.payload._metering);
   await tx.query(`SELECT workspace_id FROM workspace_billing WHERE workspace_id=current_setting('app.workspace_id')::uuid FOR UPDATE`);
   const run = await tx.query<{ id: string; status: RunStatus }>(
     'SELECT id, status FROM workflow_run WHERE id = $1 AND workspace_id = $2',
@@ -94,6 +96,16 @@ export async function ingestAiRuntimeEvent(tx: TenantTransaction, event: AiRunti
   );
   if (!inserted.rows[0]) return;
 
+  // Late callbacks from a superseded budget cannot fail or pause its successor.
+  if(typeof event.payload._meteringOperationId==='string'){
+    const op=await tx.query<{band:string;state:string}>('SELECT band,state FROM ai_cost_operation WHERE workspace_id=$1 AND subject_id=$2 AND id=$3',[event.workspaceId,event.platformRunId,event.payload._meteringOperationId]);
+    if(!op.rows[0]||['settled','refunded'].includes(op.rows[0].state))return;
+    if(event.type==='ai_run.failed'&&event.payload.error==='ai_confirmed_budget_exhausted'){
+      await tx.query("UPDATE workflow_run SET status='queued',finished_at=NULL WHERE id=$1 AND workspace_id=$2 AND status IN ('pending','queued','running')",[event.platformRunId,event.workspaceId]);
+      await tx.query("UPDATE job SET status='queued',available_at='infinity',locked_at=NULL,locked_by=NULL,last_error='model_choice_required',payload=payload||$3::jsonb WHERE workspace_id=$1 AND run_id=$2 AND kind='prepare_ai_run'",[event.workspaceId,event.platformRunId,JSON.stringify({modelChoice:{requestedBand:op.rows[0].band,reason:'budget'}})]);
+      return;
+    }
+  }
   if (event.type === 'action_plan.created') {
     const actionPlan = actionPlanSchema.parse(event.payload.actionPlan);
     if (actionPlan.blockedByCompliance) {
@@ -110,6 +122,7 @@ export async function ingestAiRuntimeEvent(tx: TenantTransaction, event: AiRunti
     );
     if (!transitioned.rows[0]) return;
     await settleAiReservations(tx,{runId:event.platformRunId});
+    await finishCost(tx,event.platformRunId);
     if (actionPlan.requiresApproval) {
       await tx.query('INSERT INTO approval_request (workspace_id, run_id, status, requested_action) VALUES ($1, $2, \'pending\', $3)', [event.workspaceId, event.platformRunId, actionPlan]);
     } else {

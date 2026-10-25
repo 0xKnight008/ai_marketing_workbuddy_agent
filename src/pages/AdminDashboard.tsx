@@ -4,6 +4,7 @@ import '../workspace/workspace-b.css';
 import {at,useAdminLocale,setAdminLocale} from '../admin/i18n';
 import { useEffect, useRef, useState } from 'react';
 import AdminEmailGate from '../components/AdminEmailGate';
+import AdminAiCosts from '../components/AdminAiCosts';
 import AdminTokenUsage from '../components/AdminTokenUsage';
 const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
 type AdminTab = 'workspaces' | 'feedback' | 'jobs' | 'referrals' | 'newsletter' | 'token-usage';
@@ -209,7 +210,7 @@ function AdminConsole({ email, logout, expired }: {
       </section>
 
       <section className="mx-auto mt-6 max-w-7xl overflow-x-auto rounded-xl border border-ink/20 bg-paper-card p-5">
-        {tab === 'token-usage' && <AdminTokenUsage request={request}/>}
+        {tab === 'token-usage' && <><AdminTokenUsage request={request}/><AdminAiCosts request={request}/></>}
         {tab === 'newsletter' && <><p className="mb-4 text-sm">{at("Welcome status \u201Caccepted\u201D means Resend accepted the email, not confirmed inbox delivery. Check the provider ID in Resend for delivery or bounce details.")}</p><table className="w-full text-left text-sm"><thead><tr>{['Email', 'Subscribed', 'Welcome status', 'Attempts', 'Last error', 'Resend ID'].map(label => <th key={at(label)} className="p-3">{at(label)}</th>)}</tr></thead><tbody>{newsletter.map(row => <tr key={row.id} className="border-t border-ink/10"><td className="p-3">{row.email}</td><td className="p-3">{new Date(row.createdAt).toLocaleString()}</td><td className="p-3">{row.welcomeStatus}</td><td className="p-3">{row.attempts}</td><td className="p-3">{row.welcomeError ?? '—'}</td><td className="p-3">{row.providerId ?? '—'}</td></tr>)}</tbody></table>{!newsletter.length && <p>{at("No subscribers found.")}</p>}<div className="mt-4 flex gap-4"><button disabled={loading || newsletterOffset === 0} onClick={() => void load('newsletter', Math.max(0, newsletterOffset - 100))}>{at("Previous")}</button><span>{at("Page ")}{newsletterOffset / 100 + 1}</span><button disabled={loading || newsletter.length < 100} onClick={() => void load('newsletter', newsletterOffset + 100)}>{at("Next")}</button></div></>}
         {tab === 'workspaces' && <WorkspaceTable rows={workspaces} plans={plans} credits={credits} setPlans={setPlans} setCredits={setCredits} disabled={loading} update={(workspace) => mutate(`/api/admin/workspaces/${workspace.id}/entitlements`, entitlementChange(workspace, plans, credits), `Updated ${workspace.name}.`)}/>}
         {tab === 'feedback' && <FeedbackTable rows={feedback} disabled={loading} update={(ticket, status) => mutate(`/api/admin/feedback/${ticket.ticketNo}`, { status }, `${ticket.ticketNo} moved to ${status}.`)}/>}

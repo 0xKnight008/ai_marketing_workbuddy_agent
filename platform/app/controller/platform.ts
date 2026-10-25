@@ -271,7 +271,8 @@ export default class PlatformController extends Controller {
   }
   async updatePipeline(): Promise<void> { this.ctx.body = await this.app.platform.service.updatePipeline(this.actor(), this.ctx.params.pipelineId, this.ctx.request.body); }
   async testPipeline(): Promise<void> { this.ctx.body = await this.app.platform.service.testPipeline(this.actor(), this.ctx.params.pipelineId); }
-  async activatePipeline(): Promise<void> { this.ctx.body = await this.app.platform.service.activatePipeline(this.actor(), this.ctx.params.pipelineId); }
+  async aiQuote(): Promise<void> { this.ctx.set('Cache-Control','no-store');this.ctx.body=await this.app.platform.service.aiQuote(this.actor(),this.ctx.request.body); }
+  async activatePipeline(): Promise<void> { this.ctx.body = await this.app.platform.service.activatePipeline(this.actor(), this.ctx.params.pipelineId,this.ctx.request.body); }
   async connectedAccounts(): Promise<void> { this.ctx.body = await this.app.platform.service.connectedAccounts(this.actor()); }
 
   async connectZernio(): Promise<void> {
@@ -366,6 +367,7 @@ export default class PlatformController extends Controller {
     this.ctx.set('Cache-Control', 'no-store');
     this.ctx.body = await this.app.platform.service.adminNewsletter(this.actor(), this.adminToken(), this.ctx.query);
   }
+  async adminAiCosts():Promise<void>{this.ctx.set('Cache-Control','no-store');this.ctx.body=await this.app.platform.service.adminAiCosts(this.actor(),this.adminToken(),this.ctx.query);}
   async adminTokenUsage(): Promise<void> {
     this.ctx.set('cache-control', 'no-store');
     this.ctx.body = await this.app.platform.service.adminTokenUsage(this.actor(), this.adminToken(), this.ctx.query);

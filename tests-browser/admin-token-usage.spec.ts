@@ -43,3 +43,12 @@ test('admin offers only Chinese and English and retains raw ledger fields',async
 test('mobile admin navigation is keyboard usable and does not overflow',async({page})=>{
  await page.setViewportSize({width:390,height:844});await page.route('**/api/admin/auth/session',route=>route.fulfill({json:{email:'admin@example.test'}}));await page.goto('/app/admin');const menu=page.getByRole('button',{name:'Navigation',exact:true});await menu.click();await expect(page.getByRole('tab',{name:'Token usage',exact:true})).toBeFocused();await page.keyboard.press('Shift+Tab');await expect(page.getByRole('tab',{name:'Referral ledger',exact:true})).toBeFocused();await page.keyboard.press('Escape');await expect(menu).toBeFocused();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
 });
+
+for(const locale of ['en','zh'] as const)test(`${locale}: cost reconciliation retains token ledger and exports scoped receipts`,async({page})=>{
+ await page.route('**/api/admin/auth/session',r=>r.fulfill({json:{email:'admin@example.test'}}));
+ await page.route('**/api/admin/ai-costs?**',r=>{expect(new URL(r.request().url()).searchParams.get('workspaceId')).toBe('44444444-4444-4444-8444-444444444444');return r.fulfill({json:[{id:'op-1',subjectId:'task-1',kind:'task.turn',band:'flagship',mode:'cost-v1',state:'settled',maxCredits:30,heldCredits:0,settledCredits:12,releasedCredits:18,supplierCostNanos:'10000000',unknownReceipts:'0',policyVersion:'cost-v1',rateVersion:'fixture-v1',actualModels:['=unsafe-model'],createdAt:'2026-10-24T00:00:00Z'}]})});
+ await page.goto(`/app/admin?adminLocale=${locale}`);await expect(page.getByRole('region',{name:locale==='en'?'Token usage ledger':'Token 用量账本'})).toBeVisible();
+ await page.getByLabel(locale==='en'?'Workspace UUID':'工作区 UUID').fill('44444444-4444-4444-8444-444444444444');await page.getByRole('button',{name:locale==='en'?'Load costs':'读取成本',exact:true}).click();
+ await expect(page.getByRole('table',{name:locale==='en'?'AI cost reconciliation':'AI 成本对账'})).toContainText('10000000');const download=page.waitForEvent('download');await page.getByRole('button',{name:locale==='en'?'Download latest 100 costs CSV':'导出最近 100 条成本 CSV',exact:true}).click();
+ const csv=await readFile((await (await download).path())!,'utf8');expect(csv).toContain('"\'=unsafe-model"');expect(csv).toContain('"12","18"');
+});

@@ -1,3 +1,4 @@
+import { bindCostQuote } from '../billing/cost-metering';
 import { z } from 'zod';
 
 import { usageSnapshot } from '../billing/guardrails';
@@ -90,6 +91,7 @@ export class TopicService {
       );
       const runId = inserted.rows[0]?.id;
       if (!runId) throw new Error('topic_run_insert_failed');
+      await bindCostQuote(tx,actor,body,runId,input.modelBand,'topics.cluster');
 
       await tx.query(
         "INSERT INTO job (workspace_id, kind, payload) VALUES (current_setting('app.workspace_id')::uuid, 'topics.cluster', $1)",

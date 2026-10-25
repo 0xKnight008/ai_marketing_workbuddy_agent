@@ -1,3 +1,4 @@
+import {finishCost} from '../billing/cost-metering';
 import {settleAiReservations} from '../billing/ai-refunds';
 import type {
   RunWorkerDatabase,
@@ -254,6 +255,7 @@ export async function executeTaskTurn(
           result.action === "ask" ? "ready" : "completed",
         ],
       );
+      await finishCost(tx,messageId);
       await tx.query(
         "UPDATE job SET status='succeeded',locked_at=NULL,locked_by=NULL,last_error=NULL,updated_at=now() WHERE id=$1 AND workspace_id=$2",
         [job.id, job.workspaceId],
