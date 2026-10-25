@@ -1,3 +1,5 @@
+> Cost-v1 update (2026-10-24): see [metering policy](AI_CREDIT_METERING.md) and [rollout](AI_CREDIT_METERING_ROLLOUT.md). Historical fixed-credit/automatic-downgrade descriptions below do not override the policy shown for a new operation. Prices, credit denominations and referral terms do not change.
+
 # Customer billing dashboard
 
 The platform opens on Dashboard. Subscription/usage information and billing recovery remain accessible while automation is paused. The workspace owner manages payment methods, invoices, available upgrades, cancellation and resumption through Stripe Customer Portal. Other roles with billing-view permission can inspect usage but cannot create payment sessions.

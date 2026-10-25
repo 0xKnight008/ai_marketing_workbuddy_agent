@@ -2420,5 +2420,15 @@
   "Refunded": ["Reembolsado", "已退款"],
   "Reserved": ["Reservado", "已预扣"],
   "Settled": ["Liquidado", "已结算"],
-  "AI credit refund": ["Reembolso de créditos de IA", "AI 额度退款"]
+  "AI credit refund": ["Reembolso de créditos de IA", "AI 额度退款"],
+  "Credits currently reserved:": ["Créditos reservados:", "当前预留额度："],
+  "Included credits used or reserved:": ["Créditos incluidos usados o reservados:", "套餐已用或预留额度："],
+  "AI billing receipts": ["Recibos de IA", "AI 计费收据"],
+  "Fast and economical · review credits before running": ["Rápido y económico · revisa créditos antes de ejecutar", "快速经济 · 运行前确认额度"],
+  "Balanced quality · review credits before running": ["Calidad equilibrada · revisa créditos antes de ejecutar", "均衡质量 · 运行前确认额度"],
+  "Advanced reasoning · review credits before running": ["Razonamiento avanzado · revisa créditos antes de ejecutar", "进阶推理 · 运行前确认额度"],
+  "ai_quote_unavailable": ["No se pudo obtener el presupuesto de IA.", "暂时无法获取 AI 预算。"],
+  "ai_budget_not_confirmed": ["Presupuesto de IA no confirmado.", "AI 预算尚未确认。"],
+  "ai_quote_expired_or_mismatched": ["El presupuesto venció o cambió. Vuelve a confirmarlo.", "预算已过期或任务条件已变更，请重新确认。"],
+  "External action guardrail:": ["Límite de acciones externas:", "外部动作预算状态："]
 }

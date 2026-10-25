@@ -1,3 +1,5 @@
+> Cost-v1 update (2026-10-24): see [metering policy](AI_CREDIT_METERING.md) and [rollout](AI_CREDIT_METERING_ROLLOUT.md). Historical fixed-credit/automatic-downgrade descriptions below do not override the policy shown for a new operation. Prices, credit denominations and referral terms do not change.
+
 # Flagship: one-api → LiteLLM
 
 ## Decision and boundaries

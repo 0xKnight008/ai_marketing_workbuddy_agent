@@ -76,6 +76,7 @@ export default (app: Application) => {
   router.post('/api/approval-requests/:approvalId/:decision', controller.platform.decideApproval);
   router.get('/api/billing/task-events', controller.platform.taskEvents);
   router.get('/api/billing/usage', controller.platform.billingUsage);
+  router.post('/api/billing/ai-quote',controller.platform.aiQuote);
   router.get('/api/billing/dashboard', controller.platform.billingOverview);
   router.post('/api/billing/portal', controller.platform.billingPortal);
   router.post('/api/billing/credit-topup', controller.platform.creditTopup);
@@ -92,6 +93,7 @@ export default (app: Application) => {
   router.post('/api/admin/workspaces/:workspaceId/entitlements', controller.platform.adminUpdateEntitlements);
   router.get('/api/admin/feedback', controller.platform.adminFeedback);
   router.get('/api/admin/newsletter', controller.platform.adminNewsletter);
+  router.get('/api/admin/ai-costs',controller.platform.adminAiCosts);
   router.get('/api/admin/token-usage', controller.platform.adminTokenUsage);
   router.patch('/api/admin/feedback/:ticketNo', controller.platform.adminUpdateFeedback);
   router.get('/api/admin/jobs', controller.platform.adminJobs);

@@ -1,3 +1,4 @@
+import { finishCost, settleCost } from './cost-metering';
 import type {TenantTransaction} from '../foundation/database';
 import type {AiUsageSubject} from './guardrails';
 
@@ -7,6 +8,7 @@ function subjectValues(subject: AiUsageSubject) {
 }
 /** Call in the SAME transaction as durable result persistence. */
 export async function settleAiReservations(tx: TenantTransaction, subject: AiUsageSubject): Promise<void> {
+  await settleCost(tx, subject);
   await tx.query(`UPDATE task_event SET ai_reservation_state='settled'
     WHERE workspace_id=current_setting('app.workspace_id')::uuid
       AND (run_id=$1::uuid OR subject_id=$1::uuid) AND ai_reservation_state='reserved'
@@ -23,6 +25,7 @@ export async function refundAiReservations(tx: TenantTransaction, subject: AiUsa
       AND (run_id=$1::uuid OR subject_id=$1::uuid) AND ai_reservation_state='reserved'
       AND ($2::text IS NULL OR action_type=$2 OR action_type LIKE $2||'.%')
       AND ($3::integer IS NULL OR attempt=$3) AND ($4::uuid IS NULL OR id=$4) ORDER BY id FOR UPDATE`,[...subjectValues(subject),subject.reservationId??null]);
+  await finishCost(tx, subject.runId ?? subject.subjectId!, true);
   let refunded=0;
   for(const row of rows.rows){
     if(row.purchased===null){

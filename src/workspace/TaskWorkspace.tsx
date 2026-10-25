@@ -1,3 +1,5 @@
+import {CostReceiptView,type CostReceipt} from './CostReceipt';
+import { useAiBudgetFetch } from './AiBudget';
 import {WorkflowRunDetails} from './WorkflowRunDetails';
 import {ExecutionSummary,type ModelExecution} from './ModelControls';
 import { useEffect, useRef, useState } from "react";
@@ -32,6 +34,8 @@ type Task = {
   review?: { messageId: string; refs: string[] } | null;
 };
 type Message = {
+  costReceipt?:CostReceipt;
+  costReceipts?:CostReceipt[];
   modelBand?:Band;
   executions?:ModelExecution[];
   id: string;
@@ -53,6 +57,7 @@ type Props = {
   sourceRevision?:string;
 };
 export function useTaskApi(token: string, apiBase: string) {
+  const fetch=useAiBudgetFetch();
   return async function api<T>(
     path: string,
     body?: object,
@@ -1010,7 +1015,7 @@ function TaskConversation(
               <h3>
                 {message.role === "user" ? w("You", "Tú", "你") : "Piggybot"}
               </h3>
-              {message.role === "assistant" && <ExecutionSummary requested={message.modelBand} executions={message.executions??[]}/>}
+              {message.role === "assistant" && <><ExecutionSummary requested={message.modelBand} executions={message.executions??[]}/>{(message.costReceipts??(message.costReceipt?[message.costReceipt]:[])).map(receipt=><CostReceiptView key={receipt.id} receipt={receipt}/>)}</>}
               <pre translate="no">
                 {message.content ||
                   w(

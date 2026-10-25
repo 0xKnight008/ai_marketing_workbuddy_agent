@@ -1,3 +1,5 @@
+> Cost-v1 update (2026-10-24): see [metering policy](AI_CREDIT_METERING.md) and [rollout](AI_CREDIT_METERING_ROLLOUT.md). Historical fixed-credit/automatic-downgrade descriptions below do not override the policy shown for a new operation. Prices, credit denominations and referral terms do not change.
+
 # Zernio release fixes
 
 ## Step 1 — Account health and capability contract (review R2 / R3)
@@ -117,3 +119,5 @@ Connections/credentials are not removed and no new migration is needed for this
 step. The prior disconnect step still requires migration 0035. Live staging
 OAuth and posting acceptance remains required; passing local tests is not a claim
 that all 14 platforms have been exercised with real accounts.
+
+Current account cost budget: $1/account/month internally. Reconcile Zernio at platform-team scale, including its graduated tier premium ($218/month above marginal cost for more than 100 full-month accounts), account-days and extra metered APIs. This is not a promise of a flat $1 upstream invoice.

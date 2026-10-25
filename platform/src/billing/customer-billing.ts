@@ -1,3 +1,4 @@
+import { costOperations } from './cost-metering';
 import { z } from 'zod';
 import type { ActorContext } from '../contracts/domain';
 import type { Database, TenantTransaction } from '../foundation/database';
@@ -90,6 +91,7 @@ export class CustomerBillingService {
       const history = await tx.query(`SELECT checkout_session_id AS id, amount_cents AS "amountCents", credits, refunded_cents AS "refundedCents", created_at AS "createdAt"
         FROM credit_topup WHERE workspace_id = current_setting('app.workspace_id')::uuid ORDER BY created_at DESC LIMIT 20`);
       return { usage, subscription, syncError, creditBalance: Number(binding.balance), refundDebt: Number(binding.debt),
+        costOperations: await costOperations(tx),
         includedCredits: usage.subscriptionStatus === 'trialing' ? 30 : PLAN_CATALOG[usage.plan].aiCredits, topups: history.rows,
         canManage: actor.role === 'owner' && !!binding.customerId,
         canUpgrade: actor.role === 'owner' && !!binding.customerId && !!binding.subscriptionId,

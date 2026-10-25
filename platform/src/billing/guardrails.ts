@@ -1,3 +1,5 @@
+import { meteringMode } from '../../../shared/ai-metering';
+import { costContext, costUsage, expireCost, reserveCost } from './cost-metering';
 import {reconcileTerminalAiReservations} from './ai-refunds';
 import {randomUUID} from 'node:crypto';
 import type { TenantTransaction } from '../foundation/database';
@@ -11,7 +13,7 @@ const MICROS_PER_CENT = 10_000;
  * therefore use the platform's marginal cost, rather than the public
  * per-customer retail tiers.
  */
-export const ZERNIO_AGGREGATE_COST_PER_ACCOUNT_MICROS = 150_000;
+export const ZERNIO_AGGREGATE_COST_PER_ACCOUNT_MICROS = 1_000_000;
 const X_READ_MICROS = 5_000;
 const X_POST_MICROS = 15_000;
 const X_POST_WITH_URL_MICROS = 200_000;
@@ -24,6 +26,9 @@ export interface UsageSnapshot {
   taskUsed: number;
   taskQuota: number;
   aiCreditsUsed: number;
+  includedCreditsRemaining?: number;
+  aiCreditsHeld?: number;
+  externalActionStatus?: GuardrailStatus;
   aiCreditsAvailable: number;
   trialCreditsRemaining?: number;
   trialCreditCarryover?: number;
@@ -96,7 +101,10 @@ async function billingRow(tx: TenantTransaction): Promise<BillingRow> {
 
 export async function usageSnapshot(tx: TenantTransaction): Promise<UsageSnapshot> {
   const billing = await billingRow(tx);
+  const costMode=meteringMode()==='cost-v1';
   await reconcileTerminalAiReservations(tx);
+  await expireCost(tx);
+  const metered = await costUsage(tx);
   // Refund reconciliation may have returned purchased/free carryover buckets.
   const refundedBilling=await tx.query<{purchasedCredits:string;trialCreditCarryover:string}>(`SELECT purchased_ai_credits AS "purchasedCredits",trial_credit_carryover AS "trialCreditCarryover" FROM workspace_billing WHERE workspace_id=current_setting('app.workspace_id')::uuid`);
   if(refundedBilling.rows[0]) Object.assign(billing,refundedBilling.rows[0]);
@@ -108,10 +116,10 @@ export async function usageSnapshot(tx: TenantTransaction): Promise<UsageSnapsho
   const periodUsage = await tx.query<UsageRow>(`
     SELECT COALESCE(SUM(CASE WHEN status = 'reversed' THEN -billable_units ELSE billable_units END), 0) AS "taskUsed",
            COALESCE(SUM(CASE WHEN status = 'reversed' THEN -(ai_credits - trial_ai_credits) ELSE ai_credits - trial_ai_credits END), 0) AS "aiCreditsUsed",
-           COALESCE(SUM(CASE WHEN status = 'reversed' THEN -supplier_cost_micros ELSE supplier_cost_micros END), 0) AS "supplierSpendMicros"
+           COALESCE(SUM(CASE WHEN $1::boolean AND action_type LIKE 'ai%' THEN 0 WHEN status = 'reversed' THEN -supplier_cost_micros ELSE supplier_cost_micros END), 0) AS "supplierSpendMicros"
       FROM task_event
      WHERE workspace_id = current_setting('app.workspace_id')::uuid
-       AND credit_period = date_trunc('month', now())::date`, []);
+       AND credit_period = date_trunc('month', now())::date`, [costMode]);
   const accounts = await tx.query<AccountRow>(`SELECT COUNT(*) AS "connectedAccounts" FROM connected_account WHERE workspace_id = current_setting('app.workspace_id')::uuid AND status = 'connected'`, []);
   const usage = periodUsage.rows[0] ?? { taskUsed: 0, aiCreditsUsed: 0, supplierSpendMicros: 0 };
   const trialUsage = isTrial ? await tx.query<{ trialCreditsUsed: string | number }>(`
@@ -119,24 +127,31 @@ export async function usageSnapshot(tx: TenantTransaction): Promise<UsageSnapsho
     FROM task_event e LEFT JOIN task_event original ON original.id=e.reversal_of WHERE e.workspace_id = current_setting('app.workspace_id')::uuid
       AND COALESCE(original.created_at,e.created_at) >= (SELECT COALESCE(trial_started_at, trial_ends_at - interval '7 days') FROM workspace_billing
         WHERE workspace_id = current_setting('app.workspace_id')::uuid)`, []) : undefined;
-  const trialCreditsRemaining = isTrial ? Math.max(0, 30 - number(trialUsage?.rows[0]?.trialCreditsUsed)) : undefined;
+  const trialCreditsRemaining = isTrial ? Math.max(0, 30 - number(trialUsage?.rows[0]?.trialCreditsUsed) - Number(metered.trial ?? 0)) : undefined;
   const taskUsed = number(usage.taskUsed);
-  const aiCreditsUsed = number(usage.aiCreditsUsed);
-  const supplierSpendMicros = number(usage.supplierSpendMicros) + monthlyZernioMicros(number(accounts.rows[0]?.connectedAccounts));
+  const aiCreditsUsed = number(usage.aiCreditsUsed) + Number(metered.used ?? 0);
+  // Funded AI operations and external actions have separate budgets. Never
+  // move the external hard limit upward with spend; topups fund AI only.
+  const supplierSpendMicros = number(usage.supplierSpendMicros) + (costMode?0:Number(metered.spend??0)) + monthlyZernioMicros(number(accounts.rows[0]?.connectedAccounts));
   const supplierSpendLimitMicros = entitlement.supplierSpendLimitCents * MICROS_PER_CENT;
+  const aiResourceStatus=guardrailStatus(taskUsed,entitlement.taskQuota,costMode?0:supplierSpendMicros,supplierSpendLimitMicros);
+
   return {
     plan,
     taskUsed,
+    includedCreditsRemaining: Math.max(0, entitlement.aiCredits - aiCreditsUsed),
+    aiCreditsHeld: Number(metered.held ?? 0),
     taskQuota: entitlement.taskQuota,
-    aiCreditsUsed: isTrial ? number(trialUsage?.rows[0]?.trialCreditsUsed) : aiCreditsUsed,
+    aiCreditsUsed: isTrial ? number(trialUsage?.rows[0]?.trialCreditsUsed) + Number(metered.trial ?? 0) : aiCreditsUsed,
     aiCreditsAvailable: billing.trialPaymentPending && !isTrial ? 0 : isTrial ? (trialActive ? trialCreditsRemaining! : 0) : Math.max(0, entitlement.aiCredits - aiCreditsUsed) + number(billing.purchasedCredits) + number(billing.trialCreditCarryover),
     trialCreditsRemaining,
     trialPaymentPending: billing.trialPaymentPending === true,
     trialCreditCarryover: number(billing.trialCreditCarryover),
-    trialConversionAvailable: trialActive && billing.trialConversionBound === true && guardrailStatus(taskUsed, entitlement.taskQuota, supplierSpendMicros, supplierSpendLimitMicros) !== 'paused',
+    trialConversionAvailable: trialActive && billing.trialConversionBound === true && aiResourceStatus !== 'paused',
     supplierSpendMicros,
     supplierSpendLimitMicros,
-    status: executionStatus({ trialPaymentPending: billing.trialPaymentPending, subscriptionStatus: billing.subscriptionStatus, trialEndsAt: billing.trialEndsAt ?? undefined, paymentGraceEndsAt: billing.paymentGraceEndsAt ?? undefined, trialCreditsRemaining }, guardrailStatus(taskUsed, entitlement.taskQuota, supplierSpendMicros, supplierSpendLimitMicros)),
+    ...(costMode?{externalActionStatus:guardrailStatus(taskUsed,entitlement.taskQuota,supplierSpendMicros,supplierSpendLimitMicros)}:{}),
+    status: executionStatus({ trialPaymentPending: billing.trialPaymentPending, subscriptionStatus: billing.subscriptionStatus, trialEndsAt: billing.trialEndsAt ?? undefined, paymentGraceEndsAt: billing.paymentGraceEndsAt ?? undefined, trialCreditsRemaining }, aiResourceStatus),
     subscriptionStatus: billing.subscriptionStatus,
     trialEndsAt: trialActive ? billing.trialEndsAt ?? undefined : undefined,
     paymentGraceEndsAt: paymentGraceActive ? billing.paymentGraceEndsAt ?? undefined : undefined,
@@ -188,6 +203,9 @@ export async function reserveAiRun(tx: TenantTransaction, allowedModelClasses: s
   const attempt = resolved.attempt ?? 1;
   if (!Number.isSafeInteger(attempt) || attempt < 1) throw new Error('attempt must be a positive integer');
   const current = await usageSnapshot(tx);
+  if (costContext.getStore() && requestedBand && !allowedModelClasses.includes(requestedBand)) throw new HttpError(403,'model_band_not_allowed');
+  const costReservation = await reserveCost(tx, resolved, requestedBand ?? requestedModelBand(allowedModelClasses), current);
+  if (costReservation) return costReservation;
   // action_type 只保留稳定前缀（'ai' / 'ai.classify' / 'ai.insight'）——
   // 幂等键不再包含运行时重新计算的 band/provider（审核 #5：余额变化导致
   // 降档时，旧格式会给同一逻辑操作生成另一条计费键 → 重复扣费）。

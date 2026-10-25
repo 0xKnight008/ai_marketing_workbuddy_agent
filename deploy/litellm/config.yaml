@@ -7,6 +7,7 @@ model_list:
       api_base: os.environ/FLAGSHIP_UPSTREAM_BASE_URL
       api_key: os.environ/FLAGSHIP_UPSTREAM_API_KEY
       # Piggybot's durable job owns retry policy; no hidden extra paid attempts.
+      additional_drop_params: ["temperature", "strictJsonSchema"]
       num_retries: 0
 router_settings:
   num_retries: 0

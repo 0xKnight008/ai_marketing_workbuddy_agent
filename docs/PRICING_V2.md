@@ -1,3 +1,5 @@
+> Cost-v1 update (2026-10-24): see [metering policy](AI_CREDIT_METERING.md) and [rollout](AI_CREDIT_METERING_ROLLOUT.md). Historical fixed-credit/automatic-downgrade descriptions below do not override the policy shown for a new operation. Prices, credit denominations and referral terms do not change.
+
 # Pricing v2 and cost guardrails
 
 ## Customer-facing plans
@@ -8,34 +10,31 @@
 | Growth | $59 | 10 | 10,000 | 2,500 | $20 |
 | Agency | $169 | 30 | 50,000 | 8,000 | $55 |
 
-The public trial is 7 days with 30 Eco credits. Stripe Checkout and the verified webhook activation block in this repository issue that trial entitlement for the selected plan.
+The public trial is up to 7 days or 30 AI credits. Inactive accounts cannot run paid work. A subscribed trial hands off only after successful payment; remaining trial funds are used before paid included and purchased funds. AI topups remain $10 per 1,000 credits. No balance denomination conversion occurs.
 
-An AI-credit top-up is $10 per 1,000 credits. The payment webhook must call the owner-only `POST /api/billing/entitlements` endpoint after it has verified payment. That endpoint accepts a plan change and/or credits in 1,000-credit increments; it never processes payment details.
+## AI routing and cost-v1
 
-## AI routing
+| Band | Input cap | Output cap | Target cap | Route |
+| --- | ---: | ---: | ---: | --- |
+| Eco | 8K tokens | 1.5K tokens | 5 | DeepSeek direct |
+| Standard | 16K tokens | 2K tokens | 10 | Z.AI direct |
+| Flagship | 32K tokens | 4K tokens | 20 | LiteLLM |
 
-| Band | Credits/run | Input cap | Output cap | Target cap | Estimated supplier cost/run |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Eco | 1 | 8K tokens | 1.5K tokens | 5 | $0.002 |
-| Standard | 6 | 16K tokens | 2K tokens | 10 | $0.035 |
-| Flagship | 20 | 32K tokens | 4K tokens | 20 | $0.15 |
+Cost-v1 replaces fixed 1/6/20 internal-step prices with `ceil(valid saved operation cost USD × 1.20 / 0.001)`. Child calls accumulate before rounding. Operators must verify versioned input/output/cache prices and tariff conditions; customer estimates are conservative caps, not supplier invoice evidence. See [metering](AI_CREDIT_METERING.md) for the complete contract.
 
-The platform maps `allowedModelClasses` to the highest requested band and the AI runtime selects its matching configured model: `AI_MODEL_ECO`, `AI_MODEL_STANDARD`, or `AI_MODEL_FLAGSHIP`. Input, output, and target caps are checked in the runtime. If the requested premium band cannot be covered by remaining credits, the run automatically uses Eco instead. Eco runs remain available at zero remaining credits, subject to the two cost guardrails below.
+Before execution the user confirms a maximum, which is reserved atomically. Only valid saved results settle; unused funds return to their original sources. Partial saved work can remain billable after a later failure. Missing usage is pending reconciliation for at most 24 hours, never treated as zero or replaced by an invented fixed charge. Budget/model changes need explicit confirmation. No automatic downgrade or zero-balance free AI run is offered.
 
 ## Cost guardrails
 
-Each workspace has two independent monthly meters:
+Task quotas and external paid actions retain their restrictions. Account budgeting uses $1 per connected account per month internally; Zernio's graduated platform-team invoice and account-days require separate reconciliation. Above 100 full-month accounts under one platform team, the published tier premium is $218/month above that marginal budget. Extra X and other metered APIs remain separate.
 
-- **Task quota:** successful external actions. Most actions cost one task; X writes cost three.
-- **Supplier spend:** the estimated AI run cost, $0.01 per X write, and the monthly marginal cost of connected Zernio accounts. Zernio bills Piggybot as one aggregated platform tenant, so each connected account is budgeted at **$1.50/month**; the public single-tenant Zernio retail tiers do not apply to an individual Piggybot workspace.
+In cost-v1, funded AI credits (including topups) govern executable AI budgets instead of blocking purchased credits behind the legacy $6/$20/$55 estimates. Provider-failure expense is retained separately with a failure circuit. Approvals, Stripe access restrictions and external-action quotas remain enforced.
 
-At 80% of either meter, the platform emits an audit event and requires approval before the next publish. At 100%, it pauses new AI runs and publishes before any external provider call. Triggers, filters, and approval notifications remain free. An owner plan change resumes runs once the new plan puts both meters below their hard limit; an AI-credit top-up only changes premium-model capacity.
-
-Usage is recorded in `task_event`, with AI credits and supplier costs stored beside task units. The guardrail events are recorded in `run_event` and `audit_event`, and action execution retains its existing step and provider idempotency keys.
+Usage exposes available, reserved and settled amounts; operation receipts and the append-only cost journal preserve policy versions and original funding periods. Admin token usage/CSV is retained alongside cost reconciliation. Legacy charges remain historical; no deployed ledger is rewritten.
 
 ## Operations
 
-Apply `platform/migrations/0004_pricing_v2_guardrails.sql`, `platform/migrations/0005_billing_subscription_lifecycle.sql`, `platform/migrations/0011_activation_delivery.sql`, and `platform/migrations/0012_admin_console.sql` before deploying the platform services. Configure all three model environment variables in the AI runtime. The `GET /api/billing/usage` endpoint returns the current plan, quota usage, credits, supplier spend, and guardrail status; `GET /api/billing/task-events` returns its detailed ledger.
+Apply additive migration 0040 together with current platform/runtime builds. Deployment defaults to legacy; use verified rates, shadow comparison and controlled activation in [rollout](AI_CREDIT_METERING_ROLLOUT.md). The plan table's supplier limits describe legacy operations, not a new cost-v1 customer entitlement. Existing subscription Price IDs and referral terms remain unchanged.
 
 ## Stripe account activation
 

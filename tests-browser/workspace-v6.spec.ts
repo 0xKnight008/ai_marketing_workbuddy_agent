@@ -8,6 +8,7 @@ async function fixture(page:Page, options: { paused?: boolean } = {}){
  const mutations:Array<{path:string;body:unknown}>=[];
  await page.addInitScript(()=>sessionStorage.setItem('piggybot.ownerAccessToken',`test.${btoa(JSON.stringify({exp:4102444800}))}.test`));
  await page.route('**/api/**',async route=>{const req=route.request(),path=new URL(req.url()).pathname;
+ if(path==='/api/billing/ai-quote')return route.fulfill({json:{mode:'legacy'}});
  if(req.method()!=='GET')mutations.push({path,body:req.postDataJSON()});
  if(path==='/api/auth/me')return route.fulfill({json:{user:{email:'test@example.invalid',displayName:'Marco',passwordSet:true},workspace:{name:'Studio North'},role:'owner',plan:'growth',subscriptionStatus:'active'}});
  if(path==='/api/approval-requests')return route.fulfill({json:approvals});

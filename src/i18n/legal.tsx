@@ -56,7 +56,7 @@ const privacyEn: LegalDoc = {
     {
       heading: "3. How AI processing works",
       paragraphs: [
-        "When a workflow includes an AI step, the relevant content (for example your brief, brand voice profile or a draft post) is sent to a large-language-model provider under a data-processing agreement solely to produce the output you requested. We operate multiple suppliers with automatic failover; routing is chosen based on availability and cost controls, not on selling your data. We do not use your content to train foundation models where the provider offers an opt-out, and we select providers whose API terms do not retain API inputs for model training by default.",
+        "When a workflow includes an AI step, the relevant content (for example your brief, brand voice profile or a draft post) is sent to a large-language-model provider under a data-processing agreement solely to produce the output you requested. We use the provider route for the model capability you select; budget or model changes require confirmation. We do not sell your data. We do not use your content to train foundation models where the provider offers an opt-out, and we select providers whose API terms do not retain API inputs for model training by default.",
         "AI outputs are drafts. Deterministic checks (forbidden words, length limits) and AI semantic compliance review are applied before anything can be published, and — unless you explicitly enable auto-approve — no content is published, no customer is replied to, and no budget is changed without your approval.",
       ],
     },
@@ -147,7 +147,7 @@ const privacyEn: LegalDoc = {
 const termsEn: LegalDoc = {
   docTitle: "Terms of Service — Piggybot",
   heading: "Terms of Service",
-  updated: "Last updated: August 13, 2026",
+  updated: "Last updated: October 24, 2026",
   intro: [
     "These Terms of Service (\"Terms\") form a binding agreement between you (\"you\", the individual or the organization you represent) and Piggybot, Inc. (\"Piggybot\", \"we\", \"us\") governing your use of piggybot.me and the Piggybot marketing-automation platform (the \"Service\"). By creating an account, starting a trial or using the Service, you accept these Terms. If you do not agree, do not use the Service.",
   ],
@@ -174,7 +174,7 @@ const termsEn: LegalDoc = {
       ],
       list: [
         "Free trial — every paid plan includes up to 7 days and 30 AI credits. Continuing a task beyond the remaining trial balance ends the trial early and immediately starts billing the selected subscription, unless cancelled. Remaining trial credits are used first; the difference uses paid plan credits only after payment is confirmed.",
-        "Metering — triggers, filters and approval notifications are free. Only successful actions consume task quota or AI credits (Eco / Standard / Flagship generations consume credits per model cost as shown on the pricing page).",
+        "Metering — triggers, filters and approval notifications are free. Review the applicable policy and maximum AI credits before submitting. Cost-metered operations reserve that maximum, settle valid saved results at ceil(model costs in USD × 1.20 / 0.001) accumulated per operation, and release unused credits. Saved partial results can remain billable if a later step fails. Models do not change without your confirmation; no fee can exceed the confirmed maximum. Missing usage can remain pending reconciliation for up to 24 hours; the unverifiable remainder is then released without a later unapproved debit.",
         "Cost guardrails — we monitor your task quota and supplier costs. At 80% we notify you and the next publish may require approval; at 100% new AI generations and publishing pause automatically until you upgrade or the next cycle begins. Free actions are never blocked.",
         "Overage — additional tasks and AI credit top-ups are charged at the rates shown on the pricing page with your consent.",
         "Cancellation — cancel anytime in the dashboard; access continues to the end of the paid period. Fees are non-refundable except where required by law.",
@@ -318,7 +318,7 @@ const privacyZh: LegalDoc = {
     {
       heading: "3. AI 处理如何运作",
       paragraphs: [
-        "当工作流包含 AI 步骤时，相关内容（如你的需求描述、品牌语气档案或帖子草稿）会在数据处理协议约束下发送给大语言模型供应商，仅用于生成你请求的结果。我们配置了多供应商自动故障转移，路由依据可用性与成本控制选择，绝不出售你的数据。在供应商提供退出选项时，我们不使用你的内容训练基础模型，并优先选择其 API 条款默认不保留 API 输入用于训练的供应商。",
+        "当工作流包含 AI 步骤时，相关内容（如你的需求描述、品牌语气档案或帖子草稿）会在数据处理协议约束下发送给大语言模型供应商，仅用于生成你请求的结果。我们按你选择的模型能力使用相应供应商路由；预算或模型变更需经确认，绝不出售你的数据。在供应商提供退出选项时，我们不使用你的内容训练基础模型，并优先选择其 API 条款默认不保留 API 输入用于训练的供应商。",
         "AI 输出均为草稿。任何内容发布前都会经过确定性检查（禁用词、长度）与 AI 语义合规审查；除非你明确开启自动审批，否则不会发布任何内容、回复任何客户或改动任何预算。",
       ],
     },
@@ -407,7 +407,7 @@ const privacyZh: LegalDoc = {
 const termsZh: LegalDoc = {
   docTitle: "服务条款 — Piggybot",
   heading: "服务条款",
-  updated: "最近更新：2026 年 8 月 13 日",
+  updated: "最近更新：2026 年 10 月 24 日",
   intro: [
     "本服务条款（「本条款」）构成你（个人或你所代表的组织）与 Piggybot, Inc.（「我们」）之间关于使用 piggybot.me 及 Piggybot 营销自动化平台（「本服务」）的约束性协议。创建账户、开始试用或使用本服务即表示你接受本条款。如不同意，请勿使用本服务。英文版本为准。",
   ],
@@ -434,7 +434,7 @@ const termsZh: LegalDoc = {
       ],
       list: [
         "免费试用——每个付费套餐包含最多 7 天及 30 AI 额度。继续超出剩余试用额度的任务会提前结束试用并立即启动已选订阅扣费；已取消的订阅不自动转付费。先使用剩余试用额度，付款确认后差额使用套餐额度。",
-        "计量——触发、过滤与审批通知免费；仅成功的动作消耗 task 额度或 AI credits（Eco / Standard / Flagship 生成按定价页所示的模型成本消耗 credits）。",
+        "计量——触发、过滤与审批通知免费。提交前确认适用规则和 AI credits 最高预算；成本计量操作先预留上限，按有效模型成本（USD）×1.20÷0.001 对同一操作累计向上取整为 credits，未使用额度释放。后续步骤失败时，已保存且可复用的部分结果仍可计费。未经确认不更换模型，不超过已确认的最高额度扣费。缺失用量可进入最长 24 小时的待对账流程；未能核实的剩余预留释放，不再事后未经同意补扣。",
         "成本结界——我们监控你的 task 额度与供应商成本：达到 80% 时通知你，下一次发布可能需要审批；达到 100% 时自动暂停新的 AI 生成与发布，直至升级或进入下一周期。免费动作永不受限。",
         "超额用量——额外 task 与 AI credits 加购按定价页费率经你同意后收取。",
         "取消——可随时在仪表盘取消，访问权持续至已付费周期结束。除法律要求外，费用不予退还。",
@@ -578,7 +578,7 @@ const privacyEs: LegalDoc = {
     {
       heading: "3. Cómo funciona el procesamiento de IA",
       paragraphs: [
-        "Cuando un flujo incluye un paso de IA, el contenido relevante (tu brief, perfil de voz de marca o borrador) se envía a un proveedor de modelos de lenguaje bajo un acuerdo de procesamiento de datos, únicamente para producir el resultado solicitado. Operamos varios proveedores con conmutación automática; el enrutamiento se elige por disponibilidad y control de costos, nunca para vender tus datos. No usamos tu contenido para entrenar modelos fundacionales cuando el proveedor ofrece exclusión, y elegimos proveedores cuyos términos de API no retienen entradas para entrenamiento por defecto.",
+        "Cuando un flujo incluye un paso de IA, el contenido relevante (tu brief, perfil de voz de marca o borrador) se envía a un proveedor de modelos de lenguaje bajo un acuerdo de procesamiento de datos, únicamente para producir el resultado solicitado. Usamos la ruta del proveedor correspondiente al modelo que eliges; cambiar presupuesto o modelo requiere confirmación. No vendemos tus datos. No usamos tu contenido para entrenar modelos fundacionales cuando el proveedor ofrece exclusión, y elegimos proveedores cuyos términos de API no retienen entradas para entrenamiento por defecto.",
         "Los resultados de IA son borradores. Se aplican verificaciones deterministas (palabras prohibidas, límites de longitud) y revisión semántica de cumplimiento por IA antes de cualquier publicación y, salvo que actives la aprobación automática, nada se publica, ningún cliente recibe respuesta y ningún presupuesto cambia sin tu aprobación.",
       ],
     },
@@ -667,7 +667,7 @@ const privacyEs: LegalDoc = {
 const termsEs: LegalDoc = {
   docTitle: "Términos de Servicio — Piggybot",
   heading: "Términos de Servicio",
-  updated: "Última actualización: 13 de agosto de 2026",
+  updated: "Última actualización: 24 de octubre de 2026",
   intro: [
     "Estos Términos de Servicio («Términos») constituyen un acuerdo vinculante entre tú (la persona u organización que representas) y Piggybot, Inc. («nosotros») que rige el uso de piggybot.me y de la plataforma de automatización de marketing Piggybot (el «Servicio»). Al crear una cuenta, iniciar una prueba o usar el Servicio, aceptas estos Términos. Si no estás de acuerdo, no uses el Servicio. La versión en inglés prevalece.",
   ],
@@ -694,7 +694,7 @@ const termsEs: LegalDoc = {
       ],
       list: [
         "Prueba gratuita — cada plan incluye hasta 7 días y 30 créditos de IA. Continuar una tarea que exceda el saldo restante termina la prueba e inicia inmediatamente el cobro del plan elegido, salvo cancelación. Se usan primero los créditos de prueba y, tras confirmar el pago, los créditos del plan para la diferencia.",
-        "Medición — los disparadores, filtros y notificaciones de aprobación son gratuitos. Solo las acciones exitosas consumen cuota de tareas o créditos de IA (las generaciones Eco / Standard / Flagship consumen créditos según el costo del modelo indicado en la página de precios).",
+        "Medición — los disparadores, filtros y avisos de aprobación son gratuitos. Confirma la política aplicable y el máximo de créditos antes de enviar. La medición por costo reserva ese máximo, cobra los resultados válidos guardados a ceil(costo del modelo en USD × 1,20 / 0,001), acumulado por operación, y libera el saldo no usado. Los resultados parciales guardados pueden conservar su cobro si falla un paso posterior. No cambiamos el modelo sin confirmación ni cobramos más del máximo aceptado. El uso no informado puede quedar pendiente de conciliación hasta 24 horas; se libera la parte no verificable sin un cargo posterior no aprobado.",
         "Límites de costo — supervisamos tu cuota de tareas y los costos de proveedores. Al 80 % te avisamos y la siguiente publicación puede requerir aprobación; al 100 % las nuevas generaciones de IA y publicaciones se pausan automáticamente hasta que mejores el plan o comience el siguiente ciclo. Las acciones gratuitas nunca se bloquean.",
         "Excedentes — las tareas adicionales y recargas de créditos se cobran a las tarifas de la página de precios con tu consentimiento.",
         "Cancelación — cancela cuando quieras desde el panel; el acceso continúa hasta el fin del período pagado. Las tarifas no son reembolsables salvo que la ley lo exija.",

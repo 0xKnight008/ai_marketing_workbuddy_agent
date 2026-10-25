@@ -1,3 +1,4 @@
+import {costMeteringRegression} from './cost-metering';
 import {aiRefundRegression,legacyRefundMigrationFixture} from './ai-refunds';
 import {runDiagnosticsRegression} from './run-diagnostics';
 import {trialCreditHandoffRegression} from './trial-credit-handoff';
@@ -71,6 +72,7 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
     }
     await assertTaskSchema(database);
     await assertAuthSchema(database);
+    await t.test('Cost metering: quotes, funding, partial results, shadow mode and reconciliation',ctx=>costMeteringRegression(ctx,client,database));
     await t.test('AI reservation refunds, source buckets, replay and isolation',ctx=>aiRefundRegression(ctx,client,database));
     await t.test('workflow diagnosis and selected model isolation',ctx=>runDiagnosticsRegression(ctx,client,database));
     await t.test('trial to paid credit handoff and Stripe payment recovery',handoff=>trialCreditHandoffRegression(handoff,client,database));

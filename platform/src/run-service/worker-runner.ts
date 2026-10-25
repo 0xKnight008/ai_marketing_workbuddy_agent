@@ -1,3 +1,4 @@
+import { CostBudgetRequired, costContext, finishCost } from '../billing/cost-metering';
 import {refundAiReservations,settleAiReservations} from '../billing/ai-refunds';
 import {convertSubscribedTrial} from '../billing/trial-conversion';
 import {ModelChoiceRequired,TrialConversionRequired} from '../billing/guardrails';
@@ -50,6 +51,7 @@ export interface RunWorkerAiRuntime {
     platformRunId: string;
     workspaceId: string;
     status: 'accepted' | 'running' | 'succeeded' | 'failed';
+    _meteringOperationId?:string;
     result?: Record<string, unknown>;
     error?: string;
   }>;
@@ -107,6 +109,10 @@ export class RunWorker {
   }
 
   private async executeClaimed(job: ClaimedJob): Promise<void> {
+    return costContext.run({workspaceId:job.workspaceId,database:this.options.database},()=>this.executeWithCostContext(job));
+  }
+
+  private async executeWithCostContext(job: ClaimedJob): Promise<void> {
     try {
       if(job.kind==='task.turn'){if(!this.options.aiRuntime.taskStep)throw new Error('task_runtime_unavailable');await executeTaskTurn(this.options.database,{taskStep:payload=>this.options.aiRuntime.taskStep!(payload)},job);}
       else if (job.kind === 'prepare_ai_run') await this.executePrepare(job);
@@ -121,6 +127,7 @@ export class RunWorker {
       else if (job.kind === 'notification.plan') await this.planNotifications(job);
       else if (job.kind === 'notification.send') await this.sendNotification(job);
       else throw new Error(`Unsupported job: ${job.kind}`);
+
     } catch (error) {
       if (error instanceof JobLeaseLost) throw error;
       if (error instanceof TrialConversionRequired) {
@@ -133,6 +140,9 @@ export class RunWorker {
           await tx.query("UPDATE job SET status='queued',attempt=GREATEST(attempt-1,0),available_at=CASE WHEN $3 THEN now() ELSE 'infinity'::timestamptz END,locked_at=NULL,locked_by=NULL,last_error=CASE WHEN $3 THEN NULL ELSE 'model_choice_required' END,payload=payload||$4::jsonb,updated_at=now() WHERE workspace_id=$1 AND id=$2",
             [job.workspaceId,job.id,ready,JSON.stringify({modelChoice:ready?null:{requestedBand:error.requestedBand,reason:'trial_payment',trialEndsAt:error.usage.trialEndsAt}})]);
         });
+      }
+      else if (error instanceof CostBudgetRequired) {
+        await this.options.database.withWorkspace(job.workspaceId,tx=>tx.query("UPDATE job SET status='queued',attempt=GREATEST(attempt-1,0),available_at='infinity',locked_at=NULL,locked_by=NULL,last_error='model_choice_required',payload=payload||$3::jsonb,updated_at=now() WHERE workspace_id=$1 AND id=$2",[job.workspaceId,job.id,JSON.stringify({modelChoice:{requestedBand:error.band,reason:'budget'}})]));
       }
       else if (error instanceof ModelChoiceRequired) {
         await this.options.database.withWorkspace(job.workspaceId,async tx=>{
@@ -232,7 +242,7 @@ export class RunWorker {
           aiRunId,
           type: 'action_plan.created',
           createdAt: new Date().toISOString(),
-          payload: { actionPlan: aiRun.result?.actionPlan },
+          payload: { actionPlan: aiRun.result?.actionPlan, _meteringOperationId:aiRun._meteringOperationId },
         }
       : {
           eventId: `reconcile:${aiRunId}:failed`,
@@ -241,7 +251,7 @@ export class RunWorker {
           aiRunId,
           type: 'ai_run.failed',
           createdAt: new Date().toISOString(),
-          payload: { error: aiRun.error ?? 'AI runtime failed' },
+          payload: { error: aiRun.error ?? 'AI runtime failed', _meteringOperationId:aiRun._meteringOperationId },
     };
     await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
       const delivered = await tx.query<{ id: string }>(
@@ -361,6 +371,7 @@ export class RunWorker {
           // because another worker finished it after our lease expired. Mark
           // this job succeeded and exit instead of throwing, so we do not
           // trigger failJob and overwrite the batch status with 'failed'.
+          await finishCost(tx,batchId,true);
           await tx.query(
             "UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2",
             [job.id, job.workspaceId],
@@ -415,6 +426,7 @@ export class RunWorker {
             'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
             [job.workspaceId, 'import.classified', { batchId, items: itemCount, taggedItems, tagCoverageRate: itemCount ? taggedItems / itemCount : 1 }],
           );
+          await finishCost(tx,batchId);
           await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
         });
         return;
@@ -484,10 +496,10 @@ export class RunWorker {
     if (!state) throw new Error('topic run not found');
     if (state.status === 'completed') {
       // 幂等：运行已完成（重试/重放），直接收尾 job。
-      await this.options.database.withWorkspace(job.workspaceId, (tx) => tx.query(
-        "UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2",
-        [job.id, job.workspaceId],
-      ));
+      await this.options.database.withWorkspace(job.workspaceId, async tx => {
+        await finishCost(tx,runId);
+        await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2",[job.id,job.workspaceId]);
+      });
       return;
     }
 
@@ -617,6 +629,7 @@ export class RunWorker {
             'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
             [job.workspaceId, 'topics.clustered', { runId, items: Number(finalized.rows[0]?.items ?? 0), topics: Number(finalized.rows[0]?.topics ?? 0) }],
           );
+          await finishCost(tx,runId);
           await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
         });
         return;
@@ -791,6 +804,7 @@ export class RunWorker {
         "INSERT INTO job (workspace_id, kind, payload) VALUES ($1, 'notification.plan', $2)",
         [job.workspaceId, { reportId }],
       );
+      await finishCost(tx,reportId);
       await tx.query("UPDATE job SET status = 'succeeded', locked_at = NULL, locked_by = NULL, updated_at = now() WHERE id = $1 AND workspace_id = $2", [job.id, job.workspaceId]);
     });
   }

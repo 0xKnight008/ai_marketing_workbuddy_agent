@@ -11,6 +11,7 @@ test('topics show verified counts, audit modal highlights verbatim evidence, and
   await page.addInitScript(() => sessionStorage.setItem('piggybot.ownerAccessToken', `test.${btoa(JSON.stringify({ exp: 4102444800 }))}.test`));
   await page.route('**/api/**', async route => {
     const path = new URL(route.request().url()).pathname;
+    if (path === '/api/billing/ai-quote') return route.fulfill({ json: { mode: 'legacy' } });
     if (path === '/api/auth/me') return route.fulfill({ json: { user: { email: 'test@example.invalid' }, workspace: { name: 'Topics regression' }, role: 'owner', plan: 'creator', subscriptionStatus: 'active' } });
     if (path === '/api/imports') return route.fulfill({ json: [{ id: 'batch-1', label: 'Discord snapshot', sourceType: 'csv', status: 'classified', modelBand: 'eco', itemCount: 3, createdAt: '2026-09-14', tagDistribution: {} }] });
     if (path === '/api/topics') return route.fulfill({ json: { run, topics } });

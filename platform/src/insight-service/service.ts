@@ -1,3 +1,4 @@
+import { bindCostQuote } from '../billing/cost-metering';
 import { z } from 'zod';
 import { reportDrafts } from '../contracts/report-drafts';
 import { renderReportDigest } from './delivery';
@@ -105,6 +106,7 @@ export class InsightService {
       );
       const reportId = inserted.rows[0]?.id;
       if (!reportId) throw new Error('insight_report_insert_failed');
+      await bindCostQuote(tx,actor,body,reportId,input.modelBand,'insight.generate');
 
       await tx.query(
         "INSERT INTO job (workspace_id, kind, payload) VALUES (current_setting('app.workspace_id')::uuid, 'insight.generate', $1)",

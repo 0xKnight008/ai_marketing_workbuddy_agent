@@ -1,3 +1,4 @@
+import { AiBudgetProvider, useAiBudgetFetch } from '../workspace/AiBudget';
 import {RunDiagnostics,type RunDetails} from '../workspace/WorkflowRunDetails';
 import {ModelChoiceQueue,ExecutionHistory} from '../workspace/ModelControls';
 import { SupportWidget } from '../workspace/SupportWidget';
@@ -100,9 +101,9 @@ function freshDraft(): PipelineDraft {
 }
 
 const MODEL_BAND_OPTIONS: { value: ModelBand; label: string; hint: string }[] = [
-  { value: 'eco', label: 'Eco', hint: '1 credit/step · fastest, cheapest' },
-  { value: 'standard', label: 'Standard', hint: '6 credits/step · balanced quality' },
-  { value: 'flagship', label: 'Flagship', hint: '20 credits/step · strongest model' },
+  { value: 'eco', label: 'Eco', hint: 'Fast and economical · review credits before running' },
+  { value: 'standard', label: 'Standard', hint: 'Balanced quality · review credits before running' },
+  { value: 'flagship', label: 'Flagship', hint: 'Advanced reasoning · review credits before running' },
 ];
 
 function ModelBandPicker({ value, onChange }: { value: ModelBand; onChange: (band: ModelBand) => void }) {
@@ -124,8 +125,9 @@ function ModelBandPicker({ value, onChange }: { value: ModelBand; onChange: (ban
   );
 }
 
-export default function PlatformDashboard() { return <WorkspaceLanguage><PlatformWorkspace /></WorkspaceLanguage>; }
+export default function PlatformDashboard() { return <WorkspaceLanguage><AiBudgetProvider><PlatformWorkspace /></AiBudgetProvider></WorkspaceLanguage>; }
 function PlatformWorkspace() {
+  const fetch=useAiBudgetFetch();
   const { w } = useWorkspaceLanguage();
   const [token, setToken] = useState(readSessionAccessToken);
   const [me, setMe] = useState<MeView | null>(null);
@@ -411,7 +413,7 @@ function PlatformWorkspace() {
     if (!savedPipeline || !readiness?.ready || loading) return;
     setLoading(true);
     try {
-      const response = await fetch(`${gatewayUrl}/api/pipelines/${savedPipeline.id}/activate`, { method: 'POST', headers: headers() });
+      const response = await fetch(`${gatewayUrl}/api/pipelines/${savedPipeline.id}/activate`, { method: 'POST', headers: headers(),body:JSON.stringify({modelBand:draft.modelBand}) });
       const result = await response.json().catch(() => ({})) as PipelineView;
       if (!response.ok || !result.id || !result.run) { setMessage('The pipeline could not be started. Check billing and run the readiness check again.'); return; }
       setSavedPipeline(result); setRunId(result.run.id); setRun(result.run);

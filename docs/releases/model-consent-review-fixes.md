@@ -49,3 +49,5 @@ Jobs waiting for consent have last_error=model_choice_required and available_at=
 - Chromium: broad regression covered 145 scenarios (143 passed initially; two new selector failures were corrected). The final 48-scenario acceptance run passed, including both corrected scenarios, the added execution-receipt views, all six templates, output/interface language independence, old links, Discord errors, en/zh/es mobile accessibility and paused billing approval decisions. Unchanged browser regressions from the broad run remain covered. Mobile English and Chinese confirmation screenshots were visually checked.
 
 Tests use disposable PostgreSQL and stubbed model/supplier/browser responses. No production database, live paid model or outbound publication is used during development.
+
+Cost-v1 follow-up (2026-10-24): the original release behavior above remains historical. New versioned budgets/receipts follow [AI_CREDIT_METERING.md](../AI_CREDIT_METERING.md); explicit model consent, approval persistence and the token ledger are retained.

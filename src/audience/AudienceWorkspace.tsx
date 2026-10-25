@@ -1,3 +1,4 @@
+import { useAiBudgetFetch } from '../workspace/AiBudget';
 import {ExecutionHistory} from '../workspace/ModelControls';
 import { downloadReport, reportMarkdown, reportEvidenceCsv } from '../workspace/report-export';
 import { ReportDatasetStats } from "../components/ReportDatasetStats";
@@ -62,6 +63,7 @@ export function AudienceWorkspace({
   onFullReport: (id: string) => void;
   onUsageChange: () => void;
 }) {
+  const fetch=useAiBudgetFetch();
   const { locale, w } = useWorkspaceLanguage();
   const [persona, setPersona] = useState<Audience | undefined>(
     () =>

@@ -27,7 +27,7 @@ const shared = {
     human: "Example data · Check every finding",
     quoteNote: "One example citation; not a full-dataset statistic.",
     example: "See an example report ↓",
-    trial: "7-day trial · 30 Eco credits · Then",
+    trial: "7-day trial · 30 AI credits · Then",
     mo: "/ month",
     familiar: "When feedback is scattered, useful signals get lost.",
     value: "Get a result. Check its evidence. Keep what matters.",
@@ -49,10 +49,10 @@ const shared = {
     after: "Renews monthly after the 7-day trial",
     credits: "AI credits / month",
     tasks: "tasks / month",
-    trialCredits: "Trial includes 30 Eco credits",
+    trialCredits: "Trial includes 30 AI credits",
     choose: "Choose",
     priceNote:
-      "Prices in USD. Trial eligibility, taxes and billing dates are confirmed at checkout. Manage or cancel your subscription in billing before renewal. AI credits and tasks are metered separately.",
+      "Prices in USD. Trial eligibility, taxes and billing dates are confirmed at checkout. Manage or cancel your subscription in billing before renewal. AI credits and tasks are metered separately. Review pricing and maximum credits before running. Budget changes require confirmation.",
     faq: "Before you start",
     faqItems: [
       [
@@ -90,7 +90,7 @@ const shared = {
     quoteNote:
       "Una cita de ejemplo; no es una estadística del conjunto completo.",
     example: "Ver un informe de ejemplo ↓",
-    trial: "Prueba de 7 días · 30 créditos Eco · Después",
+    trial: "Prueba de 7 días · 30 créditos de IA · Después",
     mo: "/ mes",
     familiar: "Cuando los comentarios se dispersan, las señales se pierden.",
     value: "Obtén resultados. Revisa las fuentes. Guarda lo importante.",
@@ -113,10 +113,10 @@ const shared = {
     after: "Renovación mensual tras la prueba de 7 días",
     credits: "créditos AI / mes",
     tasks: "tareas / mes",
-    trialCredits: "Prueba con 30 créditos Eco",
+    trialCredits: "Prueba con 30 créditos de IA",
     choose: "Elegir",
     priceNote:
-      "Precios en USD. La elegibilidad, impuestos y fechas se confirman al pagar. Gestiona o cancela la suscripción en facturación antes de la renovación. Los créditos AI y las tareas se miden por separado.",
+      "Precios en USD. La elegibilidad, impuestos y fechas se confirman al pagar. Gestiona o cancela la suscripción en facturación antes de la renovación. Los créditos AI y las tareas se miden por separado. Revisa el precio y el máximo de créditos antes de ejecutar; los cambios requieren confirmación.",
     faq: "Antes de empezar",
     faqItems: [
       [
@@ -153,7 +153,7 @@ const shared = {
     human: "示例数据 · 输出需人工核对",
     quoteNote: "这里只展示一条示例引用，不代表全量统计。",
     example: "先看看报告示例 ↓",
-    trial: "7 天试用 · 30 Eco credits · 试用后",
+    trial: "7 天试用 · 30 AI credits · 试用后",
     mo: "/ 月",
     familiar: "不是你不够努力，是线索太零散。",
     value: "获得结果、核对证据、保存复用。",
@@ -174,10 +174,10 @@ const shared = {
     after: "7 天试用后按月续订",
     credits: "AI credits / 月",
     tasks: "task / 月",
-    trialCredits: "试用含 30 Eco credits",
+    trialCredits: "试用含 30 AI credits",
     choose: "选择",
     priceNote:
-      "价格为 USD。试用资格、税费和扣款日期以结账页为准，可在账单中管理或取消订阅。试用结束后按所选月付方案续订，AI credits 与 task 分别计量。",
+      "价格为 USD。试用资格、税费和扣款日期以结账页为准，可在账单中管理或取消订阅。试用结束后按所选月付方案续订，AI credits 与 task 分别计量。运行前确认适用计价和最高额度，预算变更需再次确认。",
     faq: "你可能还想知道",
     faqItems: [
       [

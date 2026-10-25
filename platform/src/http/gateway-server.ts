@@ -187,7 +187,7 @@ app.post('/api/pipelines/:pipelineId/test', async (request) => {
 
 app.post('/api/pipelines/:pipelineId/activate', async (request) => {
   const { pipelineId } = z.object({ pipelineId: z.string().uuid() }).parse(request.params);
-  return platformService.activatePipeline(actorFrom(request), pipelineId);
+  return platformService.activatePipeline(actorFrom(request), pipelineId,request.body);
 });
 
 app.get('/api/zernio/connect', async (request, reply) => {
@@ -265,6 +265,7 @@ app.get('/api/billing/usage', async (request) => {
   return database.withWorkspace(actor.workspaceId, usageSnapshot);
 });
 
+app.post('/api/billing/ai-quote',async request=>platformService.aiQuote(actorFrom(request),request.body));
 app.get('/api/billing/dashboard', async (request) => platformService.customerBilling.overview(actorFrom(request)));
 app.post('/api/billing/portal', async (request) => platformService.customerBilling.portal(actorFrom(request), request.body));
 app.post('/api/billing/credit-topup', async (request) => platformService.customerBilling.startTopup(actorFrom(request)));
@@ -315,6 +316,7 @@ app.get('/api/admin/newsletter', async (request, reply) => {
   reply.header('cache-control', 'no-store');
   return platformService.adminNewsletter(actorFrom(request), adminTokenFrom(request), request.query);
 });
+app.get('/api/admin/ai-costs',async request=>platformService.adminAiCosts(actorFrom(request),request.headers['x-billing-admin-token'] as string|undefined,request.query));
 app.get('/api/admin/token-usage', async (request, reply) => {
   reply.header('cache-control', 'no-store');
   return platformService.adminTokenUsage(actorFrom(request), adminTokenFrom(request), request.query);

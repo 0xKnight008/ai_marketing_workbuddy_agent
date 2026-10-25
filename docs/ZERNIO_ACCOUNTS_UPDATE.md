@@ -1,3 +1,5 @@
+> Cost-v1 update (2026-10-24): see [metering policy](AI_CREDIT_METERING.md) and [rollout](AI_CREDIT_METERING_ROLLOUT.md). Historical fixed-credit/automatic-downgrade descriptions below do not override the policy shown for a new operation. Prices, credit denominations and referral terms do not change.
+
 # Accounts connection update
 
 The Accounts picker now lists the 14 social posting platforms in Zernio's current API excluding Snapchat and WhatsApp as requested. Existing records are not deleted. Their new connections are rejected server-side, and their cards are hidden from Accounts. Shopify blog articles and advertising-only integrations are not social pipeline destinations and are not included.
@@ -11,3 +13,5 @@ Threads, Reddit and Bluesky are now visible; Discord and Slack use provider-host
 Validate real OAuth with a test workspace after deployment, particularly provider-hosted destination selection and Bluesky credential entry. Automated tests mock the provider; they do not authorize or create real accounts.
 
 API references: https://docs.zernio.com/platforms and https://docs.zernio.com/guides/connecting-accounts and https://docs.zernio.com/platforms/twitter.
+
+Current account cost budget: $1/account/month internally. Reconcile Zernio at platform-team scale, including its graduated tier premium ($218/month above marginal cost for more than 100 full-month accounts), account-days and extra metered APIs. This is not a promise of a flat $1 upstream invoice.

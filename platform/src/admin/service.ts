@@ -1,3 +1,4 @@
+import { costOperations } from '../billing/cost-metering';
 import {reasonSchema} from '../task-service/contracts';
 import { timingSafeEqual } from 'node:crypto';
 
@@ -78,6 +79,11 @@ interface AdminReferralRow {
 export class AdminService {
   constructor(private readonly config: GatewayConfig, private readonly database: Database) {}
 
+  async aiCosts(actor:ActorContext,adminToken:string|undefined,query:unknown){
+    this.authorize(actor,adminToken);
+    const input=z.object({workspaceId:z.string().uuid()}).parse(query);
+    return this.database.withWorkspace(input.workspaceId,tx=>costOperations(tx,true));
+  }
   async tokenUsage(actor: ActorContext, adminToken: string | undefined, query: unknown): Promise<unknown[]> {
     this.authorize(actor, adminToken);
     const { q, before } = searchSchema.extend({ before: z.coerce.number().int().min(1).max(Number.MAX_SAFE_INTEGER).default(Number.MAX_SAFE_INTEGER) }).parse(query ?? {});
