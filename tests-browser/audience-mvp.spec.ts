@@ -9,7 +9,7 @@ type Persona = keyof typeof personas;
 async function fixture(
   page: Page,
   persona: Persona,
-  options: { role?: string; credits?: number; existing?: boolean } = {},
+  options: { role?: string; credits?: number; existing?: boolean; quoteDelayMs?: number } = {},
 ) {
   const [template, section, field] = personas[persona];
   const quote = "Where can I find the guide?";
@@ -62,7 +62,7 @@ async function fixture(
     const req = route.request(),
       path = new URL(req.url()).pathname;
     // This fixture exercises legacy billing; quote lookup is not a business mutation.
-    if(path==='/api/billing/ai-quote')return route.fulfill({json:{mode:'legacy'}});
+    if(path==='/api/billing/ai-quote'){if(options.quoteDelayMs)await new Promise(resolve=>setTimeout(resolve,options.quoteDelayMs));return route.fulfill({json:{mode:'legacy'}});}
     if (req.method() !== "GET")
       mutations.push({ path, body: req.postDataJSON() });
     if (path === "/api/auth/me")
@@ -164,7 +164,7 @@ for (const persona of Object.keys(personas) as Persona[])
       page,
     }) => {
       await page.setViewportSize({ width, height: 1000 });
-      const f = await fixture(page, persona);
+      const f = await fixture(page, persona, { quoteDelayMs: 100 });
       await page.goto(`/app?mode=template&persona=${persona}#start`);
       await page.getByLabel("Source name", { exact: true }).fill("September");
       await page.getByLabel("Date / scope", { exact: true }).fill("This week");
@@ -178,7 +178,9 @@ for (const persona of Object.keys(personas) as Persona[])
       expect(f.mutations).toHaveLength(0);
       await page.getByRole("button", { name: "Confirm goal & run analysis" }).click();
 
-      expect(f.mutations[0].body).toMatchObject({
+      // Quote lookup completes asynchronously before the actual import write.
+      await expect.poll(()=>f.mutations.some(m=>m.path==='/api/imports')).toBe(true);
+      expect(f.mutations.find(m=>m.path==='/api/imports')!.body).toMatchObject({
         deduplicate: true,
         sourceType: "paste",
         modelBand: "standard",
