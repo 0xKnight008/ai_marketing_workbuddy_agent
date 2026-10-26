@@ -16,6 +16,12 @@ const client = createClient({
   authToken: config.storageAuthToken,
 });
 export const runtimeCostContext = new AsyncLocalStorage<MeterEnvelope>();
+const runtimeBusinessBody = new AsyncLocalStorage<unknown>();
+/** Read the authenticated business body without relying on framework body caches. */
+export async function readRuntimeRequestBody(c: { req: { json: () => Promise<unknown> } }): Promise<unknown> {
+  const business = runtimeBusinessBody.getStore();
+  return business === undefined ? c.req.json() : business;
+}
 let ready: Promise<unknown> | undefined;
 function initialize() {
   return (ready ??= (async () => {
@@ -125,7 +131,11 @@ export const meteredRequestMiddleware = async (
     result._metering = await requestReceipts(envelope.requestId);
     return c.json(result, Number(row.status));
   }
-  return runtimeCostContext.run(envelope, async () => {
+  // Hash/claim includes the entire transport envelope; business schemas must
+  // receive only the validated business body, including through Mastra wrappers.
+  const businessBody = { ...body };
+  delete businessBody._metering;
+  return runtimeBusinessBody.run(businessBody, () => runtimeCostContext.run(envelope, async () => {
     try {
       await next();
       const result = await c.res.clone().json();
@@ -155,7 +165,7 @@ export const meteredRequestMiddleware = async (
       });
       c.res = Response.json(result, { status: 502 });
     }
-  });
+  }));
 };
 const count = (v: unknown): number | null =>
   typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;

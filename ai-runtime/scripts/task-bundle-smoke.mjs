@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
 import {createServer} from 'node:http';
 import {createServer as netServer} from 'node:net';
 import {spawn} from 'node:child_process';
@@ -16,8 +17,11 @@ const requests=[];
 const model=createServer(async(req,res)=>{
  let body='';for await(const chunk of req)body+=chunk;
  requests.push({path:req.url,body:JSON.parse(body)});
- const content=JSON.stringify({action:'answer',query:'',markdown:'## Welcome\n\nHere is the requested draft.',citations:[]});
- const base={id:'local-completion',created:1,model:'mock-eco'},usage={prompt_tokens:12,completion_tokens:4,total_tokens:16};
+ const current=requests.at(-1).body;
+ const text=current.messages.map(message=>typeof message.content==='string'?message.content:(message.content??[]).map(part=>part.text??'').join('')).findLast(value=>value.includes('Items as JSON:\n'));
+ const result=text?{assignments:JSON.parse(text.slice(text.indexOf('Items as JSON:\n')+'Items as JSON:\n'.length)).map(item=>({itemIndex:item.index,tags:[],sentiment:{label:'neutral',confidence:1,evidence:item.text}}))}:{action:'answer',query:'',markdown:'## Welcome\n\nHere is the requested draft.',citations:[]};
+ const content=JSON.stringify(result);
+ const base={id:'local-completion',created:1,model:current.model},usage={prompt_tokens:12,completion_tokens:4,total_tokens:16};
  if(requests.at(-1).body.stream){res.writeHead(200,{'content-type':'text/event-stream'});res.end(`data: ${JSON.stringify({...base,object:'chat.completion.chunk',choices:[{index:0,delta:{role:'assistant',content},finish_reason:null}]})}\n\ndata: ${JSON.stringify({...base,object:'chat.completion.chunk',choices:[{index:0,delta:{},finish_reason:'stop'}],usage})}\n\ndata: [DONE]\n\n`)}
  else{res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({...base,object:'chat.completion',choices:[{index:0,message:{role:'assistant',content},finish_reason:'stop'}],usage}))}
 });
@@ -43,6 +47,21 @@ try{
  response=await execute();const paid=await response.json();assert.equal(response.status,200,JSON.stringify(paid));assert.equal(paid.action,'answer');assert.equal(paid._metering.length,1);assert.equal(paid._metering[0].status,'known');assert.equal(paid._metering[0].costNanos,'64000');
  assert.equal(requests.length,2);assert.ok(requests[1].body.max_tokens<=1500);
  response=await execute();const replay=await response.json();assert.equal(response.status,200);assert.equal(replay.markdown,paid.markdown);assert.deepEqual(replay._metering,paid._metering);assert.equal(requests.length,2);
+ for(const band of ['eco','standard','flagship'])for(const shadow of [true,false]){
+  const operationId=randomUUID();
+  // Same 48-item shape as the reported source: two chunks (25 + 23).
+  const source=Array.from({length:48},(_,index)=>({text:'Source comment '+index}));
+  for(let offset=0;offset<source.length;offset+=25){
+   const payload={modelBand:band,provider:'primary',items:source.slice(offset,offset+25).map((item,index)=>({...item,index})),_metering:{...metered._metering,operationId,requestId:randomUUID(),band,shadow,maxCostNanos:'100000000',maxInputTokens:16000,rate:{...metered._metering.rate,model:'mock-'+band,responseModels:['mock-'+band]}}};
+   const before=requests.length;
+   const classify=()=>fetch(`${base}/internal/classify`,{method:'POST',headers,body:JSON.stringify(payload),signal:AbortSignal.timeout(20000)});
+   const response=await classify(),body=await response.json();
+   assert.equal(response.status,200,JSON.stringify(body));assert.equal(body.assignments.length,payload.items.length);assert.equal(body._metering.length,1);assert.equal(body._metering[0].status,'known');assert.equal(body._metering[0].costNanos,'64000');
+   assert.equal(requests.length,before+1);assert.equal(requests.at(-1).body.model,'mock-'+band);assert.ok(!JSON.stringify(requests.at(-1).body).includes('_metering'));
+   const cached=await classify();assert.equal(cached.status,200);assert.deepEqual(await cached.json(),body);assert.equal(requests.length,before+1);
+  }
+ }
+ console.log('Built classification API: all three bands in shadow/cost-v1, 48 items in two chunks, strict input, provider calls, receipts and replay passed.');
  console.log('Built task API: auth, schema validation, execution, token ledger, cost receipts, output budget and durable replay passed.');
 }finally{
  child.kill('SIGTERM');await Promise.race([once(child,'exit'),new Promise(resolve=>setTimeout(resolve,5000))]);if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');await new Promise(resolve=>model.close(resolve));await rm(scratch,{recursive:true,force:true});
