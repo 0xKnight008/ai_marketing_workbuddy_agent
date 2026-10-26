@@ -148,11 +148,17 @@ npm ci
 cd "$deploy_dir/platform"
 npm ci
 npm run typecheck
-npm test
+# Legacy unit fixtures choose their own metering scenarios. Never let the
+# production rollout mode/rates change those fixtures; this prefix applies only
+# to the test child process, so migrations and service restarts keep production.
+AI_METERING_MODE=legacy AI_METERING_RATES_JSON= npm test
 
 cd "$deploy_dir/ai-runtime"
 npm run typecheck
-npm test
+# Legacy unit fixtures choose their own metering scenarios. Never let the
+# production rollout mode/rates change those fixtures; this prefix applies only
+# to the test child process, so migrations and service restarts keep production.
+AI_METERING_MODE=legacy AI_METERING_RATES_JSON= npm test
 npm run build
 
 cd "$deploy_dir"
