@@ -15,7 +15,7 @@ function state() {
       goal: "",
     },
     requests: [] as Array<{ path: string; body: any }>,
-    failTurn: false,paused:false,costMode:false,trialBudget:false,
+    failTurn: false,paused:false,costMode:false,shadowMode:false,trialBudget:false,
     turns: 0,
   };
 }
@@ -35,7 +35,7 @@ async function fixture(page: Page, s: ReturnType<typeof state>) {
       path = url.pathname,
       body = request.method() === "GET" ? null : request.postDataJSON();
     if (body) s.requests.push({ path, body });
-    if(path==='/api/billing/ai-quote')return route.fulfill({json:s.costMode?{mode:'cost-v1',quoteId:'55555555-5555-4555-8555-555555555555',estimatedCredits:12,maxCredits:body.maxCredits??30,expiresAt:new Date(Date.now()+600000).toISOString(),subscriptionPaymentRequired:s.trialBudget&&(body.maxCredits??30)>30}:{mode:'legacy'}});
+    if(path==='/api/billing/ai-quote')return route.fulfill({json:(s.costMode||s.shadowMode)?{mode:s.costMode?'cost-v1':'shadow',quoteId:'55555555-5555-4555-8555-555555555555',estimatedCredits:12,maxCredits:body.maxCredits??30,expiresAt:new Date(Date.now()+600000).toISOString(),subscriptionPaymentRequired:s.trialBudget&&(body.maxCredits??30)>30}:{mode:'legacy'}});
     if (path === "/api/auth/me")
       return route.fulfill({
         json: {
@@ -173,7 +173,7 @@ async function fixture(page: Page, s: ReturnType<typeof state>) {
     return route.fulfill({ json: [] });
   });
 }
-async function createTask(page: Page) {
+async function createTask(page: Page, modelBand = "flagship") {
   await page.goto("/app");
   await page.getByLabel("Source name", { exact: true }).fill("Comments");
   await page.getByLabel("One item per line", { exact: true }).fill(quote);
@@ -185,7 +185,7 @@ async function createTask(page: Page) {
     .fill("Find onboarding friction and draft a useful reply");
   await page
     .getByLabel("Model capability", { exact: true })
-    .selectOption("flagship");
+    .selectOption(modelBand);
   await page
     .getByRole("button", { name: "Run this task", exact: true })
     .click();
@@ -508,3 +508,24 @@ test('raising a trial budget requires a visible subscription charge notice and a
  await dialog.getByRole('button',{name:'Confirm budget and continue',exact:true}).click();await expect(dialog.getByRole('alert')).toContainText('starts billing');
  expect(s.requests.filter(r=>r.path.endsWith('/messages'))).toHaveLength(before);await page.keyboard.press('Escape');
 });
+
+
+for (const band of ['eco', 'standard', 'flagship']) {
+  test(`shadow ${band}: a new task binds import and turn quotes without a live-billing dialog`, async ({ page }) => {
+    const s = state();
+    s.shadowMode = true;
+    await fixture(page, s);
+    await createTask(page, band);
+    await expect(page.getByRole('dialog', { name: 'Confirm AI budget' })).toHaveCount(0);
+    expect(s.requests.filter(r => r.path === '/api/billing/ai-quote').map(r => r.body)).toEqual([
+      { kind: 'import.classify', modelBand: band },
+      { kind: 'task.turn', modelBand: band },
+    ]);
+    const writes = s.requests.filter(r => r.path === '/api/imports' || r.path.endsWith('/messages'));
+    expect(writes).toHaveLength(2);
+    for (const { body } of writes) {
+      expect(body.modelBand).toBe(band);
+      expect(body.aiQuoteId).toBe('55555555-5555-4555-8555-555555555555');
+    }
+  });
+}

@@ -196,6 +196,7 @@ export const insightResultSchemas = {
 } as const;
 
 export const createInsightReportSchema = z.object({
+  aiQuoteId: z.string().uuid().optional(),
   language: z.enum(['en', 'es', 'zh', 'auto']).optional(),
   template: insightTemplateSchema,
   title: z.string().trim().min(1).max(120).optional(),

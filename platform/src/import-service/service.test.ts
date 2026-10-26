@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { ZodError } from 'zod';
 import type { QueryResultRow } from 'pg';
 
 import type { ActorContext } from '../contracts/domain';
@@ -270,4 +271,28 @@ test('Google Sheets connection status reads the stored account and disconnect de
     service.disconnectGoogleSheets({ ...actor, role: 'viewer' }),
     /Forbidden/,
   );
+});
+
+
+test('all strict import variants accept quote metadata while rejecting malformed IDs and unrelated fields', async () => {
+  const workspaceId = '11111111-1111-4111-8111-111111111111';
+  const aiQuoteId = '22222222-2222-4222-8222-222222222222';
+  const owner = { ...actor, workspaceId };
+  const channelId = '123456789012345678';
+  const config = { ...sheetsConfig, DISCORD_IMPORT_BOT_TOKEN: 'test-only', DISCORD_IMPORT_CHANNELS: JSON.stringify({ [workspaceId]: [channelId] }) };
+  for (const fields of [
+    { sourceType: 'paste', content: 'One comment' },
+    { sourceType: 'csv', content: 'text\nOne comment' },
+    { sourceType: 'discord', channelId },
+    { sourceType: 'google_sheets', spreadsheetId: sheetId },
+  ]) {
+    const { database, statements } = mockDatabase({ subscriptionStatus: 'inactive' });
+    const service = new ImportService(database, config, async () => assert.fail('validation and subscription gating must precede provider calls'));
+    const input = { label: 'Quoted source', modelBand: 'eco', ...fields, aiQuoteId };
+    await assert.rejects(service.createImport(owner, input), error => error instanceof HttpError && error.code === 'subscription_required');
+    assert.equal(statements.some(sql => sql.startsWith('INSERT')), false);
+    for (const invalid of [{ ...input, aiQuoteId: 'not-a-uuid' }, { ...input, unrelatedField: true }]) {
+      await assert.rejects(service.createImport(owner, invalid), error => error instanceof ZodError);
+    }
+  }
 });

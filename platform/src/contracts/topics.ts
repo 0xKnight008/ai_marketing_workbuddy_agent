@@ -50,6 +50,7 @@ export const topicAssignmentResultSchema = z.object({
 export type TopicAssignmentResult = z.infer<typeof topicAssignmentResultSchema>;
 
 export const createTopicRunSchema = z.object({
+  aiQuoteId: z.string().uuid().optional(),
   modelBand: modelBandSchema.default('eco'),
 }).strict();
 
