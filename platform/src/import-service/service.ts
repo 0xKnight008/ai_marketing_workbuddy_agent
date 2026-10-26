@@ -23,6 +23,7 @@ const MAX_ITEMS_PER_BATCH = 5_000;
 const MAX_CONTENT_BYTES = 2 * 1024 * 1024;
 
 const createImportSchema = z.object({
+  aiQuoteId: z.string().uuid().optional(),
   taskId:z.string().uuid().optional(),
   label: z.string().trim().min(1).max(120),
   sourceType: z.enum(['csv', 'paste']),
@@ -31,10 +32,12 @@ const createImportSchema = z.object({
   modelBand: modelBandSchema.default('eco'),
 }).strict();
 const discordImportSchema = z.object({
+  aiQuoteId: z.string().uuid().optional(),
   label: z.string().trim().min(1).max(120), sourceType: z.literal('discord'),
   channelId: discordId, modelBand: modelBandSchema.default('eco'),
 }).strict();
 const googleSheetsImportSchema = z.object({
+  aiQuoteId: z.string().uuid().optional(),
   label: z.string().trim().min(1).max(120), sourceType: z.literal('google_sheets'),
   spreadsheetId: googleSpreadsheetId, sheetName: googleSheetName.optional(),
   modelBand: modelBandSchema.default('eco'),
@@ -90,7 +93,8 @@ export class ImportService {
 
     return this.database.withWorkspace(actor.workspaceId, async (tx) => {
       const taskId='taskId' in input?input.taskId:undefined;
-      const fingerprint=taskId?createHash('sha256').update(JSON.stringify(input)).digest('hex'):null;
+      // Quotes may be refreshed on retry; they are authorization, not source identity.
+      const fingerprint=taskId?createHash('sha256').update(JSON.stringify({...input,aiQuoteId:undefined})).digest('hex'):null;
       if(taskId){await taskActor(tx,actor,true);await tx.query('SELECT id FROM workspace_task WHERE workspace_id=$1 AND id=$2 FOR UPDATE',[actor.workspaceId,taskId]);const task=await findTask(tx,taskId);if(task.sourceKind!=='conversation'||task.archivedAt||['queued','running'].includes(task.status))throw new HttpError(409,'task_not_editable');if(task.batchIds.length){const saved=await tx.query<{fingerprint:string}>('SELECT import_fingerprint AS fingerprint FROM workspace_task WHERE workspace_id=$1 AND id=$2',[actor.workspaceId,taskId]);if(saved.rows[0]?.fingerprint!==fingerprint)throw new HttpError(409,'task_import_already_attached');return this.batchView(tx,task.batchIds[0]!);}}
       // 未订阅工作区只允许预览（灰度）；导入会触发 LLM 分类，必须在付费态。
       const billing = await tx.query<{ status: string; trialEndsAt: string | null }>(
