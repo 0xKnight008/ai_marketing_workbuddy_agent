@@ -1,3 +1,8 @@
+import { Hono } from 'hono';
+import { classifyRequestSchema } from '../schemas/classify';
+import { insightReportRequestSchema } from '../schemas/insights';
+import { topicProposeRequestSchema, topicAssignRequestSchema } from '../schemas/topics';
+import { prepareAnnouncementRequestSchema } from '../schemas/announcement';
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -7,8 +12,12 @@ import { randomUUID } from "node:crypto";
 const directory = mkdtempSync(join(tmpdir(), "piggy-metering-runtime-"));
 process.env.MASTRA_STORAGE_URL = "file:" + join(directory, "metering.db");
 after(() => rmSync(directory, { recursive: true, force: true }));
+const httpToken = "runtime-http-fixture-token";
+process.env.INTERNAL_API_TOKEN = httpToken;
+const { internalAuth } = await import("../internal-api/auth");
 const {
   runtimeCostContext,
+  readRuntimeRequestBody,
   boundedModelFetch,
   requestReceipts,
   meteredRequestMiddleware,
@@ -135,7 +144,7 @@ test("durable request replay returns the stored result rather than repeating a p
     req: {
       method: "POST",
       path: "/internal/task-step",
-      json: async () => payload,
+      json: async () => structuredClone(payload),
     },
     res: Response.json({}),
     json: (body: unknown, status: number) => Response.json(body, { status }),
@@ -170,4 +179,104 @@ test("durable request replay returns the stored result rather than repeating a p
   assert.ok(cached);
   assert.equal(((await cached.json()) as { ok: boolean }).ok, true);
   assert.equal(generations, 1);
+});
+
+const httpCases = [
+  { path: '/internal/classify', schema: classifyRequestSchema, body: { items: [{ index: 0, text: 'Where is the guide?' }] } },
+  { path: '/internal/insight-report', schema: insightReportRequestSchema, body: { template: 'comment_insights', totals: { items: 1, taggedItems: 0, tagDistribution: {} }, topItems: [], tagSamples: [] } },
+  { path: '/internal/topics/propose', schema: topicProposeRequestSchema, body: { items: [{ index: 0, text: 'Where is the guide?' }] } },
+  { path: '/internal/topics/assign', schema: topicAssignRequestSchema, body: { items: [{ index: 0, text: 'Where is the guide?' }], taxonomy: [{ key: 'guide', label: 'Guide', description: 'Finding the guide' }] } },
+  { path: '/internal/ai-runs/prepare-announcement', schema: prepareAnnouncementRequestSchema, body: { platformRunId: 'run-fixture', workspaceId: 'workspace-fixture', actorId: 'actor-fixture', input: { brief: 'Write a welcome draft', targets: [{ platform: 'linkedin', accountId: 'fixture' }] } } },
+];
+
+function httpApp(entry: typeof httpCases[number]) {
+  const app = new Hono();
+  let calls = 0;
+  app.post(entry.path, internalAuth, meteredRequestMiddleware, async c => {
+    const body = await readRuntimeRequestBody(c);
+    const parsed = entry.schema.safeParse(body);
+    if (!parsed.success) return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
+    assert.ok(body && typeof body === 'object');
+    assert.equal(Object.hasOwn(body, '_metering'), false);
+    await boundedModelFetch(async () => {
+      calls++;
+      return Response.json({ model: 'actual-fixture', usage: { prompt_tokens: 100, completion_tokens: 50 } });
+    }, 'https://fixture.invalid/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model: 'primary-flagship', messages: [{ role: 'user', content: 'fixture' }] }) });
+    return c.json({ ok: true });
+  });
+  const send = (body: unknown, token = httpToken) => app.request(entry.path, { method: 'POST', headers: { 'content-type': 'application/json', 'x-internal-token': token }, body: JSON.stringify(body) });
+  return { send, calls: () => calls };
+}
+
+for (const entry of httpCases) {
+  for (const band of ['eco', 'standard', 'flagship']) {
+    for (const shadow of [true, false]) {
+      test(`HTTP ${entry.path}/${band}/${shadow ? 'shadow' : 'cost-v1'} separates authenticated metering from strict business fields and replays once`, async () => {
+        const { send, calls } = httpApp(entry);
+        const payload = { ...entry.body, ...(entry.path.includes('prepare-announcement') ? {} : { modelBand: band }), _metering: { ...envelope(), band, shadow } };
+        const first = await send(payload);
+        const result = await first.json() as { ok: boolean; _metering: Array<{ status: string; costNanos: string }> };
+        assert.equal(first.status, 200, JSON.stringify(result));
+        assert.equal(result.ok, true);
+        assert.equal(result._metering.length, 1);
+        const receipt = result._metering[0];
+        assert.ok(receipt);
+        assert.equal(receipt.status, 'known');
+        assert.equal(receipt.costNanos, '700000');
+        assert.equal(calls(), 1);
+        const replay = await send(payload);
+        assert.equal(replay.status, 200);
+        assert.deepEqual(await replay.json(), result);
+        const conflict = await send({ ...payload, changedBusinessField: true });
+        assert.equal(conflict.status, 409);
+        assert.equal(calls(), 1);
+        assert.ok(Object.hasOwn(payload, '_metering'), 'separate HTTP requests retain their own original transport envelope');
+      });
+    }
+  }
+}
+
+test('HTTP rejects unauthorized or malformed envelopes and still rejects unknown business fields before any model call', async () => {
+  const { send, calls } = httpApp(httpCases[0]!);
+  const payload = { ...httpCases[0]!.body, _metering: envelope() };
+  assert.equal((await send(payload, 'wrong-token')).status, 401);
+  assert.equal((await send({ ...payload, _metering: { ...envelope(), maxCostNanos: '0' } })).status, 400);
+  const unknown = await send({ ...payload, _metering: envelope(), unrelatedField: true });
+  assert.equal(unknown.status, 400);
+  assert.equal(((await unknown.json()) as { error: string }).error, 'invalid_request');
+  assert.equal(calls(), 0);
+});
+
+test('HTTP legacy requests retain strict business validation without creating metered receipts', async () => {
+  const { send, calls } = httpApp(httpCases[0]!);
+  const response = await send(httpCases[0]!.body);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true });
+  assert.equal(calls(), 1);
+});
+
+
+test('parallel HTTP requests keep business bodies scoped to their own metering context', async () => {
+  const app = new Hono();
+  app.post('/parallel', internalAuth, meteredRequestMiddleware, async c => {
+    const first = await readRuntimeRequestBody(c);
+    await new Promise<void>(resolve => setImmediate(resolve));
+    const second = await readRuntimeRequestBody(c);
+    assert.deepEqual(second, first);
+    return c.json({ body: second });
+  });
+  const payloads = [
+    { text: 'workspace A', _metering: envelope() },
+    { text: 'workspace B', _metering: envelope() },
+    { text: 'legacy request' },
+  ];
+  const responses = await Promise.all(payloads.map(body => app.request('/parallel', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-internal-token': httpToken }, body: JSON.stringify(body),
+  })));
+  for (let i = 0; i < responses.length; i++) {
+    const response = responses[i]!;
+    assert.equal(response.status, 200);
+    const result = await response.json() as { body: { text: string } };
+    assert.deepEqual(result.body, { text: payloads[i]!.text });
+  }
 });
