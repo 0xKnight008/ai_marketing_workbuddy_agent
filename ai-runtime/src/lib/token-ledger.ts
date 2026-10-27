@@ -49,7 +49,7 @@ export function tokenUsageOptions(model: string, operation: string, store = ledg
   const official = officialChannelModel(model, env);
   const provider = official ? (official.url.includes('deepseek.com') ? 'deepseek' : 'zai') : 'configured-proxy';
   return {
-    ...(runtimeCostContext.getStore()&&!runtimeCostContext.getStore()!.shadow?{modelSettings:{maxRetries:0,maxOutputTokens:runtimeCostContext.getStore()!.maxOutputTokens}}:{}),
+    modelSettings: { maxRetries: 0, ...(runtimeCostContext.getStore() && !runtimeCostContext.getStore()!.shadow ? { maxOutputTokens: runtimeCostContext.getStore()!.maxOutputTokens } : {}) },
     // Per completed model step, not both usage and totalUsage (which double-counts).
     // This also captures tokens from steps whose structured result later fails validation.
     onStepFinish: async (event: StepUsage) => {

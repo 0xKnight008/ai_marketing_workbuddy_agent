@@ -1,0 +1,54 @@
+# Copy to /etc/piggybot/litellm-config.yaml; deployments do not overwrite this file.
+# Official Eco/Standard accounts and models are preserved.
+model_list:
+  - model_name: primary-eco
+    litellm_params:
+      model: deepseek/deepseek-flash
+      api_base: https://api.deepseek.com/v1
+      api_key: os.environ/DEEPSEEK_API_KEY
+      additional_drop_params: ["strictJsonSchema"]
+      num_retries: 0
+  - model_name: primary-standard
+    litellm_params:
+      # Pinned LiteLLM zai/ adapter lacks response_format; retain official OpenAI-compatible API.
+      model: openai/glm-5.3-flash
+      api_base: https://api.z.ai/api/paas/v4
+      api_key: os.environ/ZAI_API_KEY
+      additional_drop_params: ["strictJsonSchema"]
+      num_retries: 0
+    model_info:
+      input_cost_per_token: 0.00000015
+      cache_read_input_token_cost: 0.00000003
+      output_cost_per_token: 0.00000050
+  - model_name: primary-flagship
+    litellm_params:
+      model: os.environ/FLAGSHIP_UPSTREAM_MODEL
+      api_base: os.environ/FLAGSHIP_UPSTREAM_BASE_URL
+      api_key: os.environ/FLAGSHIP_UPSTREAM_API_KEY
+      additional_drop_params: ["temperature", "strictJsonSchema"]
+      num_retries: 0
+      timeout: 180
+    # Template default gpt-6-sol contract: $2 / $0.20 cached / $10 per million.
+    # Candidate generation replaces prices from the verified platform snapshot.
+    # Reconfirm these fields if FLAGSHIP_UPSTREAM_MODEL or its contract changes.
+    model_info:
+      input_cost_per_token: 0.000002
+      cache_read_input_token_cost: 0.0000002
+      output_cost_per_token: 0.000010
+router_settings:
+  num_retries: 0
+  timeout: 900
+  fallbacks: []
+  context_window_fallbacks: []
+  content_policy_fallbacks: []
+litellm_settings:
+  num_retries: 0
+  request_timeout: 900
+  drop_params: false
+  turn_off_message_logging: true
+  # Enable incoming request metadata in spend logs without storing message text.
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+  store_model_in_db: false
+  background_health_checks: false

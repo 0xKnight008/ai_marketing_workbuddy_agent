@@ -1,3 +1,4 @@
+import { tracedModelFetch } from './request-trace';
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
 import { createClient } from "@libsql/client";
@@ -352,5 +353,5 @@ export function installMeteredFetch() {
   if (installed) return;
   installed = true;
   const original = globalThis.fetch;
-  globalThis.fetch = (input, init) => boundedModelFetch(original, input, init);
+  globalThis.fetch = (input, init) => tracedModelFetch((target, options) => boundedModelFetch(original, target, options), input, init);
 }
