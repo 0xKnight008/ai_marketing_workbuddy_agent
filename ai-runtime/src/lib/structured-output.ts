@@ -5,7 +5,7 @@
 export function structuredOutputForBand<T>(schema: T, band: string, env: Readonly<Record<string, string | undefined>> = process.env) {
   return {
     schema,
-    ...(env.AI_MODEL_ROUTING_MODE?.trim() === 'three-channel' && (band === 'eco' || band === 'standard')
+    ...(['three-channel', 'litellm'].includes(env.AI_MODEL_ROUTING_MODE?.trim() ?? '') && (band === 'eco' || band === 'standard')
       ? { jsonPromptInjection: true } : {}),
   };
 }

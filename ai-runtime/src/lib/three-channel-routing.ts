@@ -1,3 +1,4 @@
+import { PROXY_MODELS, proxyBands } from './litellm-routing';
 /** Opt-in channel profile. Logical aliases are never sent to official APIs. */
 type Environment = Readonly<Record<string, string | undefined>>;
 export const THREE_CHANNEL_MODELS = {
@@ -42,6 +43,13 @@ export function threeChannelConfig(env: Environment) {
 }
 
 export function officialChannelModel(model: string, env: Environment) {
+  if (env.AI_MODEL_ROUTING_MODE?.trim() === 'litellm') {
+    const band = Object.entries(PROXY_MODELS).find(([, alias]) => alias === model)?.[0];
+    if (!band) throw new Error('Unknown model alias in LiteLLM mode');
+    if (proxyBands(env).has(band)) return undefined;
+    if (band === 'eco') return { id: 'openai/deepseek-flash' as const, url: 'https://api.deepseek.com/v1', apiKey: required(env, 'DEEPSEEK_API_KEY') };
+    return { id: 'openai/glm-5.3-flash' as const, url: 'https://api.z.ai/api/paas/v4', apiKey: required(env, 'ZAI_API_KEY') };
+  }
   if (env.AI_MODEL_ROUTING_MODE?.trim() !== 'three-channel') return undefined;
   if (model === THREE_CHANNEL_MODELS.eco || model === THREE_CHANNEL_ECO_FALLBACK) {
     return { id: 'openai/deepseek-flash' as const, url: 'https://api.deepseek.com/v1', apiKey: required(env, 'DEEPSEEK_API_KEY') };

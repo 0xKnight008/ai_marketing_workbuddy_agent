@@ -1,5 +1,7 @@
 import { installMeteredFetch, meteredRequestMiddleware, readRuntimeRequestBody, runtimeCostContext } from '../lib/cost-metering';
 installMeteredFetch();
+import { requestTraceMiddleware, requestTraceContext, listRequestTraces, markTaskFailure } from '../lib/request-trace';
+import { parseTaskOutput, taskJsonInstruction, TaskOutputError } from '../lib/task-output';
 import {createTaskAgent,taskStepRequestSchema,taskStepResultSchema} from '../agents/task-agent';
 import { registerApiRoute } from '@mastra/core/server';
 
@@ -28,13 +30,36 @@ import { createAiRunRecord, getAiRunRecord, updateAiRunRecord } from './run-regi
  * Mastra Studio 调试）。
  */
 export const internalApiRoutes = [
-  registerApiRoute('/internal/task-step',{method:'POST',middleware:[internalAuth,meteredRequestMiddleware],handler:async c=>{
+  registerApiRoute('/internal/task-step',{method:'POST',middleware:[internalAuth,requestTraceMiddleware,meteredRequestMiddleware],handler:async c=>{
     let body:unknown;try{body=await readRuntimeRequestBody(c)}catch{return c.json({error:'invalid_request'},400)}
     const parsed=taskStepRequestSchema.safeParse(body);if(!parsed.success)return c.json({error:'invalid_request',issues:parsed.error.issues},400);
-    try{const request=parsed.data;const agent=createTaskAgent(modelForBand(config,request.modelBand,request.provider),request.taskId);const {object}=await agent.generate(JSON.stringify({goal:request.goal,language:request.language,history:request.history,priorResult:request.priorResult,sources:request.sources,steps:request.steps,remainingSteps:request.remainingSteps}),{structuredOutput:structuredOutputForBand(taskStepResultSchema,request.modelBand)});return c.json(object,200)}catch{return c.json({error:'task_step_failed'},502)}
+    try {
+      const request = parsed.data;
+      const agent = createTaskAgent(modelForBand(config, request.modelBand, request.provider), request.taskId);
+      const prompt = JSON.stringify({ goal: request.goal, language: request.language, history: request.history, priorResult: request.priorResult, sources: request.sources, steps: request.steps, remainingSteps: request.remainingSteps });
+      const jsonMode = ['three-channel', 'litellm'].includes(config.modelRoutingMode) && request.modelBand !== 'flagship';
+      if (jsonMode) {
+        // Parse this same response ourselves: preserve Markdown inside JSON and never issue a paid repair retry.
+        const result = await agent.generate(taskJsonInstruction + '\nTask context:\n' + prompt);
+        return c.json(parseTaskOutput(result.text, result.finishReason), 200);
+      }
+      const result = await agent.generate(prompt, { structuredOutput: structuredOutputForBand(taskStepResultSchema, request.modelBand) });
+      return c.json(parseTaskOutput(JSON.stringify(result.object) ?? '', result.finishReason), 200);
+    } catch (error) {
+      const code = error instanceof TaskOutputError ? error.code : 'task_step_failed';
+      if (!(error instanceof TaskOutputError)) markTaskFailure(code);
+      return c.json({ error: code, requestId: requestTraceContext.getStore()?.requestId }, 502);
+    }
   }}),
+  registerApiRoute('/internal/request-traces', {
+    method: 'GET', middleware: [internalAuth], handler: async c => {
+      const id = c.req.query('id') ?? '';
+      if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(id)) return c.json({ error: 'invalid_trace_id' }, 400);
+      return c.json(await listRequestTraces(id));
+    },
+  }),
   registerApiRoute('/internal/token-usage', {
-    method: 'GET', middleware: [internalAuth,meteredRequestMiddleware],
+    method: 'GET', middleware: [internalAuth,requestTraceMiddleware,meteredRequestMiddleware],
     handler: async (c) => {
       const before = Number(c.req.query('before') ?? Number.MAX_SAFE_INTEGER);
       const q = c.req.query('q') ?? '';
@@ -49,7 +74,7 @@ export const internalApiRoutes = [
 
   registerApiRoute('/internal/ai-runs/prepare-announcement', {
     method: 'POST',
-    middleware: [internalAuth,meteredRequestMiddleware],
+    middleware: [internalAuth,requestTraceMiddleware,meteredRequestMiddleware],
     handler: async (c) => {
       const mastra = c.get('mastra');
       const logger = mastra.getLogger();
@@ -168,7 +193,7 @@ export const internalApiRoutes = [
 
   registerApiRoute('/internal/classify', {
     method: 'POST',
-    middleware: [internalAuth,meteredRequestMiddleware],
+    middleware: [internalAuth,requestTraceMiddleware,meteredRequestMiddleware],
     handler: async (c) => {
       let body: unknown;
       try {
@@ -197,7 +222,7 @@ export const internalApiRoutes = [
 
   registerApiRoute('/internal/topics/propose', {
     method: 'POST',
-    middleware: [internalAuth,meteredRequestMiddleware],
+    middleware: [internalAuth,requestTraceMiddleware,meteredRequestMiddleware],
     handler: async (c) => {
       let body: unknown;
       try {
@@ -226,7 +251,7 @@ export const internalApiRoutes = [
 
   registerApiRoute('/internal/topics/assign', {
     method: 'POST',
-    middleware: [internalAuth,meteredRequestMiddleware],
+    middleware: [internalAuth,requestTraceMiddleware,meteredRequestMiddleware],
     handler: async (c) => {
       let body: unknown;
       try {
@@ -255,7 +280,7 @@ export const internalApiRoutes = [
 
   registerApiRoute('/internal/insight-report', {
     method: 'POST',
-    middleware: [internalAuth,meteredRequestMiddleware],
+    middleware: [internalAuth,requestTraceMiddleware,meteredRequestMiddleware],
     handler: async (c) => {
       let body: unknown;
       try {
@@ -303,7 +328,7 @@ export const internalApiRoutes = [
 
   registerApiRoute('/internal/ai-runs/:aiRunId', {
     method: 'GET',
-    middleware: [internalAuth,meteredRequestMiddleware],
+    middleware: [internalAuth,requestTraceMiddleware,meteredRequestMiddleware],
     handler: async (c) => {
       const aiRunId = c.req.param('aiRunId');
       const record = await getAiRunRecord(aiRunId);

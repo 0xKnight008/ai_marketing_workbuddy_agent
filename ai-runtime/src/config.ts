@@ -3,6 +3,7 @@
  * 这里只允许出现 LLM、内部鉴权、回调投递三类配置。
  */
 
+import { litellmConfig } from './lib/litellm-routing';
 import { threeChannelConfig } from './lib/three-channel-routing';
 
 type Environment = Readonly<Record<string, string | undefined>>;
@@ -51,10 +52,10 @@ function httpUrl(env: Environment, name: string, fallback?: string): string {
   return url.toString();
 }
 
-function routingMode(env: Environment): 'direct' | 'proxy' | 'three-channel' {
+function routingMode(env: Environment): 'direct' | 'proxy' | 'three-channel' | 'litellm' {
   const value = optional(env, 'AI_MODEL_ROUTING_MODE') ?? 'direct';
-  if (value !== 'direct' && value !== 'proxy' && value !== 'three-channel') {
-    throw new Error('AI_MODEL_ROUTING_MODE must be direct, proxy or three-channel');
+  if (value !== 'direct' && value !== 'proxy' && value !== 'three-channel' && value !== 'litellm') {
+    throw new Error('AI_MODEL_ROUTING_MODE must be direct, proxy, three-channel or litellm');
   }
   return value;
 }
@@ -115,8 +116,8 @@ export function loadConfig(env: Environment = process.env) {
   } as const;
   const modelRoutingMode = routingMode(env);
   let openAiBaseUrl: string | undefined;
-  if (modelRoutingMode === 'three-channel') {
-    const channels = threeChannelConfig(env);
+  if (modelRoutingMode === 'three-channel' || modelRoutingMode === 'litellm') {
+    const channels = modelRoutingMode === 'litellm' ? litellmConfig(env) : threeChannelConfig(env);
     models = channels.models;
     fallbackModels = channels.fallbackModels;
     openAiBaseUrl = channels.openAiBaseUrl;

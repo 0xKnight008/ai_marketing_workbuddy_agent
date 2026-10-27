@@ -61,7 +61,14 @@ export class AiRuntimeClient {
 
   async taskStep(payload:Record<string,unknown>):Promise<Record<string,unknown>> {
     const response=await this.fetchImpl(new URL('/internal/task-step',this.options.baseUrl),{method:'POST',headers:{'content-type':'application/json','x-internal-token':this.options.internalToken},body:JSON.stringify(payload),signal:AbortSignal.timeout(AI_RUNTIME_INSIGHT_TIMEOUT_MS)});
-    if(!response.ok)throw new Error(`AI task step failed: ${response.status}`);return await response.json() as Record<string,unknown>;
+    if (!response.ok) {
+      let data: any; try { data = await response.json(); } catch { data = {}; }
+      const allowed = new Set(['task_output_truncated', 'task_output_filtered', 'task_output_incomplete', 'task_output_empty', 'task_output_invalid_json', 'task_output_invalid_schema', 'task_output_missing_content', 'task_step_failed']);
+      const code = allowed.has(data.error) ? data.error : String(response.status);
+      const id = typeof data.requestId === 'string' && /^[0-9a-f-]{36}$/i.test(data.requestId) ? ` (request ${data.requestId})` : '';
+      throw new Error(`AI task step failed: ${code}${id}`);
+    }
+    return await response.json() as Record<string, unknown>;
   }
 
   /** Synchronous batch classification for imported items (iteration-1 tagging). */

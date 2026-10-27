@@ -10,7 +10,7 @@ services:
     ports:
       - "127.0.0.1:4400:4000"
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
+      - ${LITELLM_CONFIG_FILE:-./config.yaml}:/app/config.yaml:ro
     command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "1"]
     depends_on:
       db:
