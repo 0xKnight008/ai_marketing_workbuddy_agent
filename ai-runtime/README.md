@@ -118,3 +118,7 @@ curl -X POST http://localhost:4111/internal/ai-runs/prepare-announcement \
 ## Staged unified LiteLLM routing
 
 `AI_MODEL_ROUTING_MODE=litellm` uses fixed `primary-eco`, `primary-standard`, and `primary-flagship` aliases. `AI_PROXY_BANDS=standard,flagship` keeps Eco direct for initial rollout; omit it or use `eco,standard,flagship` after acceptance. Each band retains its official supplier and there is no automatic model fallback. See [the migration and request-tracing guide](../docs/UNIFIED_LITELLM_MIGRATION.md) for protected env candidates, rate identities, virtual-key permissions, JSON output validation and rollback.
+
+## Long-running model requests
+
+Mastra receives `server.timeout` explicitly: `AI_RUNTIME_REQUEST_TIMEOUT_MS` defaults to 960000 ms, outside `AI_MODEL_HTTP_TIMEOUT_MS` (930000 ms) and the longest LiteLLM model timeout (900 s). Platform synchronous AI calls default to 1200000 ms. Model requests and Platform-to-Runtime requests have dedicated HTTP dispatchers so native fetch header/body deadlines do not cut work short. The Runtime health endpoint reports both active deadlines. Real model HTTP timeouts remain bounded and replay never silently issues another paid request.

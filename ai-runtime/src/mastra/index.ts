@@ -35,6 +35,8 @@ export const mastra = new Mastra({
   server: {
     port: config.port,
     host: config.host,
+    // Mastra defaults to 180s, shorter than valid reasoning-model responses.
+    timeout: config.requestTimeoutMs,
     apiRoutes: internalApiRoutes,
   },
 });

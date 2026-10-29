@@ -1,4 +1,5 @@
-import { tracedModelFetch } from './request-trace';
+import { Agent } from 'undici';
+import { tracedModelFetch, markTaskFailure } from './request-trace';
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
 import { createClient } from "@libsql/client";
@@ -137,14 +138,18 @@ export const meteredRequestMiddleware = async (
   const businessBody = { ...body };
   delete businessBody._metering;
   return runtimeBusinessBody.run(businessBody, () => runtimeCostContext.run(envelope, async () => {
+    let stage: 'handler' | 'response' | 'receipts' | 'cache' = 'handler';
     try {
       await next();
+      stage = 'response';
       const result = await c.res.clone().json();
       if (envelope.guardError) {
         result.error = envelope.guardError;
         c.res = Response.json(result, { status: 409 });
       }
+      stage = 'receipts';
       result._metering = await requestReceipts(envelope.requestId);
+      stage = 'cache';
       await client.execute({
         sql: `UPDATE ai_metered_request SET state='completed',body=?,status=?,run_id=? WHERE id=?`,
         args: [
@@ -156,8 +161,10 @@ export const meteredRequestMiddleware = async (
       });
       c.res = Response.json(result, { status: c.res.status });
     } catch {
+      markTaskFailure(`metered_${stage}_failed`);
       const result = {
         error: "metered_execution_failed",
+        stage,
         _metering: await requestReceipts(envelope.requestId),
       };
       await client.execute({
@@ -353,5 +360,16 @@ export function installMeteredFetch() {
   if (installed) return;
   installed = true;
   const original = globalThis.fetch;
-  globalThis.fetch = (input, init) => tracedModelFetch((target, options) => boundedModelFetch(original, target, options), input, init);
+  // A longer AbortSignal alone does not override native fetch's header/body timers.
+  // Scope the dispatcher to model requests; storage/callback transports keep their own policy.
+  const dispatcher = new Agent({ headersTimeout: config.modelHttpTimeoutMs, bodyTimeout: config.modelHttpTimeoutMs });
+  const modelFetch: typeof fetch = (input, init) => original(input, {
+    ...init,
+    dispatcher,
+    signal: AbortSignal.any([...(init?.signal ? [init.signal] : []), AbortSignal.timeout(config.modelHttpTimeoutMs)]),
+  } as unknown as RequestInit);
+  globalThis.fetch = (input, init) => {
+    if (!String(input).endsWith('/chat/completions') || init?.method?.toUpperCase() !== 'POST') return original(input, init);
+    return tracedModelFetch((target, options) => boundedModelFetch(modelFetch, target, options), input, init);
+  };
 }

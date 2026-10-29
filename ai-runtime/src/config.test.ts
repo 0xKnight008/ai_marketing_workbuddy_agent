@@ -93,3 +93,14 @@ test('defaults the server host to loopback and honors HOST overrides', () => {
   });
   assert.equal(overridden.host, '0.0.0.0');
 });
+
+
+test('production server deadline outlives model HTTP deadline', () => {
+  const loaded = loadConfig(validProductionProxyEnv);
+  assert.equal(loaded.modelHttpTimeoutMs, 930_000);
+  assert.equal(loaded.requestTimeoutMs, 960_000);
+  assert.throws(() => loadConfig({ ...validProductionProxyEnv, AI_RUNTIME_REQUEST_TIMEOUT_MS: '180000' }), /must exceed/);
+  for (const invalid of ['0', '-1', 'NaN']) assert.throws(() => loadConfig({ ...validProductionProxyEnv, AI_MODEL_HTTP_TIMEOUT_MS: invalid }), /positive integer/);
+  const testConfig = loadConfig({ AI_RUNTIME_REQUEST_TIMEOUT_MS: '1000', AI_MODEL_HTTP_TIMEOUT_MS: '900' });
+  assert.equal(testConfig.requestTimeoutMs, 1000);
+});
