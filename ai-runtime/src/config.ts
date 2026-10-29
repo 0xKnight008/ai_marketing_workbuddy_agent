@@ -3,6 +3,7 @@
  * 这里只允许出现 LLM、内部鉴权、回调投递三类配置。
  */
 
+import { MODEL_HTTP_TIMEOUT_MS, RUNTIME_REQUEST_TIMEOUT_MS } from '../../shared/runtime-timeouts';
 import { litellmConfig } from './lib/litellm-routing';
 import { threeChannelConfig } from './lib/three-channel-routing';
 
@@ -130,7 +131,14 @@ export function loadConfig(env: Environment = process.env) {
     throw new Error('MASTRA_STORAGE_URL must use a shared LibSQL endpoint in production');
   }
 
+  const modelHttpTimeoutMs = positiveInteger(env, 'AI_MODEL_HTTP_TIMEOUT_MS', MODEL_HTTP_TIMEOUT_MS);
+  const requestTimeoutMs = positiveInteger(env, 'AI_RUNTIME_REQUEST_TIMEOUT_MS', RUNTIME_REQUEST_TIMEOUT_MS);
+  if (env.NODE_ENV === 'production' && requestTimeoutMs <= modelHttpTimeoutMs) {
+    throw new Error('AI_RUNTIME_REQUEST_TIMEOUT_MS must exceed AI_MODEL_HTTP_TIMEOUT_MS');
+  }
   return {
+    modelHttpTimeoutMs,
+    requestTimeoutMs,
     models,
     fallbackModels,
     modelRoutingMode,

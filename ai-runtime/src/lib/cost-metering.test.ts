@@ -1,4 +1,6 @@
 import { Hono } from 'hono';
+import { timeout } from 'hono/timeout';
+
 import { classifyRequestSchema } from '../schemas/classify';
 import { insightReportRequestSchema } from '../schemas/insights';
 import { topicProposeRequestSchema, topicAssignRequestSchema } from '../schemas/topics';
@@ -15,6 +17,7 @@ after(() => rmSync(directory, { recursive: true, force: true }));
 const httpToken = "runtime-http-fixture-token";
 process.env.INTERNAL_API_TOKEN = httpToken;
 const { internalAuth } = await import("../internal-api/auth");
+const { loadConfig } = await import("../config");
 const {
   runtimeCostContext,
   readRuntimeRequestBody,
@@ -279,4 +282,51 @@ test('parallel HTTP requests keep business bodies scoped to their own metering c
     const result = await response.json() as { body: { text: string } };
     assert.deepEqual(result.body, { text: payloads[i]!.text });
   }
+});
+
+
+test('reproduces a short server deadline poisoning a late successful metered result', async () => {
+  const meta = envelope();
+  const app = new Hono();
+  let calls = 0;
+  let finished!: () => void;
+  const completed = new Promise<void>(resolve => { finished = resolve; });
+  app.use('*', timeout(25));
+  app.use('*', async (_c, next) => { try { await next(); } finally { finished(); } });
+  app.post('/internal/classify', internalAuth, meteredRequestMiddleware, async c => {
+    calls++;
+    await new Promise(resolve => setTimeout(resolve, 100));
+    return c.json({ assignments: [] });
+  });
+  const run = () => app.request('/internal/classify', { method: 'POST', headers: { 'content-type': 'application/json', 'x-internal-token': httpToken }, body: JSON.stringify({ _metering: meta }) });
+  const first = await run();
+  assert.equal(first.status, 504);
+  await first.text(); // HTTP server consumes the timeout response while generation continues.
+  await completed;
+  const replay = await run();
+  assert.equal(replay.status, 502);
+  assert.equal((await replay.json() as { error: string }).error, 'metered_execution_failed');
+  assert.equal(calls, 1);
+});
+
+
+test('aligned server deadline preserves a slow result and replay without another model call', async () => {
+  const meta = envelope();
+  const app = new Hono();
+  const configured = loadConfig({ AI_RUNTIME_REQUEST_TIMEOUT_MS: '1000', AI_MODEL_HTTP_TIMEOUT_MS: '900' });
+  let calls = 0;
+  app.use('*', timeout(configured.requestTimeoutMs));
+  app.post('/internal/classify', internalAuth, meteredRequestMiddleware, async c => {
+    calls++;
+    await new Promise(resolve => setTimeout(resolve, 100));
+    return c.json({ assignments: [] });
+  });
+  const run = () => app.request('/internal/classify', { method: 'POST', headers: { 'content-type': 'application/json', 'x-internal-token': httpToken }, body: JSON.stringify({ _metering: meta }) });
+  const first = await run();
+  assert.equal(first.status, 200);
+  const result = await first.json();
+  const replay = await run();
+  assert.equal(replay.status, 200);
+  assert.deepEqual(await replay.json(), result);
+  assert.equal(calls, 1);
 });

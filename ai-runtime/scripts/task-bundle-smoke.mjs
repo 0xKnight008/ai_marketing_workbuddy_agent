@@ -19,6 +19,8 @@ const model=createServer(async(req,res)=>{
  let body='';for await(const chunk of req)body+=chunk;
  requests.push({path:req.url,body:JSON.parse(body)});
  const current=requests.at(-1).body;
+ if(replyMode==='slow')await new Promise(resolve=>setTimeout(resolve,600));
+ if(replyMode==='http-timeout')await new Promise(resolve=>setTimeout(resolve,1600));
  const text=current.messages.map(message=>typeof message.content==='string'?message.content:(message.content??[]).map(part=>part.text??'').join('')).findLast(value=>value.includes('Items as JSON:\n'));
  const result=text?{assignments:JSON.parse(text.slice(text.indexOf('Items as JSON:\n')+'Items as JSON:\n'.length)).map(item=>({itemIndex:item.index,tags:[],sentiment:{label:'neutral',confidence:1,evidence:item.text}}))}:{action:'answer',query:'',markdown:'## Welcome\n\nHere is the requested draft.',citations:[]};
  const content=replyMode==='invalid'?'Here is the report, without JSON.':replyMode==='empty'?'':replyMode==='fenced'?'```json\n'+JSON.stringify(result)+'\n```':JSON.stringify(result);
@@ -31,7 +33,7 @@ const model=createServer(async(req,res)=>{
 });
 await new Promise(resolve=>model.listen(0,'127.0.0.1',resolve));
 const probe=netServer();await new Promise(resolve=>probe.listen(0,'127.0.0.1',resolve));const runtimePort=probe.address().port;await new Promise(resolve=>probe.close(resolve));
-const env={...process.env,NODE_ENV:'test',HOST:'127.0.0.1',PORT:String(runtimePort),INTERNAL_API_TOKEN:token,MASTRA_STORAGE_URL:`file:${join(scratch,'runtime.db')}`,MASTRA_STORAGE_AUTH_TOKEN:'',OPENAI_API_KEY:'local-test-only',OPENAI_BASE_URL:`http://127.0.0.1:${model.address().port}/v1`,AI_MODEL_ROUTING_MODE:'litellm',AI_PROXY_BANDS:'eco,standard,flagship'};
+const env={...process.env,NODE_ENV:'test',HOST:'127.0.0.1',PORT:String(runtimePort),INTERNAL_API_TOKEN:token,MASTRA_STORAGE_URL:`file:${join(scratch,'runtime.db')}`,MASTRA_STORAGE_AUTH_TOKEN:'',OPENAI_API_KEY:'local-test-only',OPENAI_BASE_URL:`http://127.0.0.1:${model.address().port}/v1`,AI_MODEL_ROUTING_MODE:'litellm',AI_PROXY_BANDS:'eco,standard,flagship',AI_MODEL_HTTP_TIMEOUT_MS:'1200',AI_RUNTIME_REQUEST_TIMEOUT_MS:'3000'};
 for(const band of ['ECO','STANDARD','FLAGSHIP']){env[`AI_MODEL_${band}`]=`openai/mock-${band.toLowerCase()}`;env[`AI_MODEL_${band}_FALLBACK`]=`openai/mock-${band.toLowerCase()}-fallback`;}
 const child=spawn(process.execPath,['index.mjs'],{cwd:fileURLToPath(new URL('../.mastra/output/',import.meta.url)),env,stdio:['ignore','pipe','pipe']});
 let logs='';for(const output of [child.stdout,child.stderr])output.on('data',chunk=>{logs=(logs+chunk).slice(-16000)});
@@ -40,6 +42,7 @@ try{
  const deadline=Date.now()+45000;let ready=false;
  while(Date.now()<deadline){if(child.exitCode!==null)throw new Error(`Built runtime exited: ${logs}`);try{ready=(await fetch(`${base}/internal/health`,{signal:AbortSignal.timeout(1000)})).ok}catch{}if(ready)break;await new Promise(resolve=>setTimeout(resolve,150));}
  assert.ok(ready,`Built runtime did not become ready: ${logs}`);
+ const health=await (await fetch(`${base}/internal/health`)).json();assert.equal(health.requestTimeoutMs,3000);assert.equal(health.modelHttpTimeoutMs,1200);
  let response=await fetch(`${base}/internal/task-step`,{method:'POST',headers:{'content-type':'application/json'},body:'{}'});assert.equal(response.status,401);
  const headers={'content-type':'application/json','x-internal-token':token};response=await fetch(`${base}/internal/task-step`,{method:'POST',headers,body:'{}'});assert.equal(response.status,400);assert.equal(requests.length,0);
  response=await fetch(`${base}/internal/task-step`,{method:'POST',headers,body:JSON.stringify({taskId,goal:'Write a welcome draft',language:'en',modelBand:'eco',provider:'primary',history:[{role:'user',content:'Write a welcome draft'}],sources:[],steps:[],remainingSteps:4}),signal:AbortSignal.timeout(20000)});
@@ -84,6 +87,20 @@ try{
   assert.equal(requests.at(-1).body.metadata.piggybot_task_id,taskId);
  }
  assert.equal((await fetch(`${base}/internal/request-traces?id=${taskId}`)).status,401);
+ // Delayed classification must preserve valid output/receipts and never call again on replay.
+ replyMode='slow';
+ const slowId=randomUUID(),slowPayload={modelBand:'standard',provider:'primary',items:[{index:0,text:'Local delayed fixture'}],_metering:{...metered._metering,requestId:slowId,operationId:randomUUID(),band:'standard',rate:{...metered._metering.rate,model:'primary-standard',responseModels:['primary-standard']}}};
+ const beforeSlow=requests.length;
+ const slow=()=>fetch(`${base}/internal/classify`,{method:'POST',headers,body:JSON.stringify(slowPayload)});
+ const slowResult=await slow(),slowBody=await slowResult.json();assert.equal(slowResult.status,200,JSON.stringify(slowBody));assert.equal(slowBody.assignments.length,1);assert.equal(slowBody._metering[0].status,'known');
+ const slowReplay=await slow();assert.deepEqual(await slowReplay.json(),slowBody);assert.equal(requests.length,beforeSlow+1);
+ replyMode='http-timeout';
+ const timeoutPayload={...slowPayload,_metering:{...slowPayload._metering,requestId:randomUUID(),operationId:randomUUID()}};
+ const beforeTimeout=requests.length;
+ const timed=()=>fetch(`${base}/internal/classify`,{method:'POST',headers,body:JSON.stringify(timeoutPayload)});
+ const timedResult=await timed(),timedBody=await timedResult.json();assert.equal(timedResult.status,502);assert.equal(timedBody._metering[0].status,'unknown');
+ const timedReplay=await timed();assert.equal(timedReplay.status,502);assert.deepEqual(await timedReplay.json(),timedBody);assert.equal(requests.length,beforeTimeout+1);
+ console.log('Compiled deadlines: delayed classification succeeds, genuine transport timeout stays bounded, receipts and replay remain durable.');
  console.log('Built unified proxy tasks: JSON modes, all bands, output failures, call correlation, sanitized traces and single-charge replay passed.');
  console.log('Built classification API: all three bands in shadow/cost-v1, 48 items in two chunks, strict input, provider calls, receipts and replay passed.');
  console.log('Built task API: auth, schema validation, execution, token ledger, cost receipts, output budget and durable replay passed.');

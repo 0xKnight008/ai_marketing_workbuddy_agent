@@ -10,6 +10,16 @@
 
 Runtime 使用现有 LibSQL 自动创建 `ai_request_trace` 和查询索引；这是新增诊断表，无 PostgreSQL migration，无历史账本重写。已有计费/退款及 RLS 不变。备份现有 LibSQL，日志按原有数据库备份/保留策略管理。
 
+## 慢响应的 HTTP 超时修复
+
+生产任务 `5ff6fc50-6d74-4d0c-88b4-a39e5ee945f2` 的第二个分类 chunk 在约 211 秒后成功返回，但 Mastra 默认的 180 秒 HTTP deadline 已经结束请求。迟到的结果随后被缓存为 `metered_execution_failed`。这与 Z.AI Standard API / Coding Plan 密钥类型无关；当前官方 Standard API 地址和密钥应继续使用。
+
+修复后的默认层级为：LiteLLM Eco/Standard 900 秒 → Runtime 模型 HTTP 传输 930 秒 → Mastra HTTP server 960 秒 → Platform 同步 AI 请求 1200 秒。Flagship 的代理超时仍为 180 秒。两侧使用独立 Undici dispatcher，避免原生 fetch 的 header/body 超时先于应用 deadline；模型请求同时保留总时长 AbortSignal，真正超时仍终止等待。
+
+`AI_MODEL_HTTP_TIMEOUT_MS` 和 `AI_RUNTIME_REQUEST_TIMEOUT_MS` 可覆盖 Runtime 默认值（毫秒）；生产环境要求后者大于前者。Platform 如已有 `AI_RUNTIME_CLASSIFY_TIMEOUT_MS` / `AI_RUNTIME_INSIGHT_TIMEOUT_MS` / `AI_RUNTIME_TOPICS_TIMEOUT_MS` 自定义值，应确认它们大于 Runtime deadline。未设置时直接使用新默认值，无需改环境文件。`/internal/health` 返回实际 `modelHttpTimeoutMs` 和 `requestTimeoutMs`，用于验证新进程已经加载配置。
+
+本修复无需数据库 migration、不改费率、不开启 cost-v1，也不会自动重跑历史失败任务。已有成功分类保留，失败预扣按既有退款链路处理；不删除幂等记录或财务记录。模型请求超过预算/输出限制仍会按原 guardrail 处理。
+
 ## 1. 部署代码并备份
 
 待 PR 合并部署后，在服务器同一个 shell 执行以下命令。`NODE_BIN` 使用目前可用 Node 路径；不依赖以前终端定义的 shell 函数。

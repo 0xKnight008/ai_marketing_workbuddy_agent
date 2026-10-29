@@ -1,11 +1,19 @@
+import { Agent } from 'undici';
+import { PLATFORM_RUNTIME_TIMEOUT_MS } from '../../../shared/runtime-timeouts';
 import { CostBudgetRequired, costContext, receiveCostReceipts } from '../billing/cost-metering';
 
 // AI runtime call timeouts (ms). Tune for slow upstream LLM gateways:
 // the routing proxy may take several minutes per chunk depending on
 // model band and load. Defaults are 3-4x the worst observed latency.
-const AI_RUNTIME_CLASSIFY_TIMEOUT_MS = Number(process.env.AI_RUNTIME_CLASSIFY_TIMEOUT_MS ?? 900_000);
-const AI_RUNTIME_INSIGHT_TIMEOUT_MS = Number(process.env.AI_RUNTIME_INSIGHT_TIMEOUT_MS ?? 1_200_000);
-const AI_RUNTIME_TOPICS_TIMEOUT_MS = Number(process.env.AI_RUNTIME_TOPICS_TIMEOUT_MS ?? 900_000);
+const AI_RUNTIME_CLASSIFY_TIMEOUT_MS = Number(process.env.AI_RUNTIME_CLASSIFY_TIMEOUT_MS ?? PLATFORM_RUNTIME_TIMEOUT_MS);
+const AI_RUNTIME_INSIGHT_TIMEOUT_MS = Number(process.env.AI_RUNTIME_INSIGHT_TIMEOUT_MS ?? PLATFORM_RUNTIME_TIMEOUT_MS);
+const AI_RUNTIME_TOPICS_TIMEOUT_MS = Number(process.env.AI_RUNTIME_TOPICS_TIMEOUT_MS ?? PLATFORM_RUNTIME_TIMEOUT_MS);
+
+// Dedicated dispatcher also removes native fetch's shorter header/body deadlines.
+const runtimeDispatcher = new Agent({
+  headersTimeout: Math.max(AI_RUNTIME_CLASSIFY_TIMEOUT_MS, AI_RUNTIME_INSIGHT_TIMEOUT_MS, AI_RUNTIME_TOPICS_TIMEOUT_MS),
+  bodyTimeout: Math.max(AI_RUNTIME_CLASSIFY_TIMEOUT_MS, AI_RUNTIME_INSIGHT_TIMEOUT_MS, AI_RUNTIME_TOPICS_TIMEOUT_MS),
+});
 
 export interface AiRuntimeClientOptions {
   baseUrl: string;
@@ -26,7 +34,7 @@ export class AiRuntimeClient {
   private readonly fetchImpl: typeof fetch;
 
   constructor(private readonly options: AiRuntimeClientOptions) {
-    const original=options.fetchImpl ?? fetch;
+    const original: typeof fetch = options.fetchImpl ?? ((input, init) => fetch(input, { ...init, dispatcher: runtimeDispatcher } as unknown as RequestInit));
     this.fetchImpl=async(input,init)=>{
       const ctx=costContext.getStore();
       if(ctx?.envelope && init?.method==='POST' && init.body){const payload=JSON.parse(String(init.body));payload._metering=ctx.envelope;init={...init,body:JSON.stringify(payload)};}
