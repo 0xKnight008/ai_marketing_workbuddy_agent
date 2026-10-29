@@ -343,6 +343,8 @@ const receiptSchema = z.object({
   input: z.number().int().nonnegative().nullable(),
   output: z.number().int().nonnegative().nullable(),
   cached: z.number().int().nonnegative().nullable(),
+  cacheWrite5m: z.number().int().nonnegative().optional(),
+  cacheWrite1h: z.number().int().nonnegative().optional(),
   costNanos: z.string().nullable(),
   status: z.enum(["known", "unknown"]),
   startedAt: z.string().datetime().optional(),
@@ -375,7 +377,7 @@ export async function receiveCostReceipts(
       try {
         cost = usageCostNanos(
           rate,
-          { input: r.input, output: r.output, cached: r.cached },
+          { input: r.input, output: r.output, cached: r.cached, cacheWrite5m: r.cacheWrite5m, cacheWrite1h: r.cacheWrite1h },
           r.startedAt,
         ).toString();
       } catch {

@@ -10,6 +10,8 @@ export function proxyBands(env: Environment): Set<string> {
 }
 export function litellmConfig(env: Environment) {
   const selected = proxyBands(env);
+  if (env.AI_PROXY_MODEL_PROFILE && env.AI_PROXY_MODEL_PROFILE !== 'onetoken') throw new Error('Unknown proxy model profile');
+  if (env.AI_PROXY_MODEL_PROFILE === 'onetoken' && selected.size !== 3) throw new Error('1Token profile requires all three proxy bands');
   if (!env.OPENAI_API_KEY?.trim()) throw new Error('Missing required env var: OPENAI_API_KEY');
   const root = new URL(env.OPENAI_BASE_URL ?? '');
   if (!['http:', 'https:'].includes(root.protocol) || root.username || root.password || root.search || root.hash || !root.pathname.replace(/\/$/, '').endsWith('/v1') || (root.protocol === 'http:' && !['127.0.0.1', 'localhost', '[::1]'].includes(root.hostname))) {
@@ -23,5 +25,6 @@ export function litellmConfig(env: Environment) {
 }
 export function usesJsonObject(model: string, env: Environment = process.env): boolean {
   if (!['three-channel', 'litellm'].includes(env.AI_MODEL_ROUTING_MODE?.trim() ?? '')) return false;
-  return ['deepseek-flash', 'glm-5.3-flash', 'primary-eco', 'primary-standard'].includes(model.replace(/^openai\//, ''));
+  const id = model.replace(/^openai\//, '');
+  return ['deepseek-flash', 'glm-5.3-flash', 'primary-eco', 'primary-standard'].includes(id) || (env.AI_MODEL_ROUTING_MODE === 'litellm' && env.AI_PROXY_MODEL_PROFILE === 'onetoken' && id === 'primary-flagship');
 }

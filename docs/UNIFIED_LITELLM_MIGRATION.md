@@ -1,5 +1,7 @@
 # 三档 LiteLLM 路由、Standard 输出及请求追踪
 
+Standard/Flagship 更换为 1Token GPT/Opus 后，请使用 [新的迁移文档](ONETOKEN_STANDARD_FLAGSHIP_MIGRATION.md)。本页保留原始 Z.AI 迁移记录；旧脚本会拒绝已切换的 onetoken profile。
+
 本次发布增加 `AI_MODEL_ROUTING_MODE=litellm`。普通部署仍使用服务器现有环境；下面的人工切换才会改变路由。先 Standard + Flagship，验证后再加入 Eco。订阅价格、credits 面值及 `shadow` 模式保持现状。禁止通过代理重试或 fallback 自动升级/降级模型。
 
 ## 修复及诊断边界

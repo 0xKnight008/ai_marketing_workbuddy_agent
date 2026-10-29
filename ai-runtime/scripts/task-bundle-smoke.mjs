@@ -24,8 +24,8 @@ const model=createServer(async(req,res)=>{
  const text=current.messages.map(message=>typeof message.content==='string'?message.content:(message.content??[]).map(part=>part.text??'').join('')).findLast(value=>value.includes('Items as JSON:\n'));
  const result=text?{assignments:JSON.parse(text.slice(text.indexOf('Items as JSON:\n')+'Items as JSON:\n'.length)).map(item=>({itemIndex:item.index,tags:[],sentiment:{label:'neutral',confidence:1,evidence:item.text}}))}:{action:'answer',query:'',markdown:'## Welcome\n\nHere is the requested draft.',citations:[]};
  const content=replyMode==='invalid'?'Here is the report, without JSON.':replyMode==='empty'?'':replyMode==='fenced'?'```json\n'+JSON.stringify(result)+'\n```':JSON.stringify(result);
- if(current.model!=='primary-flagship')assert.equal(current.response_format?.type,'json_object');
- if(current.model!=='primary-flagship')assert.equal(current.strictJsonSchema,undefined);
+ if(current.model!=='primary-flagship'||process.env.AI_PROXY_MODEL_PROFILE==='onetoken')assert.equal(current.response_format?.type,'json_object');
+ if(current.model!=='primary-flagship'||process.env.AI_PROXY_MODEL_PROFILE==='onetoken')assert.equal(current.strictJsonSchema,undefined);
  else assert.equal(current.response_format?.type,'json_schema');
  const base={id:'local-completion',created:1,model:current.model},usage={prompt_tokens:12,completion_tokens:4,total_tokens:16};
  if(requests.at(-1).body.stream){res.writeHead(200,{'content-type':'text/event-stream'});res.end(`data: ${JSON.stringify({...base,object:'chat.completion.chunk',choices:[{index:0,delta:{role:'assistant',content},finish_reason:null}]})}\n\ndata: ${JSON.stringify({...base,object:'chat.completion.chunk',choices:[{index:0,delta:{},finish_reason:replyMode==='truncated'?'length':'stop'}],usage})}\n\ndata: [DONE]\n\n`)}
