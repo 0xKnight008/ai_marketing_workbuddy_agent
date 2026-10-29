@@ -8,6 +8,7 @@ export function prepareRouting(platformText,runtimeText,proxyText,selected){
  const routed=selected.split(',').map(s=>s.trim());
  if(!routed.includes('flagship')||new Set(routed).size!==routed.length||routed.some(b=>!bands.includes(b)))throw new Error('Invalid bands');
  const platform=parseEnv(platformText),runtime=parseEnv(runtimeText),proxy=parseEnv(proxyText);
+ if(proxy.LITELLM_ROUTING_PROFILE==='onetoken')throw new Error('Use prepare-onetoken-proxy for the 1Token profile');
  if(platform.AI_METERING_MODE!=='shadow')throw new Error('Migration candidates require shadow mode');
  if(!runtime.OPENAI_API_KEY||!runtime.OPENAI_BASE_URL)throw new Error('Missing runtime proxy credentials');
  const rates=JSON.parse(platform.AI_METERING_RATES_JSON??'');

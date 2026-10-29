@@ -7,8 +7,10 @@ import {
 } from "../../../shared/ai-metering";
 async function main() {
   const mode = meteringMode();
+  let cacheWriteRequired = false;
   if (mode !== "legacy") {
     const rates = ratesFromEnv();
+    cacheWriteRequired = Object.values(rates).some(r => r.cacheWrite5mUsdPerMillion || r.cacheWrite1hUsdPerMillion);
     for (const rate of Object.values(rates))
       rateForTime(rate, new Date().toISOString());
   }
@@ -41,9 +43,10 @@ async function main() {
       ),
       { signal: AbortSignal.timeout(10000) },
     );
-    const health = (await response.json()) as { meteringProtocol?: string };
+    const health = (await response.json()) as { meteringProtocol?: string; cacheWriteMetering?: boolean };
     if (!response.ok || health.meteringProtocol !== "cost-v1")
       throw new Error("runtime_metering_version_mismatch");
+    if (cacheWriteRequired && !health.cacheWriteMetering) throw new Error("runtime_cache_write_metering_not_ready");
     console.log(
       JSON.stringify({
         ok: true,

@@ -69,7 +69,7 @@ export const internalApiRoutes = [
   }),
   registerApiRoute('/internal/health', {
     method: 'GET',
-    handler: async (c) => c.json({ ok: true, service: 'ai-runtime', meteringProtocol:'cost-v1', requestTimeoutMs: config.requestTimeoutMs, modelHttpTimeoutMs: config.modelHttpTimeoutMs }),
+    handler: async (c) => c.json({ ok: true, service: 'ai-runtime', meteringProtocol:'cost-v1', cacheWriteMetering: true, requestTimeoutMs: config.requestTimeoutMs, modelHttpTimeoutMs: config.modelHttpTimeoutMs }),
   }),
 
   registerApiRoute('/internal/ai-runs/prepare-announcement', {

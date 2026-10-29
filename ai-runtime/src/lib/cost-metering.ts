@@ -1,3 +1,4 @@
+import { cacheWriteUsage, inputBudgetRate } from '../../../shared/ai-metering';
 import { Agent } from 'undici';
 import { tracedModelFetch, markTaskFailure } from './request-trace';
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -229,7 +230,7 @@ export async function boundedModelFetch(
     const remaining = meta.shadow
       ? 1000000000000n
       : BigInt(meta.maxCostNanos) - used;
-    const inputCost = usageCostNanos(meta.rate, {
+    const inputCost = usageCostNanos(inputBudgetRate(meta.rate), {
       input: bytes,
       output: 0,
       cached: 0,
@@ -256,7 +257,7 @@ export async function boundedModelFetch(
       delete body.max_completion_tokens;
       body.max_tokens = output;
     }
-    maxCost = usageCostNanos(meta.rate, { input: bytes, output, cached: 0 });
+    maxCost = usageCostNanos(inputBudgetRate(meta.rate), { input: bytes, output, cached: 0 });
     attemptId = randomUUID();
     await transaction.execute({
       sql: `INSERT INTO ai_metered_attempt(id,request_id,workspace_id,operation_id,max_cost_nanos,state,created_at) VALUES(?,?,?,?,?,'pending',?)`,
@@ -312,8 +313,10 @@ export async function boundedModelFetch(
       usage.prompt_cache_hit_tokens ??
       0,
   );
+  const writes = cacheWriteUsage(usage);
   const model = typeof data.model === "string" ? data.model : body.model;
   const known =
+    writes !== null &&
     prompt !== null &&
     completion !== null &&
     cached !== null &&
@@ -324,7 +327,7 @@ export async function boundedModelFetch(
     if (known)
       cost = usageCostNanos(
         meta.rate,
-        { input: prompt!, output: completion!, cached: cached! },
+        { input: prompt!, output: completion!, cached: cached!, ...writes! },
         startedAt,
       );
   } catch {
@@ -341,6 +344,7 @@ export async function boundedModelFetch(
     input: prompt,
     output: completion,
     cached,
+    ...(writes ?? {}),
     costNanos: cost?.toString() ?? null,
     status: priced ? "known" : "unknown",
   };

@@ -330,3 +330,12 @@ test('aligned server deadline preserves a slow result and replay without another
   assert.deepEqual(await replay.json(), result);
   assert.equal(calls, 1);
 });
+
+test('cache-write receipts retain TTL details and ambiguous writes stay unknown',async()=>{
+ for(const [details,expected] of [[{cache_write_tokens:100,cache_creation_token_details:{ephemeral_5m_input_tokens:60,ephemeral_1h_input_tokens:40}},'known'],[{cache_write_tokens:100},'unknown']] as const){
+  const meta={...envelope(),shadow:true,rate:{...rate,inputUsdPerMillion:'4',outputUsdPerMillion:'20',cacheWrite5mUsdPerMillion:'5',cacheWrite1hUsdPerMillion:'8'}};
+  await runtimeCostContext.run(meta,()=>boundedModelFetch(async()=>Response.json({model:'actual-fixture',usage:{prompt_tokens:100,completion_tokens:10,prompt_tokens_details:{cached_tokens:0,...details}}}),'https://proxy.test/v1/chat/completions',{method:'POST',body:JSON.stringify({model:'primary-flagship',messages:[{role:'user',content:'Local fixture'}]})}));
+  const [receipt]=await requestReceipts(meta.requestId);assert.equal(receipt?.status,expected);
+  if(expected==='known'){assert.equal(receipt?.costNanos,'820000');assert.equal(receipt?.cacheWrite5m,60);assert.equal(receipt?.cacheWrite1h,40);}else assert.equal(receipt?.costNanos,null);
+ }
+});

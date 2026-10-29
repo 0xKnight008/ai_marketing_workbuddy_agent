@@ -8,6 +8,8 @@ export interface Rate {
   inputUsdPerMillion: string;
   outputUsdPerMillion: string;
   cacheUsdPerMillion: string;
+  cacheWrite5mUsdPerMillion?: string;
+  cacheWrite1hUsdPerMillion?: string;
   source: string;
   verifiedAt: string;
   currency?: string;
@@ -27,6 +29,8 @@ export interface Usage {
   output: number;
   cached: number;
   reasoning?: number;
+  cacheWrite5m?: number;
+  cacheWrite1h?: number;
 }
 export interface MeterEnvelope {
   workspaceId: string;
@@ -77,6 +81,9 @@ export function validateRate(value: unknown): Rate {
     cached = decimalNanos(r.cacheUsdPerMillion);
   if (input <= 0n || output <= 0n || cached > input)
     throw new Error("invalid_ai_rate");
+  for (const value of [r.cacheWrite5mUsdPerMillion, r.cacheWrite1hUsdPerMillion]) {
+    if (value !== undefined && decimalNanos(value) <= 0n) throw new Error("invalid_cache_write_rate");
+  }
   if (r.validUntil !== undefined && !Number.isFinite(Date.parse(r.validUntil)))
     throw new Error("invalid_rate_expiry");
   if (r.periods) {
@@ -133,16 +140,20 @@ function ceilingRate(rate: Rate): Rate {
 }
 export function usageCostNanos(rate: Rate, usage: Usage, at?: string): bigint {
   rate = at ? rateForTime(rate, at) : ceilingRate(rate);
+  const write5m = usage.cacheWrite5m ?? 0, write1h = usage.cacheWrite1h ?? 0;
   if (
-    ![usage.input, usage.output, usage.cached].every(integer) ||
-    usage.cached > usage.input
+    ![usage.input, usage.output, usage.cached, write5m, write1h].every(integer) ||
+    usage.cached + write5m + write1h > usage.input
   )
     throw new Error("invalid_token_usage");
+  if ((write5m && !rate.cacheWrite5mUsdPerMillion) || (write1h && !rate.cacheWrite1hUsdPerMillion)) throw new Error("unverified_cache_write_rate");
   // reasoning is a subset of output; never add it again.
   const numerator =
-    BigInt(usage.input - usage.cached) * decimalNanos(rate.inputUsdPerMillion) +
+    BigInt(usage.input - usage.cached - write5m - write1h) * decimalNanos(rate.inputUsdPerMillion) +
     BigInt(usage.cached) * decimalNanos(rate.cacheUsdPerMillion) +
-    BigInt(usage.output) * decimalNanos(rate.outputUsdPerMillion);
+    BigInt(usage.output) * decimalNanos(rate.outputUsdPerMillion) +
+    BigInt(write5m) * decimalNanos(rate.cacheWrite5mUsdPerMillion ?? "0") +
+    BigInt(write1h) * decimalNanos(rate.cacheWrite1hUsdPerMillion ?? "0");
   return (numerator + 999999n) / 1000000n;
 }
 export function costCredits(nanos: bigint): number {
@@ -175,4 +186,22 @@ export function meteringMode(
   if (mode !== "legacy" && mode !== "shadow" && mode !== "cost-v1")
     throw new Error("invalid_ai_metering_mode");
   return mode;
+}
+
+/** Conservative reservation: all input could be written at the highest verified TTL rate. */
+export function inputBudgetRate(rate: Rate): Rate {
+  const maximum = [rate.inputUsdPerMillion, rate.cacheWrite5mUsdPerMillion, rate.cacheWrite1hUsdPerMillion]
+    .filter((v): v is string => v !== undefined).reduce((a,b) => decimalNanos(a) >= decimalNanos(b) ? a : b);
+  return {...rate,inputUsdPerMillion:maximum};
+}
+/** OpenAI-compatible usage includes cache reads/writes in total prompt_tokens. */
+export function cacheWriteUsage(usage: any): {cacheWrite5m: number; cacheWrite1h: number} | null {
+  const details = usage.prompt_tokens_details ?? {};
+  const split = details.cache_creation_token_details ?? usage.cache_creation;
+  const totals = [details.cache_write_tokens, details.cache_creation_tokens, usage.cache_creation_input_tokens].filter(v => v !== undefined && v !== null);
+  if (totals.some(v => !integer(v)) || totals.some(v => v !== totals[0])) return null;
+  if (!split) return totals.some(v => v > 0) ? null : {cacheWrite5m:0,cacheWrite1h:0};
+  const cacheWrite5m = split.ephemeral_5m_input_tokens ?? 0, cacheWrite1h = split.ephemeral_1h_input_tokens ?? 0;
+  if (![cacheWrite5m,cacheWrite1h].every(integer) || totals.some(v => v !== cacheWrite5m + cacheWrite1h)) return null;
+  return {cacheWrite5m,cacheWrite1h};
 }

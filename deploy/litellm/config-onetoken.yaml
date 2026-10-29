@@ -1,0 +1,53 @@
+# Copy to /etc/piggybot/litellm-config.yaml; deployments do not overwrite this file.
+# Eco remains DeepSeek; Standard and Flagship use separate 1Token keys.
+model_list:
+  - model_name: primary-eco
+    litellm_params:
+      model: deepseek/deepseek-flash
+      api_base: https://api.deepseek.com/v1
+      api_key: os.environ/DEEPSEEK_API_KEY
+      additional_drop_params: ["strictJsonSchema"]
+      num_retries: 0
+  - model_name: primary-standard
+    litellm_params:
+      model: os.environ/STANDARD_UPSTREAM_MODEL
+      api_base: os.environ/STANDARD_UPSTREAM_BASE_URL
+      api_key: os.environ/STANDARD_UPSTREAM_API_KEY
+      additional_drop_params: ["temperature", "strictJsonSchema"]
+      num_retries: 0
+    model_info:
+      input_cost_per_token: 0.000002
+      cache_read_input_token_cost: 0.0000002
+      output_cost_per_token: 0.000010
+  - model_name: primary-flagship
+    litellm_params:
+      model: os.environ/FLAGSHIP_UPSTREAM_MODEL
+      api_base: os.environ/FLAGSHIP_UPSTREAM_BASE_URL
+      api_key: os.environ/FLAGSHIP_UPSTREAM_API_KEY
+      additional_drop_params: ["temperature", "strictJsonSchema"]
+      num_retries: 0
+      timeout: 180
+    # 1Token contract supplied by the operator; cache writes are separate.
+    model_info:
+      input_cost_per_token: 0.000004
+      cache_read_input_token_cost: 0.0000002
+      cache_creation_input_token_cost: 0.000005
+      cache_creation_input_token_cost_above_1hr: 0.000008
+      output_cost_per_token: 0.000020
+router_settings:
+  num_retries: 0
+  timeout: 900
+  fallbacks: []
+  context_window_fallbacks: []
+  content_policy_fallbacks: []
+litellm_settings:
+  num_retries: 0
+  request_timeout: 900
+  drop_params: false
+  turn_off_message_logging: true
+  # Enable incoming request metadata in spend logs without storing message text.
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+  store_model_in_db: false
+  background_health_checks: false
