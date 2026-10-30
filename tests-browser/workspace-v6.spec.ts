@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import axe from 'axe-core';
 const original='¿Podrías hacer un tutorial paso a paso?';
 const report={id:'report-1',batchIds:['batch-1'],title:'Audience requests',template:'community_digest',status:'generated',createdAt:'2026-09-18T10:00:00Z',modelBand:'eco',itemCount:2,droppedCitations:0,delivery:null,report:{_language:'es',summary:'Requests for clearer tutorials.',hotTopics:[{topic:'Step-by-step',citations:[{ref:'i1',snippet:original}]}],unresolvedQuestions:[],highValueMembers:[],conflictRisks:[],activityIdeas:[],announcementDraft:original}};
-async function fixture(page:Page, options: { paused?: boolean } = {}){
+async function fixture(page:Page, options: { paused?: boolean; initialPath?: string } = {}){
  page.on('pageerror',error=>{throw error;});
  let approvals=[{id:'approval-1',requestedAt:'2026-09-18T10:00:00Z',requestedAction:{summary:'Send saved draft',parameters:{content:original,subject:'[Piggybot] Audience requests',targetLabel:'review@example.invalid',channel:'email'}}}];
  const mutations:Array<{path:string;body:unknown}>=[];
@@ -24,7 +24,7 @@ async function fixture(page:Page, options: { paused?: boolean } = {}){
  if(path==='/api/zernio/accounts')return route.fulfill({json:[{id:'account-1',displayName:'Studio North',platform:'instagram',status:'expired',capabilities:['publish']}]});
  if(path==='/api/imports/google/connection')return route.fulfill({json:{connected:false}});
  return route.fulfill({json:[]});});
- await page.goto('/app');await expect(page.locator('[data-nav=start]')).toBeAttached();return mutations;
+ await page.goto(options.initialPath ?? '/app');await expect(page.locator('[data-nav=start]')).toBeAttached();return mutations;
 }
 async function nav(page:Page,route:string){
  const menu=page.locator('.workspace-topbar .mobile-only');if(await menu.isVisible())await menu.click();
@@ -46,8 +46,8 @@ test('approval has an explicit immutable confirmation and updates home count',as
 for (const locale of ['en', 'zh', 'es']) test(`${locale}: Sources exposes only CSV and Discord, without Google requests`, async ({ page }) => {
  const googleRequests: string[] = [];
  page.on('request', request => { if (request.url().includes('/api/imports/google/')) googleRequests.push(request.url()); });
- const mutations = await fixture(page);
- await page.goto(`/login?locale=${locale}#imports`);
+ // Enter the deep link once: a second navigation cancels startup requests in WebKit.
+ const mutations = await fixture(page, { initialPath: `/login?locale=${locale}#imports` });
  await page.getByText({en:'Import Discord messages',zh:'导入 Discord 消息',es:'Importar mensajes de Discord'}[locale],{exact:true}).first().click();
  await page.locator('#workspace-language').selectOption(locale);
  const main = page.locator('main');
