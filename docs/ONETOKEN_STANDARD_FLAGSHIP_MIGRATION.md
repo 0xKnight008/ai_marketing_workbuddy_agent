@@ -15,6 +15,8 @@ The new Runtime records cache-write TTL counts in its durable JSON receipts. Pla
 
 The Runtime candidate sets `AI_PROXY_MODEL_PROFILE=onetoken`. This enables JSON-object mode for Opus with prompt schema injection and local validation. A real minimal 1Token probe accepted JSON-object output but rejected the old strict JSON-schema request with HTTP 400. Eco and Standard keep their existing JSON-object behavior.
 
+Task execution must use that same JSON-mode decision, including Flagship. Parsing the generated text once with the application schema preserves Markdown and produces specific invalid/empty/truncated/schema error codes. Do not route Opus back through the SDK structured-output parser or issue a second paid repair request. Compiled smoke tests cover rich Markdown, fenced JSON, invalid schemas, missing content and durable single-call replay across all JSON-mode bands.
+
 ## Prepare
 
 First deploy this change's Platform and Runtime code. The Runtime `/internal/health` must return `cacheWriteMetering: true`. The Platform metering preflight rejects a cache-write tariff against an old Runtime.

@@ -37,13 +37,14 @@ export const internalApiRoutes = [
       const request = parsed.data;
       const agent = createTaskAgent(modelForBand(config, request.modelBand, request.provider), request.taskId);
       const prompt = JSON.stringify({ goal: request.goal, language: request.language, history: request.history, priorResult: request.priorResult, sources: request.sources, steps: request.steps, remainingSteps: request.remainingSteps });
-      const jsonMode = ['three-channel', 'litellm'].includes(config.modelRoutingMode) && request.modelBand !== 'flagship';
+      const outputOptions = structuredOutputForBand(taskStepResultSchema, request.modelBand);
+      const jsonMode = outputOptions.jsonPromptInjection === true;
       if (jsonMode) {
         // Parse this same response ourselves: preserve Markdown inside JSON and never issue a paid repair retry.
         const result = await agent.generate(taskJsonInstruction + '\nTask context:\n' + prompt);
         return c.json(parseTaskOutput(result.text, result.finishReason), 200);
       }
-      const result = await agent.generate(prompt, { structuredOutput: structuredOutputForBand(taskStepResultSchema, request.modelBand) });
+      const result = await agent.generate(prompt, { structuredOutput: outputOptions });
       return c.json(parseTaskOutput(JSON.stringify(result.object) ?? '', result.finishReason), 200);
     } catch (error) {
       const code = error instanceof TaskOutputError ? error.code : 'task_step_failed';
