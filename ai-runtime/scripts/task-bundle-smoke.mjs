@@ -23,6 +23,9 @@ const model=createServer(async(req,res)=>{
  if(replyMode==='http-timeout')await new Promise(resolve=>setTimeout(resolve,1600));
  const text=current.messages.map(message=>typeof message.content==='string'?message.content:(message.content??[]).map(part=>part.text??'').join('')).findLast(value=>value.includes('Items as JSON:\n'));
  const result=text?{assignments:JSON.parse(text.slice(text.indexOf('Items as JSON:\n')+'Items as JSON:\n'.length)).map(item=>({itemIndex:item.index,tags:[],sentiment:{label:'neutral',confidence:1,evidence:item.text}}))}:{action:'answer',query:'',markdown:'## Welcome\n\nHere is the requested draft.',citations:[]};
+ if(replyMode==='rich')result.markdown='## Evidence\n\n| Item | Value |\n|---|---|\n| Quote | \"quoted\" |\n\n```text\nC:\\fixture\\data\n```';
+ if(replyMode==='invalid-schema')result.action='unsupported';
+ if(replyMode==='missing-content')result.markdown='';
  const content=replyMode==='invalid'?'Here is the report, without JSON.':replyMode==='empty'?'':replyMode==='fenced'?'```json\n'+JSON.stringify(result)+'\n```':JSON.stringify(result);
  if(current.model!=='primary-flagship'||process.env.AI_PROXY_MODEL_PROFILE==='onetoken')assert.equal(current.response_format?.type,'json_object');
  if(current.model!=='primary-flagship'||process.env.AI_PROXY_MODEL_PROFILE==='onetoken')assert.equal(current.strictJsonSchema,undefined);
@@ -68,19 +71,20 @@ try{
    const cached=await classify();assert.equal(cached.status,200);assert.deepEqual(await cached.json(),body);assert.equal(requests.length,before+1);
   }
  }
- // Regression: Standard JSON mode, malformed/empty/limited output, durable cached failures.
+ // Regression: every JSON-mode band shares parsing and durable single-call replay.
  for(const band of ['eco','standard','flagship']){
   replyMode='normal';
   const payload={...metered,modelBand:band,_metering:{...metered._metering,requestId:randomUUID(),operationId:randomUUID(),band,shadow:true,rate:{...metered._metering.rate,model:'primary-'+band,responseModels:['primary-'+band]}}};
   const r=await fetch(`${base}/internal/task-step`,{method:'POST',headers,body:JSON.stringify(payload)});
   const body=await r.json();assert.equal(r.status,200,JSON.stringify(body));assert.equal(body.action,'answer');assert.equal(body._metering.length,1);
  }
- for(const [mode,code] of [['invalid','task_output_invalid_json'],['empty','task_output_empty'],['truncated','task_output_truncated'],['fenced',null]]){
+ for(const band of process.env.AI_PROXY_MODEL_PROFILE==='onetoken'?['eco','standard','flagship']:['eco','standard'])
+ for(const [mode,code] of [['rich',null],['fenced',null],['invalid','task_output_invalid_json'],['empty','task_output_empty'],['truncated','task_output_truncated'],['invalid-schema','task_output_invalid_schema'],['missing-content','task_output_missing_content']]){
   replyMode=mode;
-  const requestId=randomUUID(),payload={...metered,modelBand:'standard',_metering:{...metered._metering,requestId,operationId:randomUUID(),band:'standard',rate:{...metered._metering.rate,model:'primary-standard',responseModels:['primary-standard']}}};
+  const requestId=randomUUID(),payload={...metered,modelBand:band,_metering:{...metered._metering,requestId,operationId:randomUUID(),band,rate:{...metered._metering.rate,model:'primary-'+band,responseModels:['primary-'+band]}}};
   const count=requests.length;
   const send=()=>fetch(`${base}/internal/task-step`,{method:'POST',headers,body:JSON.stringify(payload)});
-  const r=await send(),body=await r.json();assert.equal(r.status,code?502:200,JSON.stringify(body));if(code)assert.equal(body.error,code);assert.equal(body._metering.length,1);assert.equal(requests.length,count+1);
+  const r=await send(),body=await r.json();assert.equal(r.status,code?502:200,JSON.stringify(body));if(code)assert.equal(body.error,code);if(mode==='rich'){assert.match(body.markdown,/## Evidence/);assert.ok(body.markdown.includes('C:\\fixture\\data'));assert.ok(body.markdown.includes('```text'));}assert.equal(body._metering.length,1);assert.equal(requests.length,count+1);
   const cached=await send();assert.equal(cached.status,r.status);assert.deepEqual(await cached.json(),body);assert.equal(requests.length,count+1,'replay must not call or charge upstream again');
   const diagnostics=await (await fetch(`${base}/internal/request-traces?id=${requestId}`,{headers})).json();
   const original=diagnostics.find(row=>row.details.attempts.length===1);assert.ok(original);assert.equal(original.details.attempts[0].proxyCallId,'bundle-call-'+(count+1));assert.equal(original.details.failureCode,code);assert.ok(!JSON.stringify(diagnostics).includes('Here is the report'));
