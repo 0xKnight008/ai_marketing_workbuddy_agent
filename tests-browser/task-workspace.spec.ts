@@ -35,7 +35,7 @@ async function fixture(page: Page, s: ReturnType<typeof state>) {
       path = url.pathname,
       body = request.method() === "GET" ? null : request.postDataJSON();
     if (body) s.requests.push({ path, body });
-    if(path==='/api/billing/ai-quote')return route.fulfill({json:(s.costMode||s.shadowMode)?{mode:s.costMode?'cost-v1':'shadow',quoteId:'55555555-5555-4555-8555-555555555555',estimatedCredits:12,maxCredits:body.maxCredits??30,expiresAt:new Date(Date.now()+600000).toISOString(),subscriptionPaymentRequired:s.trialBudget&&(body.maxCredits??30)>30}:{mode:'legacy'}});
+    if(path==='/api/billing/ai-quote')return route.fulfill({json:(s.costMode||s.shadowMode)?{mode:s.costMode?'cost-v1':'shadow',quoteId:'55555555-5555-4555-8555-555555555555',policyVersion:'cost-106-v1',estimatedCredits:12,maxCredits:body.maxCredits??30,expiresAt:new Date(Date.now()+600000).toISOString(),subscriptionPaymentRequired:s.trialBudget&&(body.maxCredits??30)>30}:{mode:'legacy'}});
     if (path === "/api/auth/me")
       return route.fulfill({
         json: {
@@ -493,6 +493,8 @@ for(const locale of ['en','zh','es'] as const)test(`${locale}: budget cancellati
  const label={en:'Continue this task',zh:'继续这个任务',es:'Continuar tarea'}[locale],send={en:'Send follow-up',zh:'发送后续目标',es:'Enviar seguimiento'}[locale];
  await page.getByLabel(label,{exact:true}).fill('Analyze another goal');const before=s.requests.filter(r=>r.path.endsWith('/messages')).length;
  await page.getByRole('button',{name:send,exact:true}).click();let dialog=page.getByRole('dialog');await expect(dialog).toBeVisible();
+ await expect(dialog).toContainText(locale==='es'?'1,06':'1.06');
+ await expect(dialog).toContainText(locale==='es'?'0,01':'0.01');
  await page.keyboard.press('Escape');await expect(dialog).not.toBeVisible();expect(s.requests.filter(r=>r.path.endsWith('/messages'))).toHaveLength(before);
  await page.getByRole('button',{name:send,exact:true}).click();dialog=page.getByRole('dialog');await dialog.getByRole('spinbutton').fill('40');
  await dialog.getByRole('button',{name:{en:'Confirm budget and continue',zh:'确认预算并继续',es:'Confirmar y continuar'}[locale],exact:true}).click();

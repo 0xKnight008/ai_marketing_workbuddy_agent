@@ -20,7 +20,7 @@ The public trial is up to 7 days or 30 AI credits. Inactive accounts cannot run 
 | Standard | 16K tokens | 2K tokens | 10 | Z.AI direct |
 | Flagship | 32K tokens | 4K tokens | 20 | LiteLLM |
 
-Cost-v1 replaces fixed 1/6/20 internal-step prices with `ceil(valid saved operation cost USD × 1.20 / 0.001)`. Child calls accumulate before rounding. Operators must verify versioned input/output/cache prices and tariff conditions; customer estimates are conservative caps, not supplier invoice evidence. See [metering](AI_CREDIT_METERING.md) for the complete contract.
+Cost-v1 replaces fixed 1/6/20 internal-step prices with `ceil(valid saved operation cost USD × 1.06 / 0.01)`. Child calls accumulate before rounding. Operators must verify versioned input/output/cache prices and tariff conditions; customer estimates are conservative caps, not supplier invoice evidence. See [metering](AI_CREDIT_METERING.md) for the complete contract.
 
 Before execution the user confirms a maximum, which is reserved atomically. Only valid saved results settle; unused funds return to their original sources. Partial saved work can remain billable after a later failure. Missing usage is pending reconciliation for at most 24 hours, never treated as zero or replaced by an invented fixed charge. Budget/model changes need explicit confirmation. No automatic downgrade or zero-balance free AI run is offered.
 
@@ -34,7 +34,7 @@ Usage exposes available, reserved and settled amounts; operation receipts and th
 
 ## Operations
 
-Apply additive migration 0040 together with current platform/runtime builds. Deployment defaults to legacy; use verified rates, shadow comparison and controlled activation in [rollout](AI_CREDIT_METERING_ROLLOUT.md). The plan table's supplier limits describe legacy operations, not a new cost-v1 customer entitlement. Existing subscription Price IDs and referral terms remain unchanged.
+Apply additive migration 0040 together with current platform/runtime builds. This release performs a preflighted one-time production cutover to live cost-v1 mode with cost-106-v1 pricing; see verification and rollback in [rollout](AI_CREDIT_METERING_ROLLOUT.md). The plan table's supplier limits describe legacy operations, not a new cost-v1 customer entitlement. Existing subscription Price IDs and referral terms remain unchanged.
 
 ## Stripe account activation
 

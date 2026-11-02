@@ -53,7 +53,7 @@ jobs:
         run: node --test scripts/litellm-preflight.test.mjs scripts/prepare-unified-proxy.test.mjs ai-runtime/scripts/check-flagship-proxy.test.mjs ai-runtime/scripts/check-unified-proxy.test.mjs
 
       - name: Test deployment preflight
-        run: node --test scripts/deploy-production.test.mjs
+        run: node --test scripts/deploy-production.test.mjs scripts/activate-cost-pricing.test.mjs
 
       - name: Test staging deployment guards and acceptance helpers
         run: |
@@ -160,7 +160,7 @@ jobs:
           cp -r platform ai-runtime shared deploy-package/
           mkdir -p deploy-package/deploy deploy-package/scripts deploy-package/docs
           cp -r deploy/litellm deploy-package/deploy/
-          cp scripts/litellm-preflight.mjs scripts/prepare-unified-proxy.mjs deploy-package/scripts/
+          cp scripts/litellm-preflight.mjs scripts/prepare-unified-proxy.mjs scripts/activate-cost-pricing.mjs deploy-package/scripts/
           cp docs/UNIFIED_LITELLM_MIGRATION.md docs/FLAGSHIP_LITELLM_MIGRATION.md docs/AI_CREDIT_REFUNDS.md docs/AI_CREDIT_METERING.md docs/AI_CREDIT_METERING_ROLLOUT.md docs/AI_CREDIT_PRICING_REVIEW_2026-10-24.md deploy-package/docs/
           cp scripts/deploy-production.sh deploy-package/deploy.sh
           chmod +x deploy-package/deploy.sh

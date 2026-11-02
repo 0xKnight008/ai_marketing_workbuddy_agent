@@ -1,6 +1,7 @@
 /** Versioned cost math shared by execution and billing. No SDK/catalogue prices. */
 export type Band = "eco" | "standard" | "flagship";
-export const COST_VERSION = "cost-v1";
+export const COST_VERSION = "cost-106-v1";
+export const PREVIOUS_COST_VERSION = "cost-v1";
 export interface Rate {
   version: string;
   model: string;
@@ -156,15 +157,28 @@ export function usageCostNanos(rate: Rate, usage: Usage, at?: string): bigint {
     BigInt(write1h) * decimalNanos(rate.cacheWrite1hUsdPerMillion ?? "0");
   return (numerator + 999999n) / 1000000n;
 }
-export function costCredits(nanos: bigint): number {
+/** Pricing policy is independent of the cost-v1 receipt protocol / rollout mode. */
+function creditPolicy(version: string) {
+  if (version === COST_VERSION) return { numerator: 53n, denominator: 500000000n, unitNanos: 10000000n };
+  if (version === PREVIOUS_COST_VERSION) return { numerator: 6n, denominator: 5000000n, unitNanos: 1000000n };
+  throw new Error("unsupported_ai_credit_policy");
+}
+export function costCredits(nanos: bigint, version: string = COST_VERSION): number {
   if (nanos < 0n) throw new Error("invalid_ai_cost");
-  const credits = (nanos * 6n + 4999999n) / 5000000n;
+  const { numerator, denominator } = creditPolicy(version);
+  const credits = (nanos * numerator + denominator - 1n) / denominator;
   if (credits > 100000000n) throw new Error("ai_cost_out_of_range");
   return Number(credits);
 }
-export function creditCostCeiling(credits: number): bigint {
+export function creditCostCeiling(credits: number, version: string = COST_VERSION): bigint {
   if (!integer(credits)) throw new Error("invalid_credit_budget");
-  return (BigInt(credits) * 5000000n) / 6n;
+  const { numerator, denominator } = creditPolicy(version);
+  return (BigInt(credits) * denominator) / numerator;
+}
+/** Cost reserve available to absorb non-billable failures; not gross margin. */
+export function creditLossBudget(credits: number, version: string = COST_VERSION): bigint {
+  const ceiling = creditCostCeiling(credits, version);
+  return BigInt(credits) * creditPolicy(version).unitNanos - ceiling;
 }
 export function ratesFromEnv(
   env: Readonly<Record<string, string | undefined>> = process.env,

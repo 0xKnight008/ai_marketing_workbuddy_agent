@@ -139,6 +139,56 @@ export async function costMeteringRegression(
     );
   });
   try {
+    await t.test("new quotes persist the 1.06 policy and settle the three Opus receipts to 27 credits", async () => {
+      const op = await setup(60);
+      assert.equal(op.quote.policyVersion, 'cost-106-v1');
+      const saved = await client.query('SELECT policy_version FROM ai_cost_operation WHERE id=$1', [op.quote.quoteId]);
+      assert.equal(saved.rows[0].policy_version, 'cost-106-v1');
+      await client.query('UPDATE ai_cost_operation SET rate=$1 WHERE id=$2', [JSON.stringify({...rate,inputUsdPerMillion:'4',outputUsdPerMillion:'20'}),op.quote.quoteId]);
+      const before = await available();
+      const calls = [[4107,2531],[2047,3657],[2099,4546]];
+      for (let i=0;i<calls.length;i++) {
+        const [input,output] = calls[i]!;
+        await call(op.subjectId,i+1,input,output);
+        await db.withWorkspace(workspaceId, tx => settleAiReservations(tx,{subjectId:op.subjectId,actionType:'ai.task',attempt:i+1}));
+      }
+      await db.withWorkspace(workspaceId, tx => finishCost(tx,op.subjectId));
+      assert.equal((await available()).aiCreditsAvailable, before.aiCreditsAvailable-27);
+      const row = (await db.withWorkspace(workspaceId, tx => costOperations(tx)))[0]!;
+      assert.equal(row.settledCredits,27);
+      assert.equal(row.releasedCredits,33);
+      await db.withWorkspace(workspaceId, tx => finishCost(tx,op.subjectId));
+      assert.equal((await available()).aiCreditsAvailable, before.aiCreditsAvailable-27);
+    });
+    await t.test("accepted old policy keeps its reserve and settlement, a new continuation uses only new-policy costs", async () => {
+      const op = await setup();
+      await client.query("UPDATE ai_cost_operation SET policy_version='cost-v1' WHERE id=$1",[op.quote.quoteId]);
+      const e = await call(op.subjectId);
+      assert.equal(e.maxCostNanos, '25000000');
+      await db.withWorkspace(workspaceId, async tx => {
+        await settleAiReservations(tx,{subjectId:op.subjectId,actionType:'ai.task'});
+        await finishCost(tx,op.subjectId);
+      });
+      assert.equal((await available()).aiCreditsAvailable,488);
+      const q = await quoteCost(db,actor,{kind:'task.turn',modelBand:'flagship',maxCredits:30});
+      if (!('quoteId' in q)) throw new Error('no quote');
+      await db.withWorkspace(workspaceId, tx=>bindCostQuote(tx,actor,{aiQuoteId:q.quoteId},op.subjectId,'flagship','task.turn'));
+      await call(op.subjectId,2);
+      await db.withWorkspace(workspaceId,async tx=>{
+        await settleAiReservations(tx,{subjectId:op.subjectId,actionType:'ai.task',attempt:2});
+        await finishCost(tx,op.subjectId);
+      });
+      assert.equal((await available()).aiCreditsAvailable,486);
+    });
+    await t.test("unaccepted old-policy or shadow quotes require fresh confirmation after cutover", async () => {
+      for (const change of ["policy_version='cost-v1'", "mode='shadow'"]) {
+        const q=await quoteCost(db,actor,{kind:'task.turn',modelBand:'flagship',maxCredits:30});
+        if (!('quoteId' in q)) throw new Error('no quote');
+        await client.query(`UPDATE ai_cost_operation SET ${change} WHERE id=$1`,[q.quoteId]);
+        await assert.rejects(db.withWorkspace(workspaceId,tx=>bindCostQuote(tx,actor,{aiQuoteId:q.quoteId},randomUUID(),'flagship','task.turn')), /ai_quote_expired_or_mismatched/);
+      }
+      assert.equal((await available()).aiCreditsAvailable,500);
+    });
     await t.test(
       "unreserved accepted quote failure cannot create a refund",
       async () => {
@@ -180,14 +230,14 @@ export async function costMeteringRegression(
           ),
         );
         const after = await available();
-        assert.equal(after.aiCreditsAvailable, before.aiCreditsAvailable - 12);
+        assert.equal(after.aiCreditsAvailable, before.aiCreditsAvailable - 2);
         assert.equal(after.aiCreditsHeld, 0);
         const rows = await db.withWorkspace(workspaceId, (tx) =>
           costOperations(tx),
         );
         const row = rows.find((r) => r.subjectId === op.subjectId)!;
-        assert.equal(row.settledCredits, 12);
-        assert.equal(row.releasedCredits, 18);
+        assert.equal(row.settledCredits, 2);
+        assert.equal(row.releasedCredits, 28);
       },
     );
     await t.test(
@@ -233,14 +283,14 @@ export async function costMeteringRegression(
         );
         assert.equal(
           (await available()).aiCreditsAvailable,
-          before.aiCreditsAvailable - 12,
+          before.aiCreditsAvailable - 2,
         );
         await db.withWorkspace(workspaceId, (tx) =>
           refundAiReservations(tx, { subjectId: op.subjectId }, "duplicate"),
         );
         assert.equal(
           (await available()).aiCreditsAvailable,
-          before.aiCreditsAvailable - 12,
+          before.aiCreditsAvailable - 2,
         );
       },
     );
@@ -339,7 +389,7 @@ export async function costMeteringRegression(
         assert.equal(Number(wallet.rows[0].purchased_ai_credits), 100);
         assert.equal(
           (await available()).aiCreditsAvailable,
-          before.aiCreditsAvailable - 12,
+          before.aiCreditsAvailable - 2,
         );
       },
     );
@@ -467,8 +517,8 @@ export async function costMeteringRegression(
           await db.withWorkspace(workspaceId, (tx) => costOperations(tx))
         )[0]!;
         assert.equal(receipt.state, "reconciliation");
-        assert.equal(receipt.settledCredits, 12);
-        assert.equal(receipt.heldCredits, 18);
+        assert.equal(receipt.settledCredits, 2);
+        assert.equal(receipt.heldCredits, 28);
         await client.query(
           "UPDATE ai_cost_operation SET created_at=now()-interval '25 hours' WHERE id=$1",
           [op.quote.quoteId],
@@ -476,7 +526,7 @@ export async function costMeteringRegression(
         await db.withWorkspace(workspaceId, expireCost);
         assert.equal(
           (await available()).aiCreditsAvailable,
-          before.aiCreditsAvailable - 12,
+          before.aiCreditsAvailable - 2,
         );
       },
     );
@@ -530,7 +580,7 @@ export async function costMeteringRegression(
           "UPDATE ai_cost_journal SET credit_period=(date_trunc('month',now())-interval '1 month')::date WHERE workspace_id=$1",
           [workspaceId],
         );
-        assert.equal((await available()).trialCreditsRemaining, 18);
+        assert.equal((await available()).trialCreditsRemaining, 28);
         assert.equal(
           Number(
             (
@@ -542,9 +592,9 @@ export async function costMeteringRegression(
           ),
           100,
         );
-        const next = await setup(19);
+        const next = await setup(29);
         await assert.rejects(call(next.subjectId));
-        assert.equal((await available()).trialCreditsRemaining, 18);
+        assert.equal((await available()).trialCreditsRemaining, 28);
       },
     );
     await t.test(
@@ -603,7 +653,7 @@ export async function costMeteringRegression(
             await finishCost(tx, subjectId);
           });
         }
-        assert.equal((await available()).aiCreditsAvailable, 464);
+        assert.equal((await available()).aiCreditsAvailable, 494);
       },
     );
     await t.test(
@@ -685,11 +735,11 @@ export async function costMeteringRegression(
         const detail = await service.detail(actor, task.id);
         assert.equal(detail.task.status, "completed");
         assert.equal(calls, 1);
-        assert.equal((await available()).aiCreditsAvailable, 488);
+        assert.equal((await available()).aiCreditsAvailable, 498);
         const receipt = (
           await db.withWorkspace(workspaceId, (tx) => costOperations(tx))
         )[0]!;
-        assert.equal(receipt.settledCredits, 12);
+        assert.equal(receipt.settledCredits, 2);
         assert.equal(receipt.heldCredits, 0);
       },
     );

@@ -5,6 +5,7 @@ import {
   COST_VERSION,
   costCredits,
   creditCostCeiling,
+  creditLossBudget,
   meteringMode,
   ratesFromEnv,
   rateForTime,
@@ -53,6 +54,7 @@ const uuid = z.string().uuid();
 type Operation = {
   id: string;
   mode: "shadow" | "cost-v1";
+  policy_version: string;
   band: Band;
   rate: Rate;
   max_credits: number;
@@ -116,7 +118,7 @@ export async function quoteCost(
         : defaultMaximum);
     const estimate = Math.min(maximum, costCredits(perCall));
     const r = await tx.query<{ id: string; expiresAt: string }>(
-      `INSERT INTO ai_cost_operation(workspace_id,actor_id,kind,band,rate,estimated_credits,max_credits,max_calls,mode) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,expires_at::text AS "expiresAt"`,
+      `INSERT INTO ai_cost_operation(workspace_id,actor_id,kind,band,rate,estimated_credits,max_credits,max_calls,mode,policy_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id,expires_at::text AS "expiresAt"`,
       [
         actor.workspaceId,
         actor.actorId,
@@ -127,6 +129,7 @@ export async function quoteCost(
         maximum,
         maxCalls,
         mode,
+        COST_VERSION,
       ],
     );
     return {
@@ -168,8 +171,8 @@ export async function bindCostQuote(
   );
   if (existing.rowCount) return;
   const result = await tx.query(
-    `UPDATE ai_cost_operation SET subject_id=$1,accepted_at=now(),state='accepted' WHERE workspace_id=$2 AND id=$3 AND actor_id=$4 AND kind=$5 AND band=$6 AND state='quoted' AND expires_at>now() RETURNING id`,
-    [subjectId, actor.workspaceId, quoteId, actor.actorId, kind, band],
+    `UPDATE ai_cost_operation SET subject_id=$1,accepted_at=now(),state='accepted' WHERE workspace_id=$2 AND id=$3 AND actor_id=$4 AND kind=$5 AND band=$6 AND state='quoted' AND expires_at>now() AND policy_version=$7 AND mode=$8 RETURNING id`,
+    [subjectId, actor.workspaceId, quoteId, actor.actorId, kind, band, COST_VERSION, meteringMode()],
   );
   if (!result.rowCount)
     throw new HttpError(409, "ai_quote_expired_or_mismatched");
@@ -198,6 +201,7 @@ export async function reserveCost(
     }
     return;
   }
+  creditCostCeiling(op.max_credits, op.policy_version); // reject unknown pricing before any hold or call
   if (op.band !== requested)
     throw new CostBudgetRequired(requested, "ai_new_model_quote_required");
   if (op.state === "refunded" || op.state === "settled")
@@ -219,7 +223,7 @@ export async function reserveCost(
     );
   if (op.mode === "cost-v1") {
     const loss = await tx.query<{ loss: string }>(
-      `SELECT COALESCE(sum(GREATEST(0,(SELECT COALESCE(sum(p.cost_nanos),0) FROM ai_cost_receipt p WHERE p.operation_id=o.id AND p.workspace_id=o.workspace_id)+(SELECT COALESCE(sum(r.max_cost_nanos),0) FROM ai_cost_request r WHERE r.operation_id=o.id AND r.workspace_id=o.workspace_id AND EXISTS(SELECT 1 FROM ai_cost_receipt p WHERE p.request_id=r.id AND p.workspace_id=r.workspace_id AND p.status='unknown'))-LEAST(o.valid_cost_nanos,floor(o.settled_credits::numeric*5000000/6)))),0)::text AS loss FROM ai_cost_operation o WHERE o.workspace_id=$1 AND o.mode='cost-v1' AND o.state IN ('settled','refunded') AND o.created_at>=date_trunc('month',now())`,
+      `SELECT COALESCE(sum(GREATEST(0,(SELECT COALESCE(sum(p.cost_nanos),0) FROM ai_cost_receipt p WHERE p.operation_id=o.id AND p.workspace_id=o.workspace_id)+(SELECT COALESCE(sum(r.max_cost_nanos),0) FROM ai_cost_request r WHERE r.operation_id=o.id AND r.workspace_id=o.workspace_id AND EXISTS(SELECT 1 FROM ai_cost_receipt p WHERE p.request_id=r.id AND p.workspace_id=r.workspace_id AND p.status='unknown'))-LEAST(o.valid_cost_nanos,CASE o.policy_version WHEN 'cost-v1' THEN floor(o.settled_credits::numeric*5000000/6) WHEN 'cost-106-v1' THEN floor(o.settled_credits::numeric*500000000/53) ELSE 0 END))),0)::text AS loss FROM ai_cost_operation o WHERE o.workspace_id=$1 AND o.mode='cost-v1' AND o.state IN ('settled','refunded') AND o.created_at>=date_trunc('month',now())`,
       [ctx.workspaceId],
     );
     const topups = await tx.query<{ credits: string }>(
@@ -230,10 +234,8 @@ export async function reserveCost(
       usage.subscriptionStatus === "trialing"
         ? 30
         : { creator: 400, growth: 2500, agency: 8000 }[usage.plan];
-    const lossLimit = BigInt(
-      Math.floor(
-        ((planBudget + Number(topups.rows[0]?.credits ?? 0)) * 1000000) / 6,
-      ),
+    const lossLimit = creditLossBudget(
+      planBudget + Number(topups.rows[0]?.credits ?? 0), op.policy_version,
     );
     if (BigInt(loss.rows[0]?.loss ?? 0) > lossLimit)
       throw new HttpError(503, "ai_provider_cost_circuit_open");
@@ -294,7 +296,7 @@ export async function reserveCost(
       [ctx.workspaceId, op.id],
     );
     const remaining =
-      creditCostCeiling(op.max_credits) -
+      creditCostCeiling(op.max_credits, op.policy_version) -
       BigInt(spent.rows[0]?.cost ?? 0) -
       BigInt(count.rows[0]?.cost ?? 0);
     if (remaining <= 0n)
@@ -429,16 +431,16 @@ async function cumulativeCharge(
   op: Operation,
   cost: bigint,
 ) {
-  if (op.mode === "shadow") return Math.min(op.max_credits, costCredits(cost));
+  if (op.mode === "shadow") return Math.min(op.max_credits, costCredits(cost, op.policy_version));
   const previous = await tx.query<{ cost: string; credits: string }>(
-    `SELECT COALESCE(sum(valid_cost_nanos),0)::text AS cost,COALESCE(sum(settled_credits),0)::text AS credits FROM ai_cost_operation WHERE workspace_id=current_setting('app.workspace_id')::uuid AND subject_id=$1 AND id<>$2 AND mode='cost-v1' AND state IN ('settled','refunded')`,
-    [op.subject_id, op.id],
+    `SELECT COALESCE(sum(valid_cost_nanos),0)::text AS cost,COALESCE(sum(settled_credits),0)::text AS credits FROM ai_cost_operation WHERE workspace_id=current_setting('app.workspace_id')::uuid AND subject_id=$1 AND id<>$2 AND mode='cost-v1' AND policy_version=$3 AND state IN ('settled','refunded')`,
+    [op.subject_id, op.id, op.policy_version],
   );
   return Math.min(
     op.max_credits,
     Math.max(
       0,
-      costCredits(cost + BigInt(previous.rows[0]?.cost ?? 0)) -
+      costCredits(cost + BigInt(previous.rows[0]?.cost ?? 0), op.policy_version) -
         Number(previous.rows[0]?.credits ?? 0),
     ),
   );

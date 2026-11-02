@@ -7,10 +7,19 @@ runtime_env="${AI_RUNTIME_ENV_FILE:-/etc/piggybot/ai-runtime.env}"
 public_api_env="${PUBLIC_API_ENV_FILE:-/etc/piggybot/public-api.env}"
 backup_dir="${BACKUP_DIR:-/var/backups/piggybot}"
 platform_stopped=false
+pricing_backup=""
 
 restart_platform_on_error() {
   local exit_code=$?
   trap - ERR
+  if [[ -n "$pricing_backup" ]]; then
+    if ! sudo -n cp -- "$pricing_backup" "$platform_env"; then
+      echo "Could not restore billing environment; stopping platform for operator recovery." >&2
+      sudo systemctl stop piggybot-platform || true
+      exit "$exit_code"
+    fi
+    echo "Restored pre-cutover billing environment after deployment failure." >&2
+  fi
   if [[ "$platform_stopped" == true ]]; then
     echo "Deployment failed after stopping piggybot-platform; restarting the existing service." >&2
     sudo systemctl restart piggybot-platform || true
@@ -214,13 +223,39 @@ for container in ai-markting-front ai-marketing-subscribe-api; do
 done
 sudo docker compose up -d
 
-sudo systemctl restart piggybot-ai-runtime piggybot-platform
-platform_stopped=false
+sudo systemctl restart piggybot-ai-runtime
+# Validate the candidate billing mode against the migrated schema and running runtime.
+# A release marker makes activation one-time; later manual rollbacks remain respected.
+expected_metering_mode="${AI_METERING_MODE:-legacy}"
+pricing_script="$deploy_dir/scripts/activate-cost-pricing.mjs"
+pricing_status="$(sudo -n "$(command -v node)" "$pricing_script" --status "$platform_env")"
+[[ "$pricing_status" == pending || "$pricing_status" == applied ]]
+if [[ "$pricing_status" == pending ]]; then
+  cd "$deploy_dir/platform"
+  # The runtime can take a few seconds to bind after restart; no paid calls are made.
+  runtime_ready=false
+  for attempt in {1..30}; do
+    if curl --fail --silent --show-error --max-time 10 http://127.0.0.1:4111/internal/health >/dev/null; then
+      runtime_ready=true
+      break
+    fi
+    sleep 2
+  done
+  [[ "$runtime_ready" == true ]]
+  AI_METERING_MODE=cost-v1 npm run metering:check
+  pricing_backup="$(sudo -n "$(command -v node)" "$pricing_script" --activate "$platform_env")"
+  expected_metering_mode=cost-v1
+  echo "Enabled cost-106-v1 pricing in cost-v1 mode; prior environment backed up."
+fi
+sudo systemctl restart piggybot-platform
 
 for attempt in {1..30}; do
   if curl --fail --silent --show-error http://127.0.0.1:4111/internal/health >/dev/null \
-    && curl --fail --silent --show-error --max-time 10 http://127.0.0.1:4100/internal/ready >/dev/null \
+    && ready_json="$(curl --fail --silent --show-error --max-time 10 http://127.0.0.1:4100/internal/ready)" \
+    && printf '%s' "$ready_json" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{try{const r=JSON.parse(s);process.exit(r.ok&&r.meteringMode===process.argv[1]&&r.creditPolicyVersion==="cost-106-v1"?0:1)}catch{process.exit(1)}})' "$expected_metering_mode" \
     && curl --fail --silent --show-error http://127.0.0.1:8001/ >/dev/null; then
+    platform_stopped=false
+    pricing_backup=""
     echo "Production deployment passed all health checks."
     exit 0
   fi
@@ -228,4 +263,4 @@ for attempt in {1..30}; do
 done
 
 echo "Production deployment failed health checks; inspect service and container logs." >&2
-exit 1
+false
