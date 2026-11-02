@@ -1,8 +1,31 @@
 # AI cost metering rollout and rollback
 
-## Safety boundary
+## 2026-11-02 approved production cutover
 
-Ordinary deployment installs migration 0040 and the code, but the default `AI_METERING_MODE=legacy` preserves existing charges. No Stripe Price, topup rate, customer balance denomination, referral reward, provider key or upstream model is changed. Do not run paid smoke requests automatically. Preserve Eco/Standard direct keys and the existing LiteLLM virtual key. Server-owned LiteLLM config copies must retain the narrowly scoped temperature/strictJsonSchema filter from the repository.
+The release changes new-operation pricing to `ceil(C × 1.06 / 0.01)` (`policyVersion=cost-106-v1`) and activates live `AI_METERING_MODE=cost-v1` during production deployment. Default local environments remain legacy. Subscription Prices, 400/2,500/8,000 included credits, top-up denominations, referral terms and supplier credentials do not change. Eco/Standard/Flagship keep their configured LiteLLM routes.
+
+Deployment stops the platform, applies existing migrations, restarts the runtime, then runs **read-only** `AI_METERING_MODE=cost-v1 npm run metering:check` using the protected platform environment. Missing/invalid rates, missing forced RLS, incompatible runtime protocol or missing cache-write metering stop activation. No paid model request is sent.
+
+After a successful preflight, `scripts/activate-cost-pricing.mjs` atomically updates `/etc/piggybot/platform.env`:
+
+```dotenv
+AI_METERING_MODE=cost-v1
+AI_CREDIT_ROLLOUT_VERSION=cost-106-v1
+```
+
+The previous env is saved beside it as `platform.env.before-cost-106-v1-<timestamp>` with mode 0600; unrelated keys and live-file ownership/permissions are preserved. Platform then restarts. A failed cutover/service readiness check restores the prior env before restarting the platform. Do not print the env or backup. The rollout marker prevents later deployments from silently undoing an operator's manual rollback to shadow/legacy.
+
+Existing accepted operations retain their recorded mode/rate/policy. Already settled records are never rewritten; stale unaccepted quotes require fresh confirmation. No new database migration is required beyond existing 0040.
+
+## Post-deploy verification
+
+Run `npm run metering:check` in `platform/` with the same protected environment as the service. Expected fields include:
+
+```json
+{"ok":true,"mode":"cost-v1","policyVersion":"cost-106-v1","formula":"ceil(USD cost * 1.06 / 0.01)","schema":"ready","runtime":"cost-v1","verifiedRates":true}
+```
+
+`curl --fail --silent --show-error http://127.0.0.1:4100/internal/ready` must report `meteringMode=cost-v1` and `creditPolicyVersion=cost-106-v1` from the running process. Deployment now verifies these fields, not just HTTP 200. Create a small new task through the app, confirm the displayed budget/formula, then check its new cost receipt has `policyVersion=cost-106-v1`, the actual model and settled/released credits. Reconcile only requests linked to that task. A mathematically equivalent $0.247692 effective cost settles to 27 credits; do not backfill this price onto historical tasks. User-authorized paid acceptance is separate from local synthetic regression tests.
 
 ## Configure verified rates
 
@@ -16,7 +39,7 @@ This deliberately incomplete example fails validation. Add the standard/flagship
 
 For tariffs varying by time or context, activate only after the configured profile represents the charged tariff. For variable tariffs, configure a base tariff plus non-overlapping absolute UTC `periods` with `id`, `startsAt`, `endsAt` and the three USD rate fields, and a `validUntil` for the calendar. Populate official peak windows excluding holidays. Quotes use the maximum rate; receipts settle at their recorded request time. Expired calendars stop before the provider call. Do not charge all off-peak usage at a peak rate.
 
-## Acceptance sequence
+## Initial setup / manual acceptance sequence (for other environments)
 
 1. Back up PostgreSQL and private LibSQL; deploy platform, workers and runtime together. Apply 0040 once using the normal migration runner, never edit already-deployed migrations. Check forced RLS on all five new tables.
 2. Leave legacy mode while validating the JSON in a protected shell. Public pages describe the policy shown at submission, so an unactivated environment does not promise cost-v1 settlement. Do not change the existing Stripe subscription Prices.
@@ -31,8 +54,8 @@ Quotes expire after ten minutes before acceptance. Accepted operations retain th
 
 ## Rollback
 
-Stop accepting new cost-v1 operations, drain active work and reconcile outstanding holds, then restore legacy mode. Do not revert 0040, truncate the journal, recompute historical costs or erase provider receipts. Existing accepted operations retain their policy and must be completed/released with this build before reverting binaries. The pre-migration and legacy-mode subject directory protects old in-flight billing without reinterpreting its 1/6/20 records.
+Stop accepting new cost-v1 operations, drain active work and reconcile outstanding holds, then set `AI_METERING_MODE=shadow` or `legacy` in the protected env and restart platform. Keep `AI_CREDIT_ROLLOUT_VERSION=cost-106-v1` so later deploys respect this rollback. Retain this version-aware binary to finish existing cost-106-v1 operations; an older binary cannot settle them safely. Do not revert 0040, truncate the journal, recompute historical costs or erase provider receipts. Existing accepted operations retain their policy and must be completed/released with this build before reverting binaries. The pre-migration and legacy-mode subject directory protects old in-flight billing without reinterpreting its 1/6/20 records.
 
 ## Financial acceptance
 
-Subscription prices remain $19/$59/$169, allowances 400/2,500/8,000; one-time $10 buys 1,000 credits and trial is 30. Supplier loss, payment fees, Zernio's global tier premium, staff costs and referral invoice credits remain separate from the customer AI-credit journal. The $200k–$250k MRR operating target is conditional on customer mix, verified tariffs, budget compliance and blended referral expense; deployment is not a guarantee of 60% operating margin.
+Subscription prices remain $19/$59/$169, allowances 400/2,500/8,000; one-time $10 buys 1,000 credits and trial is 30. Supplier loss, payment fees, Zernio's global tier premium, staff costs and referral invoice credits remain separate from the customer AI-credit journal. At a 1.06 cost multiplier and a 5% payment fee, unrounded AI top-ups retain only about 0.66% of top-up revenue before other costs. Subscription contribution, utilisation, failed-call expense and referral rewards must fund the $10,000/month operating budget; this release does not imply a 60% operating margin.

@@ -467,7 +467,7 @@ const zh: SiteContent = {
     taskRules: [
       <>· 触发监听、过滤条件、审批通知：<b className="text-ink">0 task</b></>,
       <>· 成功的对外动作（发布 / 回复 / 写入）：<b className="text-ink">1 task</b></>,
-      <>· AI 生成 / 分类：选择 Eco / Standard / Flagship，<b className="text-ink">运行前确认费用与最高预算</b>；成本计量按有效结果的模型费用（USD）× 1.20 ÷ 0.001 向上取整为 credits；同一操作合并计算，未用预留释放，具体规则以提交时显示为准</>,
+      <>· AI 生成 / 分类：选择 Eco / Standard / Flagship，<b className="text-ink">运行前确认费用与最高预算</b>；成本计量按有效结果的模型费用（USD）× 1.06 ÷ 0.01 向上取整为 credits；同一操作合并计算，未用预留释放，具体规则以提交时显示为准</>,
       <>· 未产生有效结果：<b className="text-ink">退回未结算预留</b>；已保存的部分结果仍可计费</>,
     ],
     guardrailTitle: "🛡️ 成本结界怎么保护你？",
@@ -859,7 +859,7 @@ const en: SiteContent = {
     taskRules: [
       <>· Triggers, filters, approval pings: <b className="text-ink">0 tasks</b></>,
       <>· Successful external action (publish / reply / write): <b className="text-ink">1 task</b></>,
-      <>· AI generation / classification: choose Eco / Standard / Flagship and <b className="text-ink">confirm pricing and the maximum budget before running</b>. Cost-metered credits equal valid model costs (USD) × 1.20 ÷ 0.001, rounded up once per operation. Unused reserves are released; the submission shows the applicable policy</>,
+      <>· AI generation / classification: choose Eco / Standard / Flagship and <b className="text-ink">confirm pricing and the maximum budget before running</b>. Cost-metered credits equal valid model costs (USD) × 1.06 ÷ 0.01, rounded up once per operation. Unused reserves are released; the submission shows the applicable policy</>,
       <>· No valid saved output: <b className="text-ink">unused AI reserves returned</b>. Saved partial results can remain billable</>,
     ],
     guardrailTitle: "🛡️ How the cost guardrail protects you",
@@ -1251,7 +1251,7 @@ const es: SiteContent = {
     taskRules: [
       <>· Disparadores, filtros y avisos: <b className="text-ink">0 tareas</b></>,
       <>· Acción externa exitosa (publicar / responder / escribir): <b className="text-ink">1 tarea</b></>,
-      <>· Generación o clasificación IA: elige Eco / Standard / Flagship y <b className="text-ink">confirma el precio y presupuesto máximo antes de ejecutar</b>. Los créditos por costo son el costo válido del modelo (USD) × 1,20 ÷ 0,001, redondeado hacia arriba una vez por operación. Se libera la reserva no usada; consulta la política al enviar</>,
+      <>· Generación o clasificación IA: elige Eco / Standard / Flagship y <b className="text-ink">confirma el precio y presupuesto máximo antes de ejecutar</b>. Los créditos por costo son el costo válido del modelo (USD) × 1,06 ÷ 0,01, redondeado hacia arriba una vez por operación. Se libera la reserva no usada; consulta la política al enviar</>,
       <>· Sin resultado válido guardado: <b className="text-ink">se devuelve la reserva no liquidada</b>; los resultados parciales guardados pueden conservar su cobro</>,
     ],
     guardrailTitle: "🛡️ Cómo te protege el límite de coste",

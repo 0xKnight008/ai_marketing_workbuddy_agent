@@ -1,3 +1,4 @@
+import { meteringMode, COST_VERSION } from "../../../shared/ai-metering";
 import {assertTaskSchema} from '../task-service/readiness';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { pendingConnectionPage } from '../zernio/connection-pages';
@@ -122,7 +123,7 @@ app.get('/internal/ready', async () => {
     throw new HttpError(503, 'auth_database_not_ready');
   }
   try{await assertTaskSchema(database)}catch(error){app.log.error(error);throw new HttpError(503,'task_database_not_ready')}
-  return { ok: true, service: 'gateway', authSchema: 'ready',taskSchema:'ready' };
+  return { ok: true, service: 'gateway', authSchema: 'ready',taskSchema:'ready',meteringMode:meteringMode(),creditPolicyVersion:COST_VERSION };
 });
 
 app.post('/internal/ai-runtime-events', async (request, reply) => {

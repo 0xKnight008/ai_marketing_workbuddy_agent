@@ -1,8 +1,16 @@
-# Cost-v1 AI credit metering
+# AI credit metering — cost-106-v1 pricing
 
-Approved policy: [Chinese review](AI_CREDIT_PRICING_REVIEW_2026-10-24.md). No redenomination: Creator/Growth/Agency remain $19/$59/$169 with 400/2,500/8,000 monthly credits; topups remain $10/1,000 and trial allowance 30. Referral terms remain unchanged.
+Approved 2026-11-02 policy, superseding the formula in the [historical review](AI_CREDIT_PRICING_REVIEW_2026-10-24.md). No redenomination: Creator/Growth/Agency remain $19/$59/$169 with 400/2,500/8,000 monthly credits; topups remain $10/1,000 and trial allowance 30. Referral terms remain unchanged.
 
-For valid saved work, credits = ceil(USD cost × 1.20 / 0.001). Integer nanodollar math avoids floating point boundary errors. Parent operations accumulate cost before rounding, including additional confirmed budget segments for the same business subject. Prior journals stay immutable; only the cumulative credit difference settles. System-fault attempts are operating expense, not user billable cost. Reasoning is already part of output, and cache counts are subsets of input.
+For valid saved work, credits = ceil(USD cost × 1.06 / 0.01). Integer nanodollar math avoids floating point boundary errors. Parent operations accumulate cost before rounding, including additional confirmed budget segments for the same business subject and pricing version. Prior journals stay immutable; only the cumulative credit difference settles. System-fault attempts are operating expense, not user billable cost. Reasoning is already part of output, and cache counts are subsets of input.
+
+## Pricing version and example
+
+New quotes explicitly persist `policy_version=cost-106-v1`; the wire receipt protocol and live mode remain `cost-v1`. The implementation is `ceil(costNanos × 53 / 500000000)`, with inverse budget `floor(credits × 500000000 / 53)`. All three capability bands use this same conversion with their own verified supplier rates. The internal failure-cost reserve follows the same version, independently of customer settlement.
+
+The successful three-call Opus example ($0.067048 + $0.081328 + $0.099316 = $0.247692) settles to **27 credits**, equal to $0.27 at the unchanged top-up exchange rate. Failed calls from a different task are not added. This is a forward-looking example, not a retrospective adjustment to the historical 60-credit charge.
+
+Already accepted `policy_version=cost-v1` operations retain the historical `ceil(C × 1.20 / 0.001)` formula and its budget ceiling. Unaccepted quotes from a different policy or rollout mode must be refreshed and confirmed. Continuations accumulate within their own pricing version; a new-version continuation cannot reprice or offset a historical journal. No schema migration is needed: migration 0040 already has the policy column. Its old default intentionally stays unchanged for compatibility with older binaries; new code always writes the version explicitly.
 
 ## Contract
 
@@ -30,4 +38,4 @@ Verified rates are configured in Platform as JSON, versioned and captured in eac
 
 Zernio internal account budget is $1/month. At 100+ full-month accounts aggregated under the one platform team, the published graduated invoice is account count + $218; that fixed difference is a company expense, not charged per workspace. Connection changes should be reconciled to provider account-days; the internal current-account budget is not an exact daily-prorated supplier invoice. X and other externally metered APIs remain subject to their own fees/authorization.
 
-Follow [rollout](AI_CREDIT_METERING_ROLLOUT.md); default legacy mode does not activate financial changes on deployment.
+Follow [rollout](AI_CREDIT_METERING_ROLLOUT.md). This release performs a guarded one-time production cutover to live cost-v1 mode; local/default environments still default to legacy.

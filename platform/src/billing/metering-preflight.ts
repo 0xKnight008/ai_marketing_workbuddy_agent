@@ -2,6 +2,7 @@
 import { Pool } from "pg";
 import {
   meteringMode,
+  COST_VERSION,
   ratesFromEnv,
   rateForTime,
 } from "../../../shared/ai-metering";
@@ -51,6 +52,8 @@ async function main() {
       JSON.stringify({
         ok: true,
         mode,
+        policyVersion: COST_VERSION,
+        formula: "ceil(USD cost * 1.06 / 0.01)",
         schema: "ready",
         runtime: "cost-v1",
         verifiedRates: mode !== "legacy",

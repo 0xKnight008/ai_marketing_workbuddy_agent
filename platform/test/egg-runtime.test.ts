@@ -255,7 +255,21 @@ describe('Egg production gateway', () => {
       query: async () => ({ rows: [], rowCount: 0 }),
     }));
     await app.httpRequest().get('/internal/ready').expect('Cache-Control', 'no-store')
-      .expect(200).expect({ ok: true, service: 'gateway', authSchema: 'ready',taskSchema:'ready' });
+      .expect(200).expect({ ok: true, service: 'gateway', authSchema: 'ready',taskSchema:'ready',meteringMode:'legacy',creditPolicyVersion:'cost-106-v1' });
+  });
+
+  it('readiness exposes the running metering mode and pricing policy without secrets', async () => {
+    const previous = process.env.AI_METERING_MODE;
+    mm(app.platform.database, 'withAdmin', async (operation: (tx: TenantTransaction) => Promise<void>) => operation({query: async () => ({rows: [], rowCount: 0})}));
+    try {
+      for (const mode of ['shadow', 'cost-v1']) {
+        process.env.AI_METERING_MODE = mode;
+        await app.httpRequest().get('/internal/ready').expect(200).expect({ok:true, service:'gateway', authSchema:'ready', taskSchema:'ready', meteringMode:mode, creditPolicyVersion:'cost-106-v1'});
+      }
+    } finally {
+      if (previous === undefined) delete process.env.AI_METERING_MODE;
+      else process.env.AI_METERING_MODE = previous;
+    }
   });
 
   it('returns 503 without private SQL details when auth schema is missing', async () => {

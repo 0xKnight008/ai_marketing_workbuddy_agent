@@ -1,3 +1,4 @@
+import { meteringMode, COST_VERSION } from "../../../shared/ai-metering";
 import {executionHistory} from '../../src/billing/model-choice';
 import {assertTaskSchema} from '../../src/task-service/readiness';
 import { Controller } from 'egg';
@@ -37,7 +38,7 @@ export default class PlatformController extends Controller {
       throw new HttpError(503, 'auth_database_not_ready');
     }
     try{await assertTaskSchema(this.app.platform.database)}catch(error){this.ctx.logger.error(error);throw new HttpError(503,'task_database_not_ready')}
-    this.ctx.body = { ok: true, service: 'gateway', authSchema: 'ready',taskSchema:'ready' };
+    this.ctx.body = { ok: true, service: 'gateway', authSchema: 'ready',taskSchema:'ready',meteringMode:meteringMode(),creditPolicyVersion:COST_VERSION };
   }
 
   async runtimeEvent(): Promise<void> {

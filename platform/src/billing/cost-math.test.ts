@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   costCredits,
+  COST_VERSION,
+  PREVIOUS_COST_VERSION,
+  creditLossBudget,
   cacheWriteUsage,
   inputBudgetRate,
   creditCostCeiling,
@@ -19,17 +22,32 @@ const rate = {
   source: "test fixture only",
   verifiedAt: "2026-10-24T00:00:00Z",
 };
-test("uses exact fixed-point cost math, a 20 percent coefficient and one cumulative ceiling", () => {
-  assert.equal(costCredits(10798500n), 13);
-  assert.equal(costCredits(6696000n), 9);
-  assert.equal(costCredits(9788500n), 12);
-  assert.equal(costCredits(27283000n), 33);
+test("1.06 cost pricing uses fixed-point math and rounds once per parent", () => {
+  assert.equal(COST_VERSION, "cost-106-v1");
+  assert.equal(costCredits(247692000n), 27);
+  assert.equal(costCredits(67048000n + 81328000n + 99316000n), 27);
   assert.equal(costCredits(0n), 0);
   assert.equal(costCredits(1n), 1);
-  assert.equal(costCredits(5000000n), 6);
-  assert.equal(costCredits(5000001n), 7);
-  assert.equal(creditCostCeiling(33), 27500000n);
+  assert.equal(costCredits(500000000n), 53);
+  assert.equal(costCredits(500000001n), 54);
+  assert.equal(creditCostCeiling(53), 500000000n);
+  assert.equal(creditLossBudget(53), 30000000n);
   assert.ok(costCredits(100000n) + costCredits(100000n) > costCredits(200000n));
+  for (const version of [COST_VERSION, PREVIOUS_COST_VERSION]) {
+    for (const credits of [0, 1, 27, 53, 400, 2500, 8000, 1000000]) {
+      const ceiling = creditCostCeiling(credits, version);
+      assert.equal(costCredits(ceiling, version), credits);
+      assert.equal(costCredits(ceiling + 1n, version), credits + 1);
+    }
+  }
+  assert.throws(() => costCredits(-1n));
+  assert.throws(() => costCredits(1n, "unknown"));
+  assert.throws(() => creditCostCeiling(1.5));
+});
+test("accepted historical quotes keep their original cost-v1 policy", () => {
+  assert.equal(costCredits(247692000n, PREVIOUS_COST_VERSION), 298);
+  assert.equal(costCredits(27283000n, PREVIOUS_COST_VERSION), 33);
+  assert.equal(creditCostCeiling(33, PREVIOUS_COST_VERSION), 27500000n);
 });
 test("cache and reasoning are subsets, not additional input/output billing", () => {
   assert.equal(
