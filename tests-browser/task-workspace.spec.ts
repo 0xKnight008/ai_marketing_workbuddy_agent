@@ -493,8 +493,8 @@ for(const locale of ['en','zh','es'] as const)test(`${locale}: budget cancellati
  const label={en:'Continue this task',zh:'继续这个任务',es:'Continuar tarea'}[locale],send={en:'Send follow-up',zh:'发送后续目标',es:'Enviar seguimiento'}[locale];
  await page.getByLabel(label,{exact:true}).fill('Analyze another goal');const before=s.requests.filter(r=>r.path.endsWith('/messages')).length;
  await page.getByRole('button',{name:send,exact:true}).click();let dialog=page.getByRole('dialog');await expect(dialog).toBeVisible();
- await expect(dialog).toContainText(locale==='es'?'1,06':'1.06');
- await expect(dialog).toContainText(locale==='es'?'0,01':'0.01');
+ await expect(dialog).not.toContainText(/1[.,]06|0[.,]01/);
+ await expect(dialog).toContainText('12');
  await page.keyboard.press('Escape');await expect(dialog).not.toBeVisible();expect(s.requests.filter(r=>r.path.endsWith('/messages'))).toHaveLength(before);
  await page.getByRole('button',{name:send,exact:true}).click();dialog=page.getByRole('dialog');await dialog.getByRole('spinbutton').fill('40');
  await dialog.getByRole('button',{name:{en:'Confirm budget and continue',zh:'确认预算并继续',es:'Confirmar y continuar'}[locale],exact:true}).click();

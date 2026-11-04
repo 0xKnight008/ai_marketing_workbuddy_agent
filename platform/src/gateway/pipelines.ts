@@ -52,6 +52,8 @@ const createPipelineSchema = z.object({
   source: sourceSchema,
   configuration: z.object({
     brief: z.string().trim().min(10).max(4_000),
+    sourceText: z.string().max(4_000).optional(),
+    goal: z.string().max(2_000).optional(),
     targetAccountIds: targetAccountIdsSchema.default([]),
     approvalPolicy: z.enum(['required', 'auto_approve']).default('required'),
     tone: z.string().trim().min(2).max(200).default('clear, helpful'),
@@ -67,6 +69,8 @@ export interface PipelineDefinition {
   kind: 'pipeline';
   source: CreatePipelineInput['source'];
   brief: string;
+  sourceText?: string;
+  goal?: string;
   targetAccountIds: string[];
   approvalPolicy: 'required' | 'auto_approve';
   tone: string;
@@ -83,6 +87,7 @@ export interface PipelineView {
   updatedAt: string;
   definition: PipelineDefinition;
   lastRunStatus?: string;
+  lastRunId?: string | null;
 }
 
 type StoredPipelineRow = Omit<PipelineView, 'definition'> & { definition: unknown };
@@ -166,6 +171,7 @@ export async function listPipelines(tx: TenantTransaction, actor: ActorContext):
   const result = await tx.query<StoredPipelineRow>(
     `SELECT w.id, w.name, w.status, w.current_version AS version, w.updated_at::text AS "updatedAt",
             v.definition,
+            (SELECT wr.id FROM workflow_run wr WHERE wr.workspace_id=w.workspace_id AND wr.workflow_id=w.id ORDER BY wr.created_at DESC LIMIT 1) AS "lastRunId",
             (SELECT wr.status::text FROM workflow_run wr WHERE wr.workflow_id = w.id ORDER BY wr.created_at DESC LIMIT 1) AS "lastRunStatus"
        FROM workflow w
        JOIN workflow_version v ON v.workflow_id = w.id AND v.version = w.current_version
@@ -281,6 +287,8 @@ function definitionFrom(parsed: CreatePipelineInput): PipelineDefinition {
     kind: 'pipeline',
     source: parsed.source,
     brief: parsed.configuration.brief,
+    ...(parsed.configuration.sourceText === undefined ? {} : {sourceText:parsed.configuration.sourceText}),
+    ...(parsed.configuration.goal === undefined ? {} : {goal:parsed.configuration.goal}),
     targetAccountIds: parsed.configuration.targetAccountIds,
     approvalPolicy: parsed.configuration.approvalPolicy,
     tone: parsed.configuration.tone,
@@ -299,6 +307,8 @@ function normalizeStoredDefinition(value: unknown, name: string): PipelineDefini
     kind: z.literal('pipeline'),
     source: sourceSchema,
     brief: z.string(),
+    sourceText: z.string().optional(),
+    goal: z.string().optional(),
     targetAccountIds: targetAccountIdsSchema,
     approvalPolicy: z.enum(['required', 'auto_approve']),
     tone: z.string(),

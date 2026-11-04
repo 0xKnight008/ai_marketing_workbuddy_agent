@@ -1,3 +1,4 @@
+import { PipelineWorkspace } from '../workspace/PipelineWorkspace';
 import { AiBudgetProvider, useAiBudgetFetch } from '../workspace/AiBudget';
 import {RunDiagnostics,type RunDetails} from '../workspace/WorkflowRunDetails';
 import {ModelChoiceQueue,ExecutionHistory} from '../workspace/ModelControls';
@@ -5,14 +6,14 @@ import { SupportWidget } from '../workspace/SupportWidget';
 import {TaskWorkspace,TaskPreferences,TaskResults} from '../workspace/TaskWorkspace';
 import { audience, AUDIENCES, AUDIENCE_TEMPLATE } from '../../platform/src/contracts/audience';
 import { ReferralLedger } from '../components/ReferralLedger';
-import { CONNECTION_PLATFORMS, publicationAvailability, supportsAnnouncement } from '../../platform/src/zernio/social-platforms';
+import { CONNECTION_PLATFORMS, publicationAvailability } from '../../platform/src/zernio/social-platforms';
 import { useWorkspaceLanguage } from '../workspace/useWorkspaceLanguage';
 import { sectionFromHash, type Section } from '../workspace/routes';
 import { t } from '../workspace/translate';
 import { WorkspaceShell, WorkspaceDialog } from '../workspace/Shell';
 import { WorkspaceLanguage, WorkspaceLanguageSelect } from '../workspace/i18n';
 import { ApprovalQueue, ReportLibrary } from '../workspace/Overview';
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { clearSessionAccessToken, readSessionAccessToken, storeSessionAccessToken } from '../lib/auth-session';
 import { safeNextPath } from '../lib/auth-navigation';
@@ -26,7 +27,6 @@ import { reportDrafts } from '../../platform/src/contracts/report-drafts';
 
 const gatewayUrl = import.meta.env.VITE_GATEWAY_URL?.trim().replace(/\/+$/, '') || (import.meta.env.DEV ? 'http://localhost:4100' : '');
 
-type WizardStep = 'start' | 'configure' | 'accounts' | 'review' | 'saved';
 type TemplateId = 'repurpose' | 'weekly_report' | 'comment_lead';
 type ModelBand = 'eco' | 'standard' | 'flagship';
 
@@ -34,6 +34,8 @@ interface PipelineTemplate { id: TemplateId; name: string; description: string; 
 interface PipelineDefinition {
   source: { type: 'template'; templateId: TemplateId } | { type: 'description'; description: string };
   brief: string;
+  sourceText?: string;
+  goal?: string;
   targetAccountIds: string[];
   approvalPolicy: 'required' | 'auto_approve';
   tone: string;
@@ -41,7 +43,7 @@ interface PipelineDefinition {
   modelBand?: ModelBand;
   steps: Array<{ type: string }>;
 }
-interface PipelineView { id: string; name: string; status: 'draft' | 'published' | 'archived'; version: number; updatedAt: string; definition: PipelineDefinition; lastRunStatus?: string; run?: RunView; }
+interface PipelineView { id: string; name: string; status: 'draft' | 'published' | 'archived'; version: number; updatedAt: string; definition: PipelineDefinition; lastRunStatus?: string; lastRunId?: string | null; run?: RunView; }
 interface ImportBatchView { id: string; label: string; sourceType: 'csv' | 'paste' | 'link' | 'file' | 'discord' | 'google_sheets'; status: 'pending' | 'classifying' | 'classified' | 'failed'; modelBand: ModelBand; itemCount: number; createdAt: string; tagDistribution: Record<string, number>; }
 interface ImportItemTagView { tag: string; confidence: number; evidence: string; }
 interface ImportItemView { id: string; platform: string; author: string | null; text: string; metrics: Record<string, number>; tags: ImportItemTagView[]; }
@@ -57,8 +59,6 @@ interface TopicItemView { itemId: string; platform: string; author: string | nul
 interface TopicItemListView { topic: TopicView; total: number; items: TopicItemView[]; }
 
 interface ConnectedAccount { id: string; externalAccountId: string; displayName: string; platform: string; capabilities: string[]; status: 'connected' | 'expired' | 'disconnected' | 'syncing'; lastSyncedAt?: string; }
-interface PipelineCheck { id: string; label: string; passed: boolean; detail: string; }
-interface PipelineReadiness { ready: boolean; checks: PipelineCheck[]; }
 interface RunView extends RunDetails { id: string; status: string; workflowId: string; createdAt: string; }
 interface ApprovalView { id: string; runId: string | null; requestedAction: { summary?: string; parameters?: { content?: string; subject?: string } }; requestedAt: string; }
 interface TaskEventView { id: string; runId: string | null; actionType: string; billableUnits: string; aiCredits: string; reservationState?: string; reversalOf?: string | null; status: string; createdAt: string; }
@@ -73,19 +73,6 @@ interface MeView {
 }
 interface SessionResponse { accessToken?: string; expiresAt?: string; }
 
-interface PipelineDraft {
-  sourceType: 'template' | 'description';
-  templateId: TemplateId;
-  description: string;
-  name: string;
-  brief: string;
-  targetAccountIds: string[];
-  approvalPolicy: 'required' | 'auto_approve';
-  tone: string;
-  language: string;
-  modelBand: ModelBand;
-}
-
 const fallbackTemplates: PipelineTemplate[] = [
   { id: 'repurpose', name: 'Repurpose and publish', description: 'Turn one brief into channel-ready posts with approval before publishing.', steps: ['Brief', 'AI drafts', 'Review', 'Publish'], available: true },
   { id: 'weekly_report', name: 'Weekly growth report', description: 'Collect performance and prepare an approval-ready weekly summary.', steps: ['Weekly trigger', 'Pull analytics', 'AI summary', 'Review'], available: false },
@@ -95,10 +82,6 @@ const fallbackTemplates: PipelineTemplate[] = [
 const ACTIVE_SUBSCRIPTIONS = new Set(['active', 'trialing', 'manual']);
 
 const socialPlatforms = CONNECTION_PLATFORMS;
-
-function freshDraft(): PipelineDraft {
-  return { sourceType: 'template', templateId: 'repurpose', description: '', name: '', brief: '', targetAccountIds: [], approvalPolicy: 'required', tone: 'clear, helpful', language: 'en', modelBand: 'eco' };
-}
 
 const MODEL_BAND_OPTIONS: { value: ModelBand; label: string; hint: string }[] = [
   { value: 'eco', label: 'Eco', hint: 'Fast and economical · review credits before running' },
@@ -138,10 +121,6 @@ function PlatformWorkspace() {
   const [templates, setTemplates] = useState<PipelineTemplate[]>(fallbackTemplates);
   const [pipelines, setPipelines] = useState<PipelineView[]>([]);
   const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
-  const [wizardStep, setWizardStep] = useState<WizardStep | null>(null);
-  const [draft, setDraft] = useState<PipelineDraft>(freshDraft);
-  const [savedPipeline, setSavedPipeline] = useState<PipelineView | null>(null);
-  const [readiness, setReadiness] = useState<PipelineReadiness | null>(null);
   const [runId, setRunId] = useState('');
   const [run, setRun] = useState<RunView | null>(null);
   const [approvals, setApprovals] = useState<ApprovalView[]>([]);
@@ -153,7 +132,6 @@ function PlatformWorkspace() {
   const [reportTab,setReportTab]=useState<'results'|'topics'|'weekly'>(()=>location.hash.startsWith('#topics')?'topics':'results');
   const [message, setMessage] = useState('');
   const [workspaceError, setWorkspaceError] = useState('');
-  const [loading, setLoading] = useState(false);
   const [connecting, setConnecting] = useState('');
   const [disconnecting, setDisconnecting] = useState('');
   const [telegram, setTelegram] = useState<{ code: string; expiresAt: string; instructions: string[] } | null>(null);
@@ -179,16 +157,13 @@ function PlatformWorkspace() {
     setMe((current) => current ? { ...current, plan: next.plan, subscriptionStatus: next.subscriptionStatus } : current);
   }, []);
 
-  const selectedTemplate = useMemo(() => templates.find((template) => template.id === draft.templateId), [draft.templateId, templates]);
-  const healthyAccounts = accounts.filter((account) => account.status === 'connected');
-
   const signOut = useCallback(() => {
     clearSessionAccessToken();
     setToken('');
     setMe(null);
     setSessionError('');
     setPipelines([]); setAccounts([]); setApprovals([]); setTaskEvents([]); setAuditEvents([]); setUsage(null);
-    setSavedPipeline(null); setWizardStep(null); setRun(null); setReferralUrl('');
+    setRun(null); setReferralUrl('');
     setWorkspaceError(''); setMessage(''); setInsights([]); setInsightDetail(null); setImportBatches([]); setImportDetail(null); setImportLabel(''); setTopicData({run:null,topics:[]}); setTopicDetail(null);
   }, []);
 
@@ -215,7 +190,6 @@ function PlatformWorkspace() {
 
   const loadWorkspace = useCallback(async () => {
     if (!token) return;
-    setLoading(true);
     try {
       const requests = await Promise.all([
       fetch(`${gatewayUrl}/api/pipeline-templates`, { headers: headers() }),
@@ -261,8 +235,6 @@ function PlatformWorkspace() {
       setWorkspaceError(requests.some((response) => !response.ok) ? 'Some workspace data could not be loaded. Refresh to retry; missing results may be incomplete.' : '');
     } catch {
       setWorkspaceError('Piggybot could not reach the workspace service. Please try again.');
-    } finally {
-      setLoading(false);
     }
   }, [headers, token, signOut]);
 
@@ -341,87 +313,6 @@ function PlatformWorkspace() {
       if (popup) popup.location.replace(result.url);
     } catch (error) { popup?.close(); setMessage(error instanceof Error ? error.message : 'Connection failed. Please retry.'); }
     finally { setConnecting(''); }
-  }
-
-  function startTemplate(template: PipelineTemplate) {
-    setDraft({ ...freshDraft(), sourceType: 'template', templateId: template.id, name: template.name, brief: template.description });
-    setSavedPipeline(null); setReadiness(null); setWizardStep('configure');
-  }
-
-  function startDescription() {
-    setDraft({ ...freshDraft(), sourceType: 'description' });
-    setSavedPipeline(null); setReadiness(null); setWizardStep('configure');
-  }
-
-  function continuePipeline(pipeline: PipelineView) {
-    const source = pipeline.definition.source;
-    setDraft({
-      sourceType: source.type,
-      templateId: source.type === 'template' ? source.templateId : 'repurpose',
-      description: source.type === 'description' ? source.description : '',
-      name: pipeline.name,
-      brief: pipeline.definition.brief,
-      targetAccountIds: pipeline.definition.targetAccountIds,
-      approvalPolicy: pipeline.definition.approvalPolicy,
-      tone: pipeline.definition.tone,
-      language: pipeline.definition.language,
-      modelBand: pipeline.definition.modelBand ?? 'eco',
-    });
-    setSavedPipeline(pipeline); setReadiness(null); setWizardStep('configure');
-  }
-
-  function toggleAccount(accountId: string) {
-    setDraft((current) => ({ ...current, targetAccountIds: current.targetAccountIds.includes(accountId) ? current.targetAccountIds.filter((id) => id !== accountId) : [...current.targetAccountIds, accountId] }));
-  }
-
-  async function saveDraft() {
-    setMessage(''); setLoading(true);
-    const payload = {
-      name: draft.name,
-      source: draft.sourceType === 'template' ? { type: 'template', templateId: draft.templateId } : { type: 'description', description: draft.description || draft.brief },
-      configuration: { brief: draft.brief, targetAccountIds: draft.targetAccountIds, approvalPolicy: draft.approvalPolicy, tone: draft.tone, language: draft.language, modelBand: draft.modelBand },
-    };
-    try {
-      const editing = Boolean(savedPipeline?.status === 'draft');
-      const response = await fetch(editing ? `${gatewayUrl}/api/pipelines/${savedPipeline!.id}` : `${gatewayUrl}/api/pipelines`, {
-        method: editing ? 'PATCH' : 'POST', headers: headers(true), body: JSON.stringify(payload),
-      });
-      const result = await response.json().catch(() => ({})) as PipelineView & { error?: string };
-      if (!response.ok || !result.id) { setMessage(result.error ?? 'The pipeline draft could not be saved.'); return; }
-      setSavedPipeline(result); setReadiness(null); setWizardStep('saved');
-      await testSetup(result.id);
-      await loadWorkspace();
-    } catch {
-      setMessage('The pipeline draft could not be saved.');
-    } finally { setLoading(false); }
-  }
-
-  async function testSetup(pipelineId = savedPipeline?.id) {
-    if (!pipelineId) return;
-    setMessage(''); setReadiness(null);
-    setLoading(true);
-    try {
-      const response = await fetch(`${gatewayUrl}/api/pipelines/${pipelineId}/test`, { method: 'POST', headers: headers() });
-      const result = await response.json().catch(() => null) as PipelineReadiness | null;
-      if (!response.ok || !result) { setMessage('The readiness check could not be completed.'); return; }
-      setReadiness(result);
-    } catch { setMessage('The readiness check could not be completed.'); }
-    finally { setLoading(false); }
-  }
-
-  async function activateSavedPipeline() {
-    if (!savedPipeline || !readiness?.ready || loading) return;
-    setLoading(true);
-    try {
-      const response = await fetch(`${gatewayUrl}/api/pipelines/${savedPipeline.id}/activate`, { method: 'POST', headers: headers(),body:JSON.stringify({modelBand:draft.modelBand}) });
-      const result = await response.json().catch(() => ({})) as PipelineView;
-      if (!response.ok || !result.id || !result.run) { setMessage('The pipeline could not be started. Check billing and run the readiness check again.'); return; }
-      setSavedPipeline(result); setRunId(result.run.id); setRun(result.run);
-      setMessage(`${result.name}: run ${result.run.id} is ${result.run.status}. Publishing requires approval.`);
-      setWizardStep(null); setSection('activity'); await loadWorkspace();
-    } catch {
-      setMessage('The start request could not be confirmed. Retry safely: this pipeline version will not create a duplicate run.');
-    } finally { setLoading(false); }
   }
 
   async function loadRun() {
@@ -689,7 +580,7 @@ function PlatformWorkspace() {
         {section === 'reports' && insightDetail && <section className="workspace-card"><button onClick={() => { setInsightDetail(null); history.pushState(null, '', `#${section}`); }}>{w('Back to reports', 'Volver a informes', '返回报告')}</button><h2 className="mt-4">{insightDetail.title}</h2><DeliveryPanel report={insightDetail} accounts={accounts} onDeliver={(id,input) => deliverInsight(id,input)} /><ExecutionHistory token={token} apiBase={gatewayUrl} kind="report" id={insightDetail.id} requested={insightDetail.modelBand}/><InsightReportBody report={insightDetail} /></section>}
         {workspaceError && <div className="mb-6 rounded-xl border border-sky-deep/20 bg-sky-pale p-4 text-sm text-sky-deep" role="alert">{t(workspaceError)} <button className="ml-3 underline" onClick={() => void loadWorkspace()}>{t('Retry')}</button></div>}
         {message && <div className="mb-6 rounded-xl border border-sky-deep/20 bg-sky-pale p-4 text-sm text-sky-deep" role="status">{t(message)} <button className="ml-3 underline" onClick={() => { setMessage(''); void loadWorkspace(); }}>{t('Retry')}</button></div>}
-        {section === 'pipelines' && <PipelinesSection templates={templates} pipelines={pipelines} usage={usage} loading={loading} onNew={() => { setDraft(freshDraft()); setSavedPipeline(null); setReadiness(null); setWizardStep('start'); }} onTemplate={startTemplate} onContinue={continuePipeline} onActivity={() => setSection('activity')} />}
+        {section === 'pipelines' && <PipelineWorkspace key={me.workspace.id} token={token} apiBase={gatewayUrl} role={me.role} pipelines={pipelines} accounts={accounts} templates={templates} onChange={loadWorkspace} />}
         {section === 'accounts' && <><AccountsSection accounts={accounts.filter(account => !['snapchat', 'whatsapp'].includes(account.platform))} connecting={connecting} onConnect={connectSocial} onRefresh={() => void refreshAccounts(true)} disconnecting={disconnecting} onDisconnect={['owner', 'admin'].includes(me?.role ?? '') ? disconnectSocial : undefined} />{telegram && <section className="mt-6 rounded-xl border border-ink/20 p-6"><h3 className="text-lg font-semibold">{t("Connect Telegram")}</h3><p className="my-3">{t("Code:")} <strong>{telegram.code}</strong> {t("· Expires:")} {new Date(telegram.expiresAt).toLocaleString()}</p><ol className="space-y-2">{telegram.instructions.map((instruction, index) => <li key={index}>{instruction}</li>)}</ol><p className="mt-4">{t("After the bot confirms, select Sync account health above to verify the connection.")}</p><button onClick={() => setTelegram(null)} className="mt-3 underline">{t("Dismiss code")}</button></section>}</>}
         {section === 'activity' && <ActivitySection approvals={approvals} taskEvents={taskEvents} auditEvents={auditEvents} runId={runId} setRunId={setRunId} run={run} onLoadRun={() => void loadRun()} token={token}/>}
         {section === 'settings' && managementTab==='account' && <SettingsSection me={me} locked={locked} newPassword={newPassword} setNewPassword={setNewPassword} passwordStatus={t(passwordStatus)} onSavePassword={() => void savePassword()} onSignOut={signOut} referralUrl={referralUrl} referralStatus={t(referralStatus)} onReferral={() => void createReferralLink()} />}
@@ -697,7 +588,7 @@ function PlatformWorkspace() {
         {section === 'settings' && managementTab==='account' && me && ['owner','admin'].includes(me.role) && <ReferralLedger key={me.workspace.id} gatewayUrl={gatewayUrl} headers={headers} />}
       </div>
 
-      {wizardStep && !locked && <PipelineWizard message={message} step={wizardStep} draft={draft} setDraft={setDraft} templates={templates} selectedTemplate={draft.sourceType === 'template' ? selectedTemplate : undefined} accounts={healthyAccounts} savedPipeline={savedPipeline} readiness={readiness} loading={loading} onClose={() => setWizardStep(null)} onStep={setWizardStep} onTemplate={startTemplate} onDescription={startDescription} onToggleAccount={toggleAccount} onSave={() => void saveDraft()} onTest={() => void testSetup()} onActivate={() => void activateSavedPipeline()} />}
+
     </WorkspaceShell>
   );
 }
@@ -741,24 +632,6 @@ function EmailAuthScreen({ onSession }: { onSession: (accessToken: string) => vo
   return <main className="workspace-v6 paper-grain flex min-h-screen items-center justify-center bg-paper p-6 text-ink"><section className="wobble sketch w-full max-w-md bg-paper-card p-8 shadow-paint"><WorkspaceLanguageSelect /><p className="font-hand text-xl text-sky-deep">{t("Piggybot Platform")}</p><h1 className="mt-2 font-display text-3xl">{mode === 'login' ? t("Sign in to your workspace") : t("Create your workspace")}</h1><p className="mt-2 text-sm text-ink-soft">{mode === 'login' ? t("Use the email you signed up with — Gmail works great.") : t("Register with your email. A free workspace is created instantly; subscribe any time to unlock every feature.")}</p><div className="mt-6 grid grid-cols-2 gap-2 rounded-lg border border-ink/15 p-1 text-sm font-medium"><button onClick={() => { setMode('login'); setError(''); }} className={`rounded-md px-3 py-2 ${mode === 'login' ? "bg-sky-deep text-white" : "text-ink-soft hover:text-ink"}`}>{t("Sign in")}</button><button onClick={() => { setMode('register'); setError(''); }} className={`rounded-md px-3 py-2 ${mode === 'register' ? "bg-sky-deep text-white" : "text-ink-soft hover:text-ink"}`}>{t("Register")}</button></div><label className="mt-5 block text-sm text-ink-soft">{t("Email")}</label><input aria-label={t("Email")} type="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-2 w-full rounded-md border border-ink/20 bg-paper p-3 text-sm" placeholder={t("you@gmail.com")} autoComplete="email" /><label className="mt-4 block text-sm text-ink-soft">{t("Password")}</label><input aria-label={t("Password")} type="password" value={password} onChange={(event) => setPassword(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void submit(); }} className="mt-2 w-full rounded-md border border-ink/20 bg-paper p-3 text-sm" placeholder={mode === 'register' ? t("8-128 characters") : t("Your password")} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />{mode === 'register' && <><label className="mt-4 block text-sm text-ink-soft">{t("Display name")} <span className="text-ink-faint">{t("(optional)")}</span></label><input aria-label={t("Display name")} value={displayName} onChange={(event) => setDisplayName(event.target.value)} className="mt-2 w-full rounded-md border border-ink/20 bg-paper p-3 text-sm" placeholder={t("How should we call you?")} autoComplete="name" /></>}{error && <p className="mt-4 rounded-lg bg-sunset/15 p-3 text-sm text-sunset-deep" role="alert">{t(error)}</p>}<button disabled={busy || !email.trim() || password.length < 8} onClick={() => void submit()} className="mt-6 w-full rounded-md bg-sky-deep px-4 py-3 font-medium text-white shadow-paint-sm transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50">{busy ? t("One moment…") : mode === 'login' ? t("Sign in") : t("Create account")}</button><div className="mt-5 flex justify-between text-sm"><a href="/" className="text-ink-soft hover:text-ink">{t("← Back to site")}</a><a href="/contact" className="text-ink-soft hover:text-ink">{t("Need help?")}</a></div></section></main>;
 }
 
-function PipelinesSection({ templates, pipelines, usage, loading, onNew, onTemplate, onContinue, onActivity }: { templates: PipelineTemplate[]; pipelines: PipelineView[]; usage: UsageView | null; loading: boolean; onNew: () => void; onTemplate: (template: PipelineTemplate) => void; onContinue: (pipeline: PipelineView) => void; onActivity: () => void; }) {
-  const active = pipelines.filter((pipeline) => pipeline.status === 'published').length;
-  return <div className="space-y-8">
-    <section className="grid gap-4 md:grid-cols-3">
-      <Stat label={t("Published pipelines")} value={String(active)} detail={`${pipelines.length - active} draft${pipelines.length - active === 1 ? '' : 's'}`} />
-      <Stat label={t("Task usage")} value={usage ? `${usage.taskUsed} / ${usage.taskQuota}` : '—'} detail={usage?.status === 'degraded' ? t("Energy-saving mode") : t("Current billing period")} />
-      <Stat label={t("AI credits")} value={usage ? String(usage.aiCreditsAvailable) : '—'} detail={usage ? `${usage.aiCreditsUsed} used this period` : t("Current billing period")} />
-      <button onClick={onNew} className="wobble sketch bg-sunset p-5 text-left text-white shadow-paint transition hover:-translate-y-1"><span className="block text-sm font-semibold uppercase tracking-wide">{t("Create")}</span><span className="mt-2 block font-display text-2xl">{t("New automation →")}</span></button>
-    </section>
-
-    <section>
-      <div className="flex items-end justify-between gap-4"><div><p className="font-hand text-lg text-sky-deep">{t("Your automation shelf")}</p><h2 className="font-display text-3xl">{t("My Pipelines")}</h2></div>{loading && <span className="text-sm text-ink-soft">{t("Refreshing…")}</span>}</div>
-      {pipelines.length === 0 ? <EmptyState title={t("No pipelines yet")} detail={t("Choose a proven template or describe the result you want. Piggybot will create a safe, editable draft.")} action={t("Create your first pipeline")} onAction={onNew} /> : <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{pipelines.map((pipeline) => <article key={pipeline.id} className="sketch bg-paper-card p-5 shadow-paint-sm"><div className="flex items-center justify-between gap-3"><StatusBadge status={pipeline.status} /><span className="text-xs text-ink-soft">v{pipeline.version}</span></div><h3 className="mt-4 text-lg font-semibold">{pipeline.name}</h3><p className="mt-2 line-clamp-2 text-sm text-ink-soft">{pipeline.definition.brief}</p><div className="mt-4 flex flex-wrap gap-2 text-xs"><span className="rounded-full bg-sky-pale px-2 py-1">{pipeline.definition.targetAccountIds.length} {t("destination")}{pipeline.definition.targetAccountIds.length === 1 ? '' : 's'}</span><span className="rounded-full bg-sun/30 px-2 py-1">{t("Approval")} {pipeline.definition.approvalPolicy === 'required' ? 'required' : 'assisted'}</span>{pipeline.lastRunStatus && <span className="rounded-full bg-meadow-light px-2 py-1">{t("Last run:")} {pipeline.lastRunStatus}</span>}</div><button onClick={() => pipeline.status === 'draft' ? onContinue(pipeline) : onActivity()} className="mt-5 w-full rounded-md border border-ink/25 px-4 py-2 text-sm font-medium hover:bg-sky-pale">{pipeline.status === 'draft' ? t("Continue setup") : t("View activity")}</button></article>)}</div>}
-    </section>
-
-    <section><p className="font-hand text-lg text-sky-deep">{t("Proven starting points")}</p><h2 className="font-display text-3xl">{t("Standard templates")}</h2><div className="mt-5 grid gap-4 md:grid-cols-3">{templates.map((template) => <TemplateCard key={template.id} template={template} onClick={() => onTemplate(template)} />)}</div></section>
-  </div>;
-}
 
 function CitationList({ citations }: { citations?: ReportCitation[] }) {
   if (!citations?.length) return null;
@@ -972,27 +845,10 @@ function SettingsSection({me,locked,newPassword,setNewPassword,passwordStatus,on
  return <div className="grid gap-6 lg:grid-cols-2"><section className="workspace-card"><h2>{w('Account & current plan','Cuenta y plan actual','账号与当前套餐')}</h2><p>{me?.user.email}</p><p>{me?.workspace.name} · {me?.role}</p><p>{w('Current plan','Plan actual','当前套餐')}: {me?.plan} · {me?.subscriptionStatus}</p>{me&&!me.user.passwordSet&&<label>{t('New password')}<input type="password" autoComplete="new-password" value={newPassword} onChange={e=>setNewPassword(e.target.value)} /><button disabled={newPassword.length<8||newPassword.length>128} onClick={onSavePassword}>{t('Save password')}</button></label>}{passwordStatus&&<p role="status">{passwordStatus}</p>}<button onClick={onSignOut}>{t('Sign out')}</button></section><section className="workspace-card"><h2>{t('Refer & earn 20%')}</h2><p>{t('Earn account credit after an eligible referral clears its refund window.')}</p><label>{t('Referral link')}<input readOnly value={referralUrl} /></label><div className="mt-3 flex gap-3"><button disabled={!canRefer} onClick={onReferral}>{t('Generate link')}</button><button disabled={!referralUrl||!canRefer} onClick={()=>void navigator.clipboard.writeText(referralUrl).then(()=>setCopyStatus(w('Copied','Copiado','已复制'))).catch(()=>setCopyStatus(w('Select the link and copy manually.','Selecciona y copia el enlace.','请选择链接手动复制。')))}>{t('Copy')}</button></div>{!canRefer&&<p>{w('An active owner or admin session is required.','Se requiere sesión activa de propietario o administrador.','需要有效的负责人或管理员会话。')}</p>}{referralStatus&&<p role="status">{referralStatus}</p>}{copyStatus&&<p role="status">{copyStatus}</p>}</section></div>;
 }
 
-function PipelineWizard({ message, step, draft, setDraft, templates, selectedTemplate, accounts, savedPipeline, readiness, loading, onClose, onStep, onTemplate, onDescription, onToggleAccount, onSave, onTest, onActivate }: { message: string; step: WizardStep; draft: PipelineDraft; setDraft: React.Dispatch<React.SetStateAction<PipelineDraft>>; templates: PipelineTemplate[]; selectedTemplate?: PipelineTemplate; accounts: ConnectedAccount[]; savedPipeline: PipelineView | null; readiness: PipelineReadiness | null; loading: boolean; onClose: () => void; onStep: (step: WizardStep) => void; onTemplate: (template: PipelineTemplate) => void; onDescription: () => void; onToggleAccount: (id: string) => void; onSave: () => void; onTest: () => void; onActivate: () => void; }) {
-  const steps = ['Starting point', 'Configure', 'Accounts', 'Review', 'Activate'];
-  const index = ({ start: 0, configure: 1, accounts: 2, review: 3, saved: 4 } as const)[step];
-  return <WorkspaceDialog title={t("Build your pipeline")} onClose={onClose}><div><header className="flex items-start justify-between border-b border-ink/15 p-6"><div><p className="font-hand text-lg text-sky-deep">{t("New automation")}</p><h2 className="font-display text-3xl">{t("Build your pipeline")}</h2></div></header><div className="grid gap-1 border-b border-ink/10 px-6 py-4 sm:grid-cols-5">{steps.map((label, stepIndex) => <div key={label} className={`rounded px-2 py-2 text-xs font-medium ${stepIndex === index ? "bg-sky-deep text-white" : stepIndex < index ? "bg-meadow-light text-ink" : "bg-paper-card text-ink-soft"}`}>{stepIndex + 1}. {label}</div>)}</div><div className="p-6 md:p-8">{message && <p role="alert" className="workspace-error">{t(message)}</p>}
-    {step === 'start' && <div><h3 className="text-xl font-semibold">{t("How would you like to start?")}</h3><p className="mt-1 text-sm text-ink-soft">{t("Both paths create an editable pipeline draft.")}</p><div className="mt-6 grid gap-4 md:grid-cols-2">{templates.map((template) => <TemplateCard key={template.id} template={template} onClick={() => onTemplate(template)} />)}<button onClick={onDescription} className="sketch border-2 border-dashed border-sky-deep/40 bg-sky-pale p-5 text-left transition hover:-translate-y-1"><span className="text-xs font-semibold uppercase tracking-wide text-sky-deep">{t("Custom")}</span><span className="mt-2 block text-lg font-semibold">{t("Describe an announcement")}</span><span className="mt-2 block text-sm text-ink-soft">{t("Turn your announcement brief into posts for approval. Other automation types are not enabled.")}</span></button></div></div>}
-    {step === 'configure' && <div className="space-y-5"><div><h3 className="text-xl font-semibold">{t("Configure the outcome")}</h3><p className="mt-1 text-sm text-ink-soft">{t("Name the pipeline and give Piggybot the context it needs.")}</p></div>{draft.sourceType === 'description' && <Field label={t("What should this automation do?")}><textarea value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value, brief: event.target.value }))} className="min-h-24 w-full rounded-md border border-ink/20 bg-paper-card p-3" placeholder={t("Example: Turn every product launch brief into LinkedIn and Instagram drafts for approval.")} /></Field>}<Field label={t("Pipeline name")}><input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} className="w-full rounded-md border border-ink/20 bg-paper-card p-3" placeholder={t("Product launch distribution")} /></Field><Field label={t("Working brief")}><textarea value={draft.brief} onChange={(event) => setDraft((current) => ({ ...current, brief: event.target.value }))} className="min-h-28 w-full rounded-md border border-ink/20 bg-paper-card p-3" /></Field><div className="grid gap-4 md:grid-cols-3"><Field label={t("Tone")}><input value={draft.tone} onChange={(event) => setDraft((current) => ({ ...current, tone: event.target.value }))} className="w-full rounded-md border border-ink/20 bg-paper-card p-3" /></Field><Field label={t("Language")}><select value={draft.language} onChange={(event) => setDraft((current) => ({ ...current, language: event.target.value }))} className="w-full rounded-md border border-ink/20 bg-paper-card p-3"><option value="en">{t("English")}</option><option value="zh">中文</option><option value="es">{t("Español")}</option></select></Field><Field label={t("Approval policy")}><select value={draft.approvalPolicy} onChange={(event) => setDraft((current) => ({ ...current, approvalPolicy: event.target.value as PipelineDraft['approvalPolicy'] }))} className="w-full rounded-md border border-ink/20 bg-paper-card p-3"><option value="required">{t("Always require approval")}</option><option value="auto_approve">{t("Assisted approval")}</option></select></Field></div><Field label={t("AI model band")}><ModelBandPicker value={draft.modelBand} onChange={(band) => setDraft((current) => ({ ...current, modelBand: band }))} /></Field><WizardActions back={() => onStep(savedPipeline ? 'saved' : 'start')} next={() => onStep('accounts')} nextDisabled={draft.name.trim().length < 3 || draft.brief.trim().length < 10 || (draft.sourceType === 'description' && draft.description.trim().length < 10)} /></div>}
-    {step === 'accounts' && <div><h3 className="text-xl font-semibold">{t("Choose destinations")}</h3><p className="mt-1 text-sm text-ink-soft">{t("V1 pipelines publish text only to LinkedIn and X. Other accounts stay connected; media publishing is unavailable.")}</p>{accounts.length === 0 ? <EmptyState title={t("Connect an account first")} detail={t("Close this builder, open Accounts, and connect a destination through the Piggybot-branded flow.")} /> : <div className="mt-6 grid gap-3 md:grid-cols-2">{accounts.map((account) => {
-      const selected = draft.targetAccountIds.includes(account.id);
-      const available = supportsAnnouncement(account.platform) && account.status === 'connected' && account.capabilities.includes('publish');
-      return <label key={account.id} className={`flex gap-3 rounded-xl border p-4 ${selected ? "border-sky-deep bg-sky-pale" : "border-ink/15 bg-paper-card"}`}><input type="checkbox" checked={selected} disabled={!available && !selected} onChange={() => onToggleAccount(account.id)} /><span><strong className="block">{account.displayName}</strong><small className="text-ink-soft">{platformLabel(account.platform)} · {account.status}</small><small className="block text-ink-soft">{t(publicationAvailability(account.platform))}</small>{selected && !available && <small className="block text-red-700">{t("Unavailable destination — deselect before activation.")}</small>}</span></label>;
-    })}</div>}<WizardActions back={() => onStep('configure')} next={() => onStep('review')} nextLabel={draft.targetAccountIds.length ? t("Review pipeline") : t("Save without accounts")} /></div>}
-    {step === 'review' && <div><h3 className="text-xl font-semibold">{t("Review the pipeline draft")}</h3><div className="mt-5 grid gap-5 md:grid-cols-2"><div className="rounded-xl bg-paper-card p-5"><span className="text-xs font-semibold uppercase tracking-wide text-sky-deep">{t("Pipeline")}</span><h4 className="mt-2 text-lg font-semibold">{draft.name}</h4><p className="mt-2 text-sm text-ink-soft">{draft.brief}</p><dl className="mt-4 space-y-2 text-sm"><div className="flex justify-between gap-4"><dt>{t("Tone")}</dt><dd className="text-ink-soft">{draft.tone}</dd></div><div className="flex justify-between gap-4"><dt>{t("Approval")}</dt><dd className="text-ink-soft">{draft.approvalPolicy === 'required' ? t("Always required") : t("Assisted")}</dd></div><div className="flex justify-between gap-4"><dt>{t("Model band")}</dt><dd className="text-ink-soft capitalize">{draft.modelBand}</dd></div><div className="flex justify-between gap-4"><dt>{t("Destinations")}</dt><dd className="text-ink-soft">{draft.targetAccountIds.length}</dd></div></dl></div><div className="rounded-xl bg-sky-pale p-5"><span className="text-xs font-semibold uppercase tracking-wide text-sky-deep">{t("Planned steps")}</span><ol className="mt-3 space-y-3">{(selectedTemplate?.steps ?? ['Understand outcome', 'AI prepares work', 'Human review', 'Execute safely']).map((item, stepIndex) => <li key={item} className="flex gap-3 text-sm"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-deep text-xs text-white">{stepIndex + 1}</span>{item}</li>)}</ol></div></div><WizardActions back={() => onStep('accounts')} next={onSave} nextLabel={loading ? t("Saving…") : t("Save and check setup")} nextDisabled={loading} /></div>}
-    {step === 'saved' && savedPipeline && <div><h3 className="text-xl font-semibold">{t("Test before activation")}</h3><p className="mt-1 text-sm text-ink-soft">{t("This readiness test performs no external publishing action. Starting queues one announcement run; posts require approval. Recurring schedules are not enabled.")}</p><div className="mt-6 rounded-xl bg-paper-card p-5"><div className="flex items-center justify-between"><div><StatusBadge status={savedPipeline.status} /><h4 className="mt-3 text-lg font-semibold">{savedPipeline.name}</h4></div><button onClick={() => onStep('configure')} className="rounded-md border border-ink/20 px-4 py-2 text-sm">{t("Edit setup")}</button></div>{readiness ? <div className="mt-5 space-y-3">{readiness.checks.map((check) => <div key={check.id} className="flex gap-3 rounded-lg border border-ink/10 bg-paper p-3"><span className={`font-bold ${check.passed ? 'text-meadow-deep' : 'text-sunset'}`}>{check.passed ? '✓' : '!'}</span><div><p className="text-sm font-medium">{check.label}</p><p className="text-xs text-ink-soft">{check.detail}</p></div></div>)}</div> : <p className="mt-5 rounded-lg bg-sky-pale p-4 text-sm">{t("Run the readiness check to validate the brief, destinations, account health, and approval guardrail.")}</p>}</div><div className="mt-6 flex flex-wrap justify-end gap-3"><button onClick={onClose} className="rounded-md border border-ink/20 px-5 py-3 font-medium">{t("Keep as draft")}</button><button disabled={loading} onClick={onTest} className="rounded-md border border-sky-deep px-5 py-3 font-medium text-sky-deep disabled:opacity-50">{loading ? t("Checking…") : t("Test setup")}</button><button disabled={!readiness?.ready || loading} onClick={onActivate} className="rounded-md bg-sky-deep px-5 py-3 font-medium text-white disabled:cursor-not-allowed disabled:opacity-40">{t("Start run (approval required)")}</button></div></div>}
-  </div></div></WorkspaceDialog>;
-}
 
-function TemplateCard({ template, onClick }: { template: PipelineTemplate; onClick: () => void; }) { return <button disabled={!template.available} onClick={onClick} className="wobble-2 sketch bg-paper-card p-5 text-left shadow-paint-sm transition hover:-translate-y-1 hover:bg-sky-pale"><span className="text-xs font-semibold uppercase tracking-wide text-sky-deep">{t("Standard template")}</span><span className="mt-2 block text-lg font-semibold">{t(template.name)}</span><span className="mt-2 block text-sm text-ink-soft">{t(template.description)}</span><span className="mt-4 block text-xs font-medium text-sky-deep">{template.available ? t("Use this template →") : t("Coming soon — not executable yet")}</span></button>; }
-function Stat({ label, value, detail }: { label: string; value: string; detail: string; }) { return <div className="sketch bg-paper-card p-5 shadow-paint-sm"><p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">{label}</p><p className="mt-2 font-display text-3xl">{value}</p><p className="mt-1 text-xs text-ink-soft">{detail}</p></div>; }
 function StatusBadge({ status }: { status: string }) { const active = status === 'published' || status === 'connected' || status === 'succeeded' || status === 'classified'; const working = status === 'draft' || status === 'syncing' || status === 'pending' || status === 'classifying'; return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${active ? "bg-meadow-light text-meadow-deep" : working ? "bg-sun/35 text-ink" : "bg-sunset/15 text-sunset"}`}>{status === 'published' ? t("Published") : t(status)}</span>; }
 function EmptyState({ title, detail, action, onAction }: { title: string; detail: string; action?: string; onAction?: () => void; }) { return <div className="mt-5 rounded-xl border-2 border-dashed border-ink/15 bg-paper-card p-8 text-center"><h3 className="font-semibold">{title}</h3><p className="mx-auto mt-2 max-w-lg text-sm text-ink-soft">{detail}</p>{action && onAction && <button onClick={onAction} className="mt-4 rounded-md bg-sky-deep px-5 py-2 text-sm font-medium text-white">{action}</button>}</div>; }
 function Feed({ title, empty, children }: { title: string; empty: string; children: ReactNode }) { return <section className="wobble sketch bg-paper-card p-5"><h3 className="text-lg font-semibold">{title}</h3><div className="mt-3">{children || <p className="text-sm text-ink-soft">{empty}</p>}</div></section>; }
 function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="block"><span className="mb-2 block text-sm font-medium">{label}</span>{children}</label>; }
-function WizardActions({ back, next, nextLabel = 'Continue', nextDisabled = false }: { back: () => void; next: () => void; nextLabel?: string; nextDisabled?: boolean; }) { return <div className="flex justify-between gap-3 pt-3"><button onClick={back} className="rounded-md border border-ink/20 px-5 py-3 font-medium">{t("Back")}</button><button disabled={nextDisabled} onClick={next} className="rounded-md bg-sky-deep px-5 py-3 font-medium text-white disabled:opacity-40">{t(nextLabel)}</button></div>; }
+
 function platformLabel(platform: string): string { return socialPlatforms.find(([id]) => id === platform)?.[1] ?? platform.replaceAll('_', ' '); }

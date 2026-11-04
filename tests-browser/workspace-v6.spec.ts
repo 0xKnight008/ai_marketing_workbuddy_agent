@@ -27,7 +27,7 @@ async function fixture(page:Page, options: { paused?: boolean; initialPath?: str
  await page.goto(options.initialPath ?? '/app');await expect(page.locator('[data-nav=start]')).toBeAttached();return mutations;
 }
 async function nav(page:Page,route:string){
- const menu=page.locator('.workspace-topbar .mobile-only');if(await menu.isVisible())await menu.click();
+ // Navigation remains visible as a left icon rail on mobile.
  const canonical:Record<string,string>={dashboard:'start',imports:'start',insights:'start',topics:'reports',notifications:'settings'};
  await page.locator(`[data-nav=${canonical[route]??route}]`).click();
  if(route==='imports')await page.getByRole('button',{name:/^(Source library|Biblioteca de fuentes|素材库)$/}).click();
@@ -63,7 +63,7 @@ for (const locale of ['en', 'zh', 'es']) test(`${locale}: Sources exposes only C
  await expect.poll(() => mutations.length).toBe(1);
  expect(mutations[0]).toMatchObject({ path: '/api/imports', body: { sourceType: 'discord', channelId: '123456789012345678' } });
 });
-test('mobile navigation traps focus, restores focus and supports 320px',async({page})=>{await page.setViewportSize({width:320,height:780});await fixture(page);const menu=page.getByRole('button',{name:'Open navigation',exact:true});await menu.click();await expect(page.getByRole('button',{name:'Close navigation'})).toBeFocused();await page.keyboard.press('Shift+Tab');expect(await page.evaluate(()=>!!document.activeElement?.closest('.workspace-sidebar'))).toBeTruthy();await page.keyboard.press('Escape');await expect(menu).toBeFocused();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();});
+test('mobile navigation traps focus, restores focus and supports 320px',async({page})=>{await page.setViewportSize({width:320,height:780});await fixture(page);const menu=page.getByRole('button',{name:'Expand navigation',exact:true});await menu.click();await expect(page.getByRole('button',{name:'Collapse navigation'})).toBeFocused();await page.keyboard.press('Shift+Tab');expect(await page.evaluate(()=>!!document.activeElement?.closest('.workspace-sidebar'))).toBeTruthy();await page.keyboard.press('Escape');await expect(menu).toBeFocused();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();});
 test('report evidence remains unchanged across UI language switches',async({page})=>{await fixture(page);await nav(page,'reports');await page.getByRole('button',{name:'Open report',exact:true}).click();await expect(page.locator('blockquote')).toContainText(original);await page.locator('#workspace-language').selectOption('zh');await expect(page.locator('blockquote')).toContainText(original);await expect(page.getByRole('button',{name:'保存核对与关注重点'})).toBeVisible();});
 
 test('support floats above paused content, preserves failed input and creates a real ticket',async({page})=>{

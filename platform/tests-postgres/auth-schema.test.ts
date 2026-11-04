@@ -1,3 +1,4 @@
+import {pipelineBillingRegression} from './pipeline-billing';
 import {quotedRequestRegression} from './quoted-requests';
 import {costMeteringRegression} from './cost-metering';
 import {aiRefundRegression,legacyRefundMigrationFixture} from './ai-refunds';
@@ -73,6 +74,7 @@ test('migration 0013 upgrades missing auth columns and enables register/login/me
     }
     await assertTaskSchema(database);
     await assertAuthSchema(database);
+    await t.test('Live-billed X pipeline activation, approval and publishing',ctx=>pipelineBillingRegression(ctx,client,database));
     await t.test('Quoted import/report/topic request validation',ctx=>quotedRequestRegression(ctx,client,database));
     await t.test('Cost metering: quotes, funding, partial results, shadow mode and reconciliation',ctx=>costMeteringRegression(ctx,client,database));
     await t.test('AI reservation refunds, source buckets, replay and isolation',ctx=>aiRefundRegression(ctx,client,database));

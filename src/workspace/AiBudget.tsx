@@ -70,7 +70,7 @@ export function AiBudgetProvider({ children }: { children: ReactNode }) {
     const quoteUrl = url.origin + "/api/billing/ai-quote";
     const response = await globalThis.fetch(quoteUrl, {
       method: "POST",
-      headers: init.headers,
+      headers: { ...Object.fromEntries(new Headers(init.headers)), "content-type": "application/json" },
       body: JSON.stringify({ kind, modelBand: band }),
       cache: "no-store",
     });
@@ -90,7 +90,7 @@ export function AiBudgetProvider({ children }: { children: ReactNode }) {
             kind,
             band,
             url: quoteUrl,
-            headers: init.headers,
+            headers: { ...Object.fromEntries(new Headers(init.headers)), "content-type": "application/json" },
             resolve,
             reject,
           });
@@ -102,7 +102,7 @@ export function AiBudgetProvider({ children }: { children: ReactNode }) {
     if (!accepted) throw new Error("ai_budget_not_confirmed");
     delete payload._aiKind;
     payload.aiQuoteId = accepted.quoteId;
-    return globalThis.fetch(input, { ...init, body: JSON.stringify(payload) });
+    return globalThis.fetch(input, { ...init, headers: { ...Object.fromEntries(new Headers(init.headers)), "content-type": "application/json" }, body: JSON.stringify(payload) });
   };
   return (
     <BudgetFetch.Provider value={request}>
@@ -134,13 +134,8 @@ export function AiBudgetProvider({ children }: { children: ReactNode }) {
           </p>
           <p>
             {w("Estimated credits", "Créditos estimados", "预计额度")}:{" "}
-            {Math.min(pending.quote.estimatedCredits, maximum)}
+            {pending.quote.estimatedCredits}
           </p>
-          {pending.quote.policyVersion === "cost-106-v1" && <p>{w(
-            "Credits = model cost in USD × 1.06 ÷ 0.01, rounded up once per operation. Top-ups: $10 for 1,000 credits.",
-            "Créditos = costo del modelo en USD × 1,06 ÷ 0,01, redondeado hacia arriba por operación. Recargas: $10 por 1.000 créditos.",
-            "Credits = 模型成本（USD）× 1.06 ÷ 0.01，同一操作累计向上取整。充值 $10 获得 1,000 credits。",
-          )}</p>}
           <label>
             {w(
               "Maximum credits for this operation",
