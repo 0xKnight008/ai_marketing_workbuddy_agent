@@ -339,3 +339,25 @@ test('cache-write receipts retain TTL details and ambiguous writes stay unknown'
   if(expected==='known'){assert.equal(receipt?.costNanos,'820000');assert.equal(receipt?.cacheWrite5m,60);assert.equal(receipt?.cacheWrite1h,40);}else assert.equal(receipt?.costNanos,null);
  }
 });
+
+test("Pipeline output follows remaining confirmed credits for every tier instead of fixed token quotas", async () => {
+  for (const band of ['eco', 'standard', 'flagship'] as const) {
+    const model = 'primary-' + band;
+    const meta = { ...envelope(), band, creditBoundOutput: true, rate: { ...rate, model } };
+    const limits: number[] = [];
+    await runtimeCostContext.run(meta, async () => {
+      for (let i = 0; i < 2; i++) await boundedModelFetch(async (_url, init) => {
+        const body = JSON.parse(String(init?.body));
+        limits.push(body.max_tokens);
+        assert.ok(body.max_tokens > 100, 'former fixed cap and SDK defaults must not limit a credit-bounded Pipeline');
+        return Response.json({ model: 'actual-fixture', choices: [{ message: { content: '{}' }, finish_reason: 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 150, prompt_tokens_details: { cached_tokens: 0 } } });
+      }, 'https://proxy.invalid/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model, messages: [{ role: 'user', content: 'JSON' }], max_tokens: 100 }) });
+    });
+    assert.ok(limits[1]! < limits[0]!, 'actual previous cost reduces the next-call allowance');
+    assert.ok(limits[0]! < 500, 'input costs are reserved before deriving output tokens');
+    const noBudget = { ...meta, requestId: randomUUID(), maxCostNanos: '1' };
+    let calls = 0;
+    await assert.rejects(runtimeCostContext.run(noBudget, () => boundedModelFetch(async () => { calls++; return Response.json({}); }, 'https://proxy.invalid/v1/chat/completions', { method: 'POST', body: JSON.stringify({ model, messages: [{ role: 'user', content: 'JSON' }] }) })), /ai_confirmed_budget_exhausted/);
+    assert.equal(calls, 0, 'no upstream call without enough confirmed credits');
+  }
+});

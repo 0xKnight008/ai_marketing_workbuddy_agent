@@ -40,7 +40,7 @@ export function markTaskFailure(code: string, issues: string[] = []) {
 export const requestTraceMiddleware = async (c: any, next: () => Promise<void>) => {
   if (c.req.method !== 'POST') return next();
   let body: any; try { body = await c.req.json(); } catch { return next(); }
-  const trace: Trace = { requestId: uuid(body?._metering?.requestId) ?? randomUUID(), taskId: uuid(body?.taskId), workspaceId: uuid(body?._metering?.workspaceId), operationId: uuid(body?._metering?.operationId), band: ['eco', 'standard', 'flagship'].includes(body?.modelBand) ? body.modelBand : null, attempts: [] };
+  const trace: Trace = { requestId: uuid(body?._metering?.requestId) ?? randomUUID(), taskId: uuid(body?.taskId) ?? uuid(body?.platformRunId), workspaceId: uuid(body?._metering?.workspaceId) ?? uuid(body?.workspaceId), operationId: uuid(body?._metering?.operationId), band: ['eco', 'standard', 'flagship'].includes(body?.modelBand ?? body?.executionContext?.runPolicy?.modelBand) ? (body.modelBand ?? body.executionContext.runPolicy.modelBand) : null, attempts: [] };
   trace.persist = async () => {
     try { await store.record(trace, trace.status ?? 202); } catch { console.warn('runtime_request_trace_write_failed'); }
   };

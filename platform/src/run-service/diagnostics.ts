@@ -3,6 +3,10 @@
 export function runDiagnostics(
   events: Array<{ type: string; payload: Record<string, any> }>,
 ) {
+  // A newly confirmed attempt supersedes the previous budget-stop diagnostic.
+  let lastStart = -1;
+  events.forEach((event, index) => { if (event.type === "ai_run.started") lastStart = index; });
+  if (lastStart >= 0) events = events.slice(lastStart);
   const plan = events.find((e) => e.type === "action_plan.created")?.payload;
   const failure = events.find(
     (e) => e.type === "ai_run.failed" || e.type === "ai_step.failed",
@@ -58,7 +62,11 @@ export function runDiagnostics(
           message,
         )
           ? "provider_auth"
-          : "generation_failed",
+          : message === "ai_confirmed_budget_exhausted"
+            ? "budget_exhausted"
+          : message === "pipeline_output_truncated"
+            ? "generation_truncated"
+            : "generation_failed",
         issues: [],
       },
       drafts,

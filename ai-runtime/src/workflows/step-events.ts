@@ -1,3 +1,4 @@
+import { requestTraceContext } from '../lib/request-trace';
 import { getEmitter } from '../events/emitter';
 import type { WorkflowStepId } from '../schemas/events';
 
@@ -19,6 +20,7 @@ export async function withStepEvents<T>(
     await emitter.emit('ai_step.succeeded', { stepId, ...extraPayload(result) });
     return result;
   } catch (err) {
+    await requestTraceContext.getStore()?.persist?.();
     await emitter.emit('ai_step.failed', {
       stepId,
       error: err instanceof Error ? err.message : String(err),

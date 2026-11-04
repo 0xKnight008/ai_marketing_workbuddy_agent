@@ -9,6 +9,8 @@ import { getEmitter } from '../events/emitter';
 import { resolveApprovalRequirement } from '../lib/approval-policy';
 import { runDeterministicChecks } from '../lib/deterministic-checks';
 import { modelForBand } from '../lib/model-routing';
+import { runtimeCostContext } from '../lib/cost-metering';
+import { parseAnnouncementOutput } from '../lib/announcement-output';
 import { structuredOutputForBand } from '../lib/structured-output';
 import { assertDraftsWithinPolicy, assertRunInputWithinPolicy } from '../lib/run-policy';
 import { assertTargetsMatch } from '../lib/target-validation';
@@ -74,7 +76,7 @@ const contentPlanningStep = createStep({
       assertRunInputWithinPolicy(input, executionContext);
       const announcementPlannerAgent = createAnnouncementPlannerAgent(modelForBand(config, executionContext.runPolicy.modelBand, executionContext.runPolicy.llmProvider),inputData.platformRunId);
 
-      const { object } = await announcementPlannerAgent.generate(
+      const generation = await announcementPlannerAgent.generate(
         [
           `Announcement brief: ${input.brief}`,
           `Mode: ${input.mode}`,
@@ -87,7 +89,7 @@ const contentPlanningStep = createStep({
         { structuredOutput: structuredOutputForBand(contentPlanSchema, executionContext.runPolicy.modelBand) },
       );
 
-      const contentPlan = contentPlanSchema.parse(object);
+      const contentPlan = parseAnnouncementOutput(contentPlanSchema, generation);
       assertTargetsMatch(input.targets, contentPlan.perTarget, 'content plan');
 
       return {
@@ -112,7 +114,7 @@ const copyOptimizationStep = createStep({
       WORKFLOW_STEP_IDS.copyOptimization,
       async () => {
         const copyOptimizationAgent = createCopyOptimizationAgent(modelForBand(config, inputData.executionContext.runPolicy.modelBand, inputData.executionContext.runPolicy.llmProvider),inputData.platformRunId);
-        const { object } = await copyOptimizationAgent.generate(
+        const generation = await copyOptimizationAgent.generate(
           [
             `Content plan: ${JSON.stringify(inputData.contentPlan)}`,
             `Brand profile: ${JSON.stringify(inputData.executionContext.brandProfile)}`,
@@ -120,9 +122,13 @@ const copyOptimizationStep = createStep({
           { structuredOutput: structuredOutputForBand(draftSetSchema, inputData.executionContext.runPolicy.modelBand) },
         );
 
-        const draftSet = draftSetSchema.parse(object);
+        const draftSet = parseAnnouncementOutput(draftSetSchema, generation);
         assertTargetsMatch(inputData.targets, draftSet.drafts, 'drafts');
-        assertDraftsWithinPolicy(draftSet.drafts, inputData.executionContext);
+        // Credit-metered Pipelines retain target/platform checks, without a second
+        // aggregate output quota after the model already respected its budget.
+        const metering = runtimeCostContext.getStore();
+        if (!metering?.creditBoundOutput || metering.shadow)
+          assertDraftsWithinPolicy(draftSet.drafts, inputData.executionContext);
 
         // §7 draft.created：run-service 据此更新 timeline / 展示草稿预览
         for (const draft of draftSet.drafts) {
@@ -160,14 +166,14 @@ const complianceCheckStep = createStep({
         const deterministicIssues = runDeterministicChecks(inputData.drafts, brand);
 
         // 2) 语义校验：语气漂移、夸大承诺、平台政策风险
-        const { object } = await complianceCheckerAgent.generate(
+        const generation = await complianceCheckerAgent.generate(
           [
             `Drafts: ${JSON.stringify(inputData.drafts)}`,
             `Brand profile: ${JSON.stringify(brand)}`,
           ].join('\n\n'),
           { structuredOutput: structuredOutputForBand(complianceReportSchema, inputData.executionContext.runPolicy.modelBand) },
         );
-        const semanticReport = complianceReportSchema.parse(object);
+        const semanticReport = parseAnnouncementOutput(complianceReportSchema, generation);
 
         const issues: ComplianceIssue[] = [...deterministicIssues, ...semanticReport.issues];
         const passed =

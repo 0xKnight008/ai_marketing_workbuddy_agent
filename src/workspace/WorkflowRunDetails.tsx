@@ -21,6 +21,14 @@ export function RunDiagnostics({ run }: { run: RunDetails }) {
                   "Falló la autenticación del proveedor",
                   "模型供应商鉴权失败",
                 )
+              : run.failure.kind === "budget_exhausted"
+                ? w("Confirm more credits to continue", "Confirma más créditos para continuar", "请确认更多额度后继续")
+              : run.failure.kind === "generation_truncated"
+                ? w(
+                    "Model output stopped before the draft was complete",
+                    "La salida del modelo se detuvo antes de completar el borrador",
+                    "模型输出达到上限，草稿未完成",
+                  )
               : run.failure.kind === "content_blocked"
                 ? w(
                     "Content needs correction before review",
@@ -40,6 +48,18 @@ export function RunDiagnostics({ run }: { run: RunDetails }) {
                   "El proveedor rechazó la credencial del servidor. Un administrador debe corregirla antes de reintentar.",
                   "所选供应商拒绝了服务器凭据。管理员需更新该供应商凭据后才能重试此模型。",
                 )
+              : run.failure.kind === "budget_exhausted"
+                ? w(
+                    "Generation stopped at the confirmed credit budget. Review the budget confirmation above before restarting generation. Nothing has been published.",
+                    "La generación se detuvo al alcanzar el presupuesto confirmado. Revisa la confirmación de presupuesto arriba antes de reiniciar. No se publicó nada.",
+                    "生成已在确认的额度预算处停止。请通过上方的预算确认入口确认后重新生成；尚未发布任何内容。",
+                  )
+              : run.failure.kind === "generation_truncated"
+                ? w(
+                    "The model reached its output limit before returning a complete result. No approval or post was created. Check the credit receipt, then create a new draft and confirm its budget.",
+                    "El modelo alcanzó su límite de salida sin completar el resultado. No se creó una aprobación ni una publicación. Revisa el recibo de créditos y crea un borrador nuevo con un presupuesto confirmado.",
+                    "模型在返回完整结果前达到输出上限，尚未创建审核记录或发布内容。请查看额度结算记录，再新建草稿并确认预算。",
+                  )
               : run.failure.kind === "content_blocked"
                 ? w(
                     "AI generation completed, but publication checks blocked this draft. It has not been submitted for approval or published.",
