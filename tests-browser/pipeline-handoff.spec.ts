@@ -236,7 +236,7 @@ async function start(page: Page) {
 
 test("X pipeline confirms credits, reviews and publishes on the same page, and reopens without another charge", async ({
   page,
-}) => {
+}, testInfo) => {
   const state = await setup(page);
   await start(page);
   await expect(page).toHaveURL(/#pipelines\/pipeline-1$/);
@@ -247,7 +247,7 @@ test("X pipeline confirms credits, reviews and publishes on the same page, and r
     text + " #launch",
   );
   await page.screenshot({
-    path: "/private/tmp/piggy-pipeline-built-review.png",
+    path: testInfo.outputPath("pipeline-review.png"),
     fullPage: true,
   });
   await expect(page.locator(".pipeline-post")).toContainText("Test X");
