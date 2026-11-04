@@ -266,7 +266,7 @@ export class PlatformService {
     return createWorkflowRun(actor, body, {
       createRun: (context, request) => this.database.withWorkspace(context.workspaceId, async (tx) => {
         const run = await createDurableRun(tx, context, request);
-        await bindCostQuote(tx,context,body,run.id,String((request.input as Record<string,unknown>).modelBand??'standard'),'prepare_ai_run');
+        if (!run.replayed) await bindCostQuote(tx,context,body,run.id,String((request.input as Record<string,unknown>).modelBand??'standard'),'prepare_ai_run');
         return { runId: run.id, status: 'pending' as const };
       }),
     });
@@ -525,6 +525,7 @@ export class PlatformService {
   async activatePipeline(actor: ActorContext, pipelineId: string, body:unknown={}): Promise<unknown> {
     return this.database.withWorkspace(actor.workspaceId, async tx => {
       const activated=await activatePipeline(tx,actor,pipelineId);
+      if (activated.run.replayed) return activated;
       const saved=await tx.query<{input:{modelBand:string}}>('SELECT input FROM workflow_run WHERE id=$1 AND workspace_id=$2',[activated.run.id,actor.workspaceId]);
       await bindCostQuote(tx,actor,body,activated.run.id,saved.rows[0]!.input.modelBand,'prepare_ai_run');
       return activated;

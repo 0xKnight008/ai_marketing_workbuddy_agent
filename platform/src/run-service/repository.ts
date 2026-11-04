@@ -8,7 +8,7 @@ import { requireAutomationAccess } from '../billing/guardrails';
 import { isAnnouncementWorkflow } from '../contracts/workflow-definition';
 import { HttpError } from '../http/errors';
 
-export interface RunRecord { id: string; status: RunStatus; workflowId: string; createdAt: string; }
+export interface RunRecord { replayed?: boolean; id: string; status: RunStatus; workflowId: string; createdAt: string; }
 
 export async function createDurableRun(tx: TenantTransaction, actor: ActorContext, request: WorkflowRunRequest): Promise<RunRecord> {
   await requireAutomationAccess(tx);
@@ -33,7 +33,7 @@ export async function createDurableRun(tx: TenantTransaction, actor: ActorContex
     [actor.workspaceId, request.idempotencyKey],
   )).rows[0];
   if (!run) throw new Error('Run creation did not return a record');
-  if (!created.rows[0]) return run;
+  if (!created.rows[0]) return { ...run, replayed: true };
   await tx.query('INSERT INTO run_event (workspace_id, run_id, event_key, event_type, payload) VALUES ($1, $2, $3, $4, $5)', [actor.workspaceId, run.id, `run:${run.id}:created`, 'run.created', { workflowId: request.workflowId }]);
   await tx.query('INSERT INTO job (workspace_id, run_id, kind, payload) VALUES ($1, $2, $3, $4)', [actor.workspaceId, run.id, 'prepare_ai_run', { runId: run.id }]);
   return run;
