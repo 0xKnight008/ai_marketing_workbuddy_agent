@@ -56,6 +56,7 @@ function envelopeValue(value: unknown): MeterEnvelope {
     ) ||
     !/^\d+$/.test(m.maxCostNanos) ||
     BigInt(m.maxCostNanos) <= 0n ||
+    (m.creditBoundOutput !== undefined && typeof m.creditBoundOutput !== "boolean") ||
     ![m.maxInputTokens, m.maxOutputTokens].every(
       (n) => Number.isSafeInteger(n) && n > 0 && n <= 1000000,
     )
@@ -242,14 +243,16 @@ export async function boundedModelFetch(
       .map(decimalNanos)
       .reduce((a, b) => (a > b ? a : b));
     const affordable = ((remaining - inputCost) * 1000000n) / outputRate;
-    const output = Math.min(
+    const output = meta.creditBoundOutput && !meta.shadow
+      ? Number(affordable)
+      : Math.min(
       meta.maxOutputTokens,
       Number(affordable),
       Number(
         body.max_tokens ?? body.max_completion_tokens ?? meta.maxOutputTokens,
       ),
     );
-    if (output < 1) {
+    if (!Number.isSafeInteger(output) || output < 1) {
       meta.guardError = "ai_confirmed_budget_exhausted";
       throw new Error("ai_confirmed_budget_exhausted");
     }

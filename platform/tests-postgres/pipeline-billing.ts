@@ -124,6 +124,7 @@ export async function pipelineBillingRegression(
           0,
         );
         const q = await quote();
+        assert.equal(q.estimatedCredits, 4, "token reference remains an estimate, not an output ceiling");
         const first = (await service.activatePipeline(actor, pipeline.id, {
           modelBand: "eco",
           aiQuoteId: q.quoteId,
@@ -230,6 +231,8 @@ export async function pipelineBillingRegression(
         });
         await worker.runOne();
         assert.ok(envelope);
+        assert.equal(envelope.creditBoundOutput, true, "Pipeline output follows confirmed credits");
+        assert.equal(envelope.maxCostNanos, "283018867", "all 30 confirmed credits bound the three-call workflow");
         const receiptEnvelope = envelope;
         assert.equal(posts, 0);
         const plan = {

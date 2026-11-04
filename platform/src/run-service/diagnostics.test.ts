@@ -65,3 +65,21 @@ test("successful generation without blockers has no fabricated failure", () => {
     null,
   );
 });
+
+test("Pipeline output exhaustion has an explicit safe failure category", () => {
+  const result = runDiagnostics([{ type: 'ai_step.failed', payload: { error: 'pipeline_output_truncated' } }]);
+  assert.equal(result.failure?.kind, 'generation_truncated');
+  assert.deepEqual(result.failure?.issues, []);
+});
+
+test('credit-bounded generation is explained as a budget pause', () => {
+  assert.equal(runDiagnostics([{type:'ai_step.failed',payload:{error:'ai_confirmed_budget_exhausted'}}]).failure?.kind,'budget_exhausted');
+});
+
+test('a resumed attempt clears the previous budget failure', () => {
+  assert.equal(runDiagnostics([
+    {type:'ai_step.failed',payload:{error:'ai_confirmed_budget_exhausted'}},
+    {type:'ai_run.started',payload:{}},
+    {type:'action_plan.created',payload:{actionPlan:{actions:[],blockedByCompliance:false}}},
+  ]).failure,null);
+});

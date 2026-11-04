@@ -456,3 +456,22 @@ test("requesting changes rejects the reviewed version before preparing a new bud
     page.getByRole("button", { name: "Review estimated credits", exact: true }),
   ).toBeVisible();
 });
+
+for (const [locale, heading, explanation] of [
+  ['en', 'Confirm more credits to continue', 'Nothing has been published.'],
+  ['zh', '请确认更多额度后继续', '尚未发布任何内容'],
+  ['es', 'Confirma más créditos para continuar', 'No se publicó nada.'],
+]) test(`Pipeline budget pause is explained without approval or publishing (${locale})`, async ({ page }) => {
+  const state = await setup(page);
+  await page.route('**/api/runs/run-1', route => route.fulfill({ json: { id: 'run-1', status: 'queued', modelBand: 'eco', failure: { kind: 'budget_exhausted', issues: [] } } }));
+  await page.route('**/api/approval-requests', route => route.fulfill({ json: [] }));
+  await budget(page);
+  await page.getByRole('button', { name: 'Confirm credits & generate', exact: true }).click();
+  await expect(page).toHaveURL(/#pipelines\/pipeline-1$/);
+  await page.goto(`/app?locale=${locale}#pipelines/pipeline-1`);
+  await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText(explanation!);
+  expect(state.decisions).toHaveLength(0);
+  expect(state.published).toBe(false);
+  expect(state.activations).toHaveLength(1);
+});

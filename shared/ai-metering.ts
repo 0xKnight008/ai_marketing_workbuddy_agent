@@ -44,6 +44,8 @@ export interface MeterEnvelope {
   maxCostNanos: string;
   maxInputTokens: number;
   maxOutputTokens: number;
+  /** Pipeline output capacity comes from remaining confirmed credits, not tier token limits. */
+  creditBoundOutput?: boolean;
 }
 export interface Receipt extends Usage {
   id: string;
