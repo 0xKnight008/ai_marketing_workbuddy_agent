@@ -7,6 +7,7 @@ type Connection = {
   platform: string;
   status: string;
   supported: boolean;
+  postsSupported?: boolean;
 };
 type Coverage = {
   accountId: string;
@@ -69,12 +70,36 @@ function useFeedbackApi({ token, apiBase }: Props) {
     [token, apiBase],
   );
 }
+function feedbackError(code:string, w:(en:string,es:string,zh:string)=>string) {
+  const messages:Record<string,[string,string,string]>={
+    feedback_x_inbox_disabled:['Enable Inbox for this X account in Zernio X capabilities.','Activa Inbox para esta cuenta de X en Zernio.','请在 Zernio 为这个 X 账号开启账号级 Inbox。'],
+    feedback_x_analytics_disabled:['Reading recent X posts requires this account’s Analytics capability. Comment collection uses Inbox separately.','Leer publicaciones recientes de X requiere Analytics. Los comentarios usan Inbox por separado.','读取 X 最近帖文需要该账号的 Analytics 能力；留言采集单独使用 Inbox。'],
+    feedback_tiktok_business_required:['TikTok comments require a TikTok for Business connection; recent posts can still be read.','Los comentarios de TikTok requieren una conexión TikTok for Business; las publicaciones recientes siguen disponibles.','TikTok 留言读取需要 TikTok for Business 连接；仍可查看最近帖文。'],
+    feedback_reconnect_required:['Reconnect this account: the upstream authorization has expired.','Vuelve a conectar la cuenta: la autorización ha caducado.','上游授权已失效，请重新连接该账号。'],
+    feedback_account_permission_required:['The provider denied read access. Check this account’s permissions.','El proveedor denegó la lectura. Revisa los permisos de la cuenta.','上游拒绝读取，请核对该账号的读取权限。'],
+    feedback_rate_limited:['The provider rate limit was reached. Retry later.','Se alcanzó el límite del proveedor. Inténtalo más tarde.','触发上游读取频率限制，请稍后重试。'],
+    feedback_provider_billing_required:['Review Zernio billing or the X spending cap.','Revisa la facturación de Zernio o el límite de gasto de X.','请检查 Zernio 账单或 X 支出上限。'],
+    feedback_platform_limitation:['This connection does not support comment reading.','Esta conexión no permite leer comentarios.','这个连接不支持留言读取。'],
+    feedback_platform_restricted:['The provider restricts this feature for the connected account.','El proveedor restringe esta función para la cuenta.','上游限制了该账号使用此读取功能。'],
+  };
+  const copy=messages[code];return copy?w(...copy):code;
+}
+type RecentPost={id:string;text:string;url:string|null;publishedAt:string|null};
+function RecentPosts({account,api}:{account:Connection;api:ReturnType<typeof useFeedbackApi>}) {
+  const {w}=useWorkspaceLanguage();
+  const [open,setOpen]=useState(false),[posts,setPosts]=useState<RecentPost[]|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+  const live=useRef(true);useEffect(()=>{live.current=true;return()=>{live.current=false}},[]);
+  async function load(){setBusy(true);setError('');try{const result=await api<{posts:RecentPost[]}>(`/accounts/${account.id}/posts`);if(live.current)setPosts(result.posts)}catch(e){if(live.current)setError((e as Error).message)}finally{if(live.current)setBusy(false)}}
+  return <div className="feedback-post-preview"><button type="button" aria-expanded={open} disabled={busy} onClick={()=>{setOpen(!open);if(!open&&posts===null)void load()}}>{w('View recent posts','Ver publicaciones recientes','查看最近帖文')} · {account.displayName}</button>{open&&<section aria-label={w('Recent posts','Publicaciones recientes','最近帖文')}><p>{w('Up to 25 recent posts. This preview does not import posts as comments or start AI analysis. X reads may incur provider charges.','Hasta 25 publicaciones recientes. Esta vista no las importa como comentarios ni inicia análisis de IA. Las lecturas de X pueden generar cargos.','最多 25 条最近帖文。预览不会把帖文作为留言导入，也不会启动 AI 分析。X 读取可能产生上游费用。')}</p>{busy&&<p role="status">{w('Loading…','Cargando…','读取中…')}</p>}{error&&<p role="alert">{feedbackError(error,w)} <button type="button" onClick={()=>void load()}>{w('Retry','Reintentar','重试')}</button></p>}{posts?.length===0&&<p>{w('The provider returned no recent posts.','El proveedor no devolvió publicaciones recientes.','上游未返回最近帖文。')}</p>}{posts?.map(p=><article key={p.id}><p>{p.text||w('Post without text','Publicación sin texto','无文字帖文')}</p>{p.publishedAt&&<time dateTime={p.publishedAt}>{new Date(p.publishedAt).toLocaleString()}</time>}{p.url&&<a href={p.url} target="_blank" rel="noopener noreferrer">{w('Open original post','Abrir publicación original','打开原帖')}</a>}</article>)}</section>}</div>;
+}
 function AccountChoices({
+  api,
   accounts,
   selected,
   onChange,
 }: {
   accounts: Connection[];
+  api: ReturnType<typeof useFeedbackApi>;
   selected: string[];
   onChange: (v: string[]) => void;
 }) {
@@ -94,7 +119,7 @@ function AccountChoices({
         </p>
       )}
       {accounts.map((a) => (
-        <label key={a.id}>
+        <div key={a.id}><label>
           <input
             type="checkbox"
             disabled={!a.supported}
@@ -110,20 +135,20 @@ function AccountChoices({
           <span>
             {a.displayName} · {a.platform}
             <small>
-              {a.supported
+              {a.platform==='tiktok' && a.postsSupported ? w('Recent posts are available; comments require TikTok for Business.','Publicaciones disponibles; los comentarios requieren TikTok for Business.','可读取最近帖文；留言需 TikTok for Business 连接。') : a.supported
                 ? w(
                     "Read permission checked during collection",
                     "Permiso de lectura verificado al recopilar",
                     "采集时验证读取权限",
                   )
-                : w(
+                : a.postsSupported ? w('Recent posts only; comments are unavailable.','Solo publicaciones; comentarios no disponibles.','可读取最近帖文；不支持留言采集。') : w(
                     "Reading unavailable for this connection",
                     "Lectura no disponible en esta conexión",
                     "此连接暂不支持读取",
                   )}
             </small>
           </span>
-        </label>
+        </label>{a.postsSupported&&<RecentPosts account={a} api={api}/>}</div>
       ))}
     </fieldset>
   );
@@ -133,9 +158,9 @@ function ScopeNote() {
   return (
     <p className="feedback-scope">
       {w(
-        "Read-only collection of public comments on accessible posts from the last 30 days. X may return only its first page; nested replies and older posts may be incomplete. No private messages. Provider caching can delay new comments. Collection uses no AI credits; analysis requires a separate budget.",
-        "Recopilación de solo lectura de comentarios públicos en publicaciones accesibles de los últimos 30 días. X puede devolver solo la primera página; respuestas anidadas y publicaciones antiguas pueden faltar. Sin mensajes privados. La caché puede retrasar comentarios. Recopilar no consume créditos de IA; el análisis requiere otro presupuesto.",
-        "只读采集最近 30 天可访问帖子的公开评论。X 可能仅返回首页，嵌套回复及较旧帖子可能不完整，不读取私信。上游缓存可能导致新留言延迟出现。采集不消耗 AI credits，分析需单独确认预算。",
+        "Read public comments from up to 25 recent posts per account. X uses its Inbox feed (recent 30-day posts, often only the first page), without enabling Analytics. Older posts and nested replies may be missing. No private messages. Provider caching can delay results; X reads incur provider charges. Collection uses no AI credits; analysis requires a separate budget.",
+        "Lee comentarios públicos de hasta 25 publicaciones recientes por cuenta. X usa su feed Inbox de 30 días, a menudo solo la primera página, sin activar Analytics. Pueden faltar publicaciones antiguas y respuestas anidadas. Sin mensajes privados. La caché puede retrasar resultados y X cobra sus lecturas. Recopilar no consume créditos de IA; el análisis requiere otro presupuesto.",
+        "只读采集每个账号最多 25 条最近帖文的公开留言。X 继续使用 Inbox 最近 30 天帖文列表（可能仅首页），不会自动开启 Analytics。较旧帖文与嵌套回复可能遗漏，不读取私信。上游缓存可能延迟结果，X 读取另计上游费用。采集不消耗 AI credits，分析需单独确认预算。",
       )}
     </p>
   );
@@ -173,7 +198,7 @@ function ScanResult({ scan }: { scan: Scan }) {
                 "可用页面已采集",
               )
             : w("Incomplete", "Incompleto", "未完整采集")}
-          {c.error && <code> · {c.error}</code>}
+          {c.error && <span> · {feedbackError(c.error,w)} <code>{c.error}</code></span>}
           {!!c.missingDates && (
             <span>
               {" "}
@@ -249,7 +274,7 @@ export function FeedbackScan(
   return (
     <div className="feedback-panel">
       <ScopeNote />
-      <AccountChoices
+      <AccountChoices api={api}
         accounts={accounts}
         selected={selected}
         onChange={(v) => {
@@ -605,7 +630,7 @@ export function ScheduledTasks(
               />
             </label>
             <ScopeNote />
-            <AccountChoices
+            <AccountChoices api={api}
               accounts={accounts}
               selected={draft.accountIds}
               onChange={(accountIds) => patch({ accountIds })}

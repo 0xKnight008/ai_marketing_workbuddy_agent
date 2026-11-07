@@ -71,16 +71,19 @@ async function fixture(page: Page, locale = "en", path = "#start") {
             platform: "youtube",
             status: "connected",
             supported: true,
+            postsSupported: true,
           },
           {
             id: "disabled",
-            displayName: "My Instagram",
-            platform: "instagram",
+            displayName: "My Pinterest",
+            platform: "pinterest",
             status: "connected",
             supported: false,
+            postsSupported: true,
           },
         ],
       });
+    if (p.endsWith('/posts') && p.startsWith('/api/feedback/accounts/')) return route.fulfill({json:{posts:[],limit:25}});
     if (p === "/api/feedback/scans")
       return route.fulfill({ json: { id: "scan-1" } });
     if (p === "/api/feedback/scans/scan-1")
@@ -156,7 +159,7 @@ async function fixture(page: Page, locale = "en", path = "#start") {
       });
     return route.fulfill({ json: [] });
   });
-  await page.goto(`/login?locale=${locale}${path}`);
+  await page.goto(`/login?locale=${locale}${path}`, { waitUntil: "domcontentloaded" });
   await expect(page.locator("[data-nav=start]")).toBeVisible();
   return calls;
 }
@@ -210,7 +213,7 @@ for (const locale of ["en", "zh", "es"])
       });
       await page.keyboard.press("Escape");
       await expect(dialog).not.toBeVisible();
-      await page.reload();
+      await page.reload({ waitUntil: "domcontentloaded" });
       await expect(page.locator("html")).toHaveAttribute(
         "data-workspace-theme",
         "dark",
@@ -223,7 +226,7 @@ test("partial feedback requires scope acceptance before goal; collection alone d
   await page.getByLabel("Source type", { exact: true }).selectOption("scan");
   await page.getByLabel("My YouTube", { exact: false }).check();
   await expect(
-    page.getByLabel("My Instagram", { exact: false }),
+    page.getByLabel("My Pinterest", { exact: false }),
   ).toBeDisabled();
   await page
     .getByRole("button", { name: "Collect channel feedback", exact: true })
@@ -310,4 +313,36 @@ test("legacy review opens unified page; editing saves a new version and approval
     subject: "Reviewed subject",
   });
   expect(calls[1].body).toEqual({ expectedVersion: 2 });
+});
+
+for(const locale of ['en','zh','es'] as const)test(`${locale}: TikTok preview is explicit, read-only and separate from comment permission`,async({page})=>{
+  const calls=await fixture(page,locale);
+  let reads=0;
+  await page.route('**/api/feedback/accounts',route=>route.fulfill({json:[{id:accountId,displayName:'Dora2000',platform:'tiktok',status:'connected',supported:true,postsSupported:true},{id:'pin',displayName:'My Pinterest',platform:'pinterest',status:'connected',supported:false,postsSupported:true}]}));
+  await page.route('**/api/feedback/accounts/*/posts',route=>{reads++;return route.fulfill({json:{posts:[{id:'video',text:'Post preview evidence',url:'https://www.tiktok.com/@dora/video/123',publishedAt:'2026-11-07T00:00:00Z'}]}})});
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.getByLabel({en:'Source type',zh:'来源类型',es:'Tipo de fuente'}[locale],{exact:true}).selectOption('scan');
+  const dora=page.getByRole('checkbox',{name:/Dora2000/});await expect(dora).toBeEnabled();
+  await expect(page.getByRole('checkbox',{name:/My Pinterest/})).toBeDisabled();expect(reads).toBe(0);
+  await page.getByRole('button',{name:/.* · Dora2000/}).click();await expect(page.getByText('Post preview evidence',{exact:true})).toBeVisible();expect(reads).toBe(1);expect(calls).toEqual([]);
+  await expect(page.getByRole('link',{name:{en:'Open original post',zh:'打开原帖',es:'Abrir publicación original'}[locale]})).toHaveAttribute('href','https://www.tiktok.com/@dora/video/123');
+});
+test('preview handles expired authorization and empty retry without importing sources',async({page})=>{
+  const calls=await fixture(page);let attempt=0;
+  await page.route('**/api/feedback/accounts/*/posts',route=>++attempt===1?route.fulfill({status:422,json:{error:'feedback_reconnect_required'}}):route.fulfill({json:{posts:[]}}));
+  await page.getByLabel('Source type',{exact:true}).selectOption('scan');
+  await page.getByRole('button',{name:'View recent posts · My YouTube',exact:true}).click();
+  await expect(page.getByRole('alert')).toContainText('Reconnect this account');
+  await page.getByRole('alert').getByRole('button',{name:'Retry'}).click();
+  await expect(page.getByText('The provider returned no recent posts.',{exact:true})).toBeVisible();expect(calls).toEqual([]);
+});
+test('account sync hides disconnected history, keeps expired connections and preserves list on failure',async({page})=>{
+  await fixture(page,'en','#accounts');let synced=false,fail=false;
+  await page.route('**/api/zernio/accounts',route=>route.fulfill({json:[{id:'active',platform:'tiktok',displayName:'Active Dora',status:'connected',capabilities:['publish']},{id:'gone',platform:'twitter',displayName:'Removed Dora',status:synced?'disconnected':'connected',capabilities:[]},{id:'expired',platform:'youtube',displayName:'Reconnect Dora',status:'expired',capabilities:[]}]}));
+  await page.route('**/api/zernio/sync',route=>{if(fail)return route.fulfill({status:503,json:{error:'supplier_unavailable'}});synced=true;return route.fulfill({json:{synced:2}})});
+  await page.reload({ waitUntil: "domcontentloaded" });await expect(page.getByRole('heading',{name:'Removed Dora',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Sync account health',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Removed Dora',exact:true})).toHaveCount(0);await expect(page.getByRole('heading',{name:'Reconnect Dora',exact:true})).toBeVisible();
+  await page.reload({ waitUntil: "domcontentloaded" });await expect(page.getByRole('heading',{name:'Active Dora',exact:true})).toBeVisible();await expect(page.getByRole('heading',{name:'Removed Dora',exact:true})).toHaveCount(0);
+  fail=true;await page.getByRole('button',{name:'Sync account health',exact:true}).click();await expect(page.getByRole('alert')).toContainText('Sync failed.');await expect(page.getByRole('heading',{name:'Active Dora',exact:true})).toBeVisible();
 });

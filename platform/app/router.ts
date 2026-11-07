@@ -13,6 +13,7 @@ export default (app: Application) => {
   router.get('/api/auth/me', controller.platform.me);
   router.post('/api/auth/password', controller.platform.setPassword);
   router.get('/api/feedback/accounts', controller.platform.feedbackAccounts);
+  router.get('/api/feedback/accounts/:accountId/posts', controller.platform.feedbackRecentPosts);
   router.post('/api/feedback/scans', controller.platform.feedbackScan);
   router.post('/api/feedback/scans/:scanId/accept',controller.platform.acceptFeedbackScan);
   router.get('/api/feedback/scans/:scanId', controller.platform.feedbackScanDetail);

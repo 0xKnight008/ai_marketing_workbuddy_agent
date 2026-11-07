@@ -1,3 +1,4 @@
+import { feedbackProviderError } from '../feedback-service/provider-errors';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { postBody, postResult, type ZernioPostResult } from './posts';
 
@@ -221,9 +222,11 @@ export class ZernioClient {
   }
 
   async readInboxPage(path:string,workspaceId:string):Promise<Record<string,unknown>> {
-    if(!path.startsWith('/v1/inbox/comments'))throw new Error('feedback_invalid_provider_path');
-    const response=await this.request(path,{method:'GET',redirect:'error'},0,workspaceId);
-    if(!response.ok)throw new Error(response.status===401||response.status===403?'feedback_account_permission_required':response.status===429?'feedback_rate_limited':'feedback_source_unavailable');
+    if(!/^\/v1\/(?:inbox\/comments(?:\/[^/?#]+)?(?:\?[^#]*)?|accounts\/[^/?#]+\/posts)$/.test(path))throw new Error('feedback_invalid_provider_path');
+    let response:Response;
+    try {response=await this.request(path,{method:'GET',redirect:'error'},0,workspaceId);}
+    catch(error){if(error instanceof SupplierBillingError)throw new Error('feedback_provider_billing_required');if(error instanceof SupplierUnavailableError)throw new Error(error.message.endsWith(': 429')?'feedback_rate_limited':'feedback_source_unavailable');throw error;}
+    if(!response.ok){const error=await response.json().catch(()=>({})) as {code?:unknown};throw new Error(feedbackProviderError(response.status,error.code));}
     const body=await response.json();if(!body||typeof body!=='object'||Array.isArray(body))throw new Error('feedback_invalid_provider_response');return body as Record<string,unknown>;
   }
 
@@ -364,8 +367,8 @@ export class ZernioClient {
       // Reject partial/malformed snapshots rather than disconnecting omitted accounts.
       if (!externalId || !displayName) throw new SupplierUnavailableError('Invalid Zernio account');
       const normalized: ZernioAccount = { externalId, displayName, platform: string(account.platform), capabilities: [], status: 'syncing' };
-      if (account.needsReconnection === true) normalized.status = 'expired';
-      else if (account.isActive === false || account.enabled === false) normalized.status = 'disconnected';
+      if (account.isActive === false || account.enabled === false) normalized.status = 'disconnected';
+      else if (account.needsReconnection === true) normalized.status = 'expired';
       else {
         try {
           const healthResponse = await this.request(`/v1/accounts/${encodeURIComponent(externalId)}/health`, {}, 1, workspaceId);

@@ -1,5 +1,8 @@
+import { readRecentPosts } from './posts';
+import { feedbackProviderError } from './provider-errors';
 /** Zernio Comments API: account-scoped, read-only, opaque cursor pagination.
- * The post feed is bounded to 30 days; this is not a complete historical inbox.
+ * New non-X scans read the latest 25 posts; X and legacy checkpoints use the 30-day Inbox feed.
+ * Neither discovery method is a complete historical inbox.
  * https://github.com/zernio-dev/zernio-rust/blob/main/docs/CommentsApi.md
  */
 export interface InboxReader {
@@ -30,7 +33,8 @@ export interface Checkpoint {
   until: string;
   postSince: string;
   postCursor?: string;
-  posts?: Array<{ id: string; url: string | null }>;
+  posts?: Array<{ id: string; url: string | null; subreddit?: string }>;
+  discovery?: "recent_posts" | "inbox";
   postIndex: number;
   commentCursor?: string;
   pending?: FeedbackItem[];
@@ -44,7 +48,7 @@ export interface Collection {
   postsWindowDays: number;
   missingDates: number;
 }
-export const READ_PLATFORMS = ["twitter", "youtube"] as const;
+export const READ_PLATFORMS = ["facebook", "instagram", "twitter", "bluesky", "threads", "youtube", "linkedin", "tiktok", "reddit"] as const;
 export const supportedReadPlatform = (p: string) =>
   READ_PLATFORMS.includes(p as (typeof READ_PLATFORMS)[number]);
 const str = (x: unknown) => (typeof x === "string" ? x : "");
@@ -101,6 +105,7 @@ export async function collectFeedback(
         until,
         postSince: new Date(Date.parse(until) - 30 * 86400000).toISOString(),
         postIndex: 0,
+        discovery: account.platform === "twitter" ? "inbox" : "recent_posts",
       };
   const items: FeedbackItem[] = [];
   let requests = 0,
@@ -123,6 +128,12 @@ export async function collectFeedback(
           add(state.pending.shift()!);
         if (items.length >= limit) break;
       }
+      if (!state.posts && state.discovery === "recent_posts") {
+        state.posts = await readRecentPosts(reader, workspaceId, account);
+        requests++;
+        state.postIndex = 0;
+        state.postHasMore = false;
+      }
       if (!state.posts) {
         const q = new URLSearchParams({
           profileId: account.profileId,
@@ -142,8 +153,13 @@ export async function collectFeedback(
         if (!Array.isArray(page.data))
           throw new Error("feedback_invalid_provider_response");
         const skipped = obj(page.meta).accountsSkipped;
-        if (Array.isArray(skipped) && skipped.length)
-          throw new Error("feedback_account_permission_required");
+        const failed = obj(page.meta).failedAccounts;
+        const failure = Array.isArray(failed) ? failed.map(obj).find(a => a.accountId === account.externalId) : undefined;
+        if (Number(obj(page.meta).accountsFailed) > 0 && (!Array.isArray(failed) || !failed.length))
+          throw new Error("feedback_source_unavailable");
+        if (failure) throw new Error(feedbackProviderError(403, failure.code, account.platform));
+        if (Array.isArray(skipped) && skipped.map(obj).some(a => a.accountId === account.externalId))
+          throw new Error(account.platform === 'twitter' ? 'feedback_x_inbox_disabled' : 'feedback_platform_limitation');
         const posts = [];
         for (const raw of page.data) {
           const p = obj(raw);
@@ -172,7 +188,7 @@ export async function collectFeedback(
             checkpoint: null,
             complete: true,
             error: null,
-            postsWindowDays: 30,
+            postsWindowDays: state.discovery === "recent_posts" ? 0 : 30,
             missingDates,
           };
         state.posts = undefined;
@@ -183,12 +199,16 @@ export async function collectFeedback(
         accountId: account.externalId,
         limit: "100",
       });
+      if (post.subreddit) q.set("subreddit", post.subreddit);
       if (state.commentCursor) q.set("cursor", state.commentCursor);
       const page = await reader.readInboxPage(
         "/v1/inbox/comments/" + encodeURIComponent(post.id) + "?" + q,
         workspaceId,
       );
       requests++;
+      const meta = obj(page.meta);
+      if ((meta.accountId !== undefined && meta.accountId !== account.externalId) || (meta.platform !== undefined && meta.platform !== account.platform))
+        throw new Error("feedback_provider_account_mismatch");
       if (!Array.isArray(page.comments))
         throw new Error("feedback_invalid_provider_response");
       const normalized: FeedbackItem[] = [];
@@ -225,7 +245,7 @@ export async function collectFeedback(
       checkpoint: state,
       complete: false,
       error: null,
-      postsWindowDays: 30,
+      postsWindowDays: state.discovery === "recent_posts" ? 0 : 30,
       missingDates,
     };
   } catch (e) {
@@ -234,10 +254,10 @@ export async function collectFeedback(
       items,
       checkpoint: state,
       complete: false,
-      error: /^feedback_[a-z_]+$/.test(message)
+      error: message === "feedback_platform_limitation" && account.platform === "tiktok" ? "feedback_tiktok_business_required" : /^feedback_[a-z_]+$/.test(message)
         ? message
         : "feedback_source_unavailable",
-      postsWindowDays: 30,
+      postsWindowDays: state.discovery === "recent_posts" ? 0 : 30,
       missingDates,
     };
   }

@@ -215,3 +215,7 @@
     padding: 8px;
   }
 }
+
+.feedback-post-preview { margin: .5rem 0 1rem; min-width: 0; }
+.feedback-post-preview article { padding: .75rem 0; border-bottom: 1px solid var(--workspace-border, #bbb); overflow-wrap: anywhere; }
+.feedback-post-preview article time, .feedback-post-preview article a { display: block; font-size: .85rem; }

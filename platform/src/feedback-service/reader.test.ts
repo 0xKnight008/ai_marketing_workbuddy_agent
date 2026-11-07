@@ -30,7 +30,7 @@ test("collection preserves overflow, follows cursors, excludes old comments and 
       const u = new URL(path, "https://fixture.invalid");
       if (!u.pathname.endsWith("/post"))
         return {
-          data: [{ id: "post", accountId: "remote" }],
+          posts: [{ id: "post", accountId: "remote" }],
           pagination: { hasMore: false },
         };
       return u.searchParams.get("cursor")
@@ -74,7 +74,8 @@ test("collection preserves overflow, follows cursors, excludes old comments and 
   );
   assert.equal(b.complete, true);
   assert.equal(paths.length, 3);
-  for (const p of paths)
+  assert.equal(paths[0], "/v1/accounts/remote/posts");
+  for (const p of paths.slice(1))
     assert.equal(
       new URL(p, "https://fixture.invalid").searchParams.get("accountId"),
       "remote",
@@ -84,7 +85,7 @@ test("foreign accounts fail closed; provider errors retain resumable progress", 
   const wrong = await collectFeedback(
     {
       readInboxPage: async () => ({
-        data: [{ id: "p", accountId: "foreign" }],
+        posts: [{ id: "p", accountId: "foreign" }],
       }),
     },
     "w",
@@ -99,7 +100,7 @@ test("foreign accounts fail closed; provider errors retain resumable progress", 
   const fail = await collectFeedback(
     {
       readInboxPage: async () => {
-        if (++calls === 1) return { data: [{ id: "p", accountId: "remote" }] };
+        if (++calls === 1) return { posts: [{ id: "p", accountId: "remote" }] };
         throw new Error("secret provider details");
       },
     },
@@ -130,4 +131,43 @@ test("daily scheduling respects timezone and skips a nonexistent DST clock time"
     ).toISOString(),
     "2026-03-09T06:30:00.000Z",
   );
+});
+
+test('all comment platforms discover native IDs, preserve evidence and forward Reddit context', async () => {
+  for (const platform of ['facebook','instagram','bluesky','threads','youtube','linkedin','tiktok','reddit']) {
+    const nativeId = platform === 'linkedin' ? 'urn:li:ugcPost:123' : platform === 'bluesky' ? 'at://did:plc:abc/app.bsky.feed.post/xyz' : 'video-or-post';
+    const paths:string[]=[];
+    const result=await collectFeedback({readInboxPage:async path=>{
+      paths.push(path);
+      if(path.endsWith('/posts'))return {posts:[{id:nativeId,platform,createdTime:'2020-01-01',permalink:'https://social.example/post',subreddit:platform==='reddit'?'test':undefined}]};
+      const url=new URL(path,'https://fixture.invalid');
+      assert.equal(decodeURIComponent(url.pathname.split('/').pop()!),nativeId);
+      assert.equal(url.searchParams.get('accountId'),'remote');
+      if(platform==='reddit')assert.equal(url.searchParams.get('subreddit'),'test');
+      return {comments:[comment('new')],meta:{accountId:'remote',platform}};
+    }},'w',{...account,platform},since,until,10);
+    assert.equal(result.error,null,platform);assert.equal(result.complete,true);assert.equal(result.items[0]?.postId,nativeId);assert.equal(result.items[0]?.url,'https://social.example/post');assert.equal(paths.length,2);assert.equal(result.postsWindowDays,0);
+  }
+});
+test('X retains Inbox discovery and distinguishes per-account failures from unrelated skips',async()=>{
+  for(const [meta,error] of [
+    [{accountsSkipped:[{accountId:'foreign'}]},null],
+    [{accountsSkipped:[{accountId:'remote'}]},'feedback_x_inbox_disabled'],
+    [{accountsFailed:1,failedAccounts:[{accountId:'remote',code:'TOKEN_EXPIRED',error:'private'}]},'feedback_reconnect_required'],
+    [{accountsFailed:1},'feedback_source_unavailable'],
+  ] as const){
+    const result=await collectFeedback({readInboxPage:async path=>{assert.ok(path.startsWith('/v1/inbox/comments?'));return {data:[],meta};}},'w',{...account,platform:'twitter'},since,until,10);
+    assert.equal(result.error,error);assert.equal(result.complete,error===null);
+  }
+});
+test('TikTok Business restriction and mismatched comment metadata are not successful empty scans',async()=>{
+  for(const [body,error] of [[null,'feedback_tiktok_business_required'],[{comments:[],meta:{accountId:'foreign'}},'feedback_provider_account_mismatch']] as const){
+    const result=await collectFeedback({readInboxPage:async path=>{if(path.endsWith('/posts'))return {posts:[{id:'p'}]};if(!body)throw new Error('feedback_platform_limitation');return body;}},'w',{...account,platform:'tiktok'},since,until,10);
+    assert.equal(result.error,error);assert.equal(result.complete,false);
+  }
+});
+test('legacy checkpoints retain Inbox pagination after upgrade',async()=>{
+  const paths:string[]=[];
+  const result=await collectFeedback({readInboxPage:async path=>{paths.push(path);return {data:[]};}},'w',account,since,until,10,{since,until,postSince:since,postIndex:0,postCursor:'old-opaque'});
+  assert.equal(result.complete,true);assert.ok(paths[0]?.includes('/inbox/comments?'));assert.ok(paths[0]?.includes('cursor=old-opaque'));
 });

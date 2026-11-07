@@ -5,6 +5,7 @@ import type { Database, TenantTransaction } from "../foundation/database";
 import { requirePermission } from "../foundation/rbac";
 import { requireAutomationAccess, usageSnapshot } from "../billing/guardrails";
 import { HttpError } from "../http/errors";
+import { readRecentPosts, supportsRecentPosts } from './posts';
 import {
   collectFeedback,
   supportedReadPlatform,
@@ -83,6 +84,7 @@ async function allowedAccounts(
   tx: TenantTransaction,
   workspaceId: string,
   accountIds: string[],
+  postsOnly = false,
 ) {
   const r = await tx.query<FeedbackAccount>(
     accountSql + " AND a.id=ANY($2::uuid[])",
@@ -91,7 +93,7 @@ async function allowedAccounts(
   if (
     r.rows.length !== accountIds.length ||
     r.rows.some(
-      (a) => a.status !== "connected" || !supportedReadPlatform(a.platform),
+      (a) => a.status !== "connected" || !(postsOnly ? supportsRecentPosts(a.platform) : supportedReadPlatform(a.platform)),
     )
   )
     throw new HttpError(422, "feedback_accounts_unavailable");
@@ -107,19 +109,32 @@ export class FeedbackService {
     return this.database.withWorkspace(actor.workspaceId, async (tx) =>
       (
         await tx.query<FeedbackAccount>(accountSql, [actor.workspaceId])
-      ).rows.map((a) => ({
+      ).rows.filter(a => a.status !== 'disconnected').map((a) => ({
         id: a.id,
         displayName: a.displayName,
         platform: a.platform,
         status: a.status,
+        postsSupported: !!this.reader && supportsRecentPosts(a.platform) && a.status === 'connected',
         supported:
           !!this.reader &&
           supportedReadPlatform(a.platform) &&
           a.status === "connected",
         scope: "public_comments_recent_posts",
-        postWindowDays: 30,
+        postWindowDays: a.platform === 'twitter' ? 30 : null,
+        recentPostsLimit: 25,
       })),
     );
+  }
+  async recentPosts(actor: ActorContext, accountId: string) {
+    requirePermission(actor.role, 'workflow:run');
+    z.string().uuid().parse(accountId);
+    if (!this.reader) throw new HttpError(503, 'feedback_provider_not_configured');
+    const account = await this.database.withWorkspace(actor.workspaceId, async tx => {
+      await requireAutomationAccess(tx);
+      return (await allowedAccounts(tx, actor.workspaceId, [accountId], true))[0]!;
+    });
+    try {return {posts: await readRecentPosts(this.reader, actor.workspaceId, account), limit:25};}
+    catch (error) {const message=error instanceof Error?error.message:'';throw new HttpError(422,/^feedback_[a-z_]+$/.test(message)?message:'feedback_source_unavailable');}
   }
   async createScan(actor: ActorContext, body: unknown) {
     requirePermission(actor.role, "workflow:run");
@@ -511,7 +526,8 @@ export class FeedbackService {
           error: result.error,
           inserted,
           duplicates,
-          postsWindowDays: 30,
+          postsWindowDays: result.postsWindowDays,
+          recentPostsLimit: result.postsWindowDays === 0 ? 25 : null,
           missingDates: result.missingDates,
           scope: "public_comments_accessible_posts",
         });
