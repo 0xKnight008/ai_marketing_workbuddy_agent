@@ -1,0 +1,313 @@
+import { test, expect, type Page } from "@playwright/test";
+import axe from "axe-core";
+const accountId = "11111111-1111-4111-8111-111111111111";
+async function fixture(page: Page, locale = "en", path = "#start") {
+  const calls: Array<{
+    path: string;
+    method: string;
+    body: Record<string, unknown>;
+  }> = [];
+  let schedules: Record<string, unknown>[] = [];
+  let approval = {
+    id: "approval-1",
+    version: 1,
+    requestedAt: "2026-11-05",
+    requestedAction: {
+      actionType: "insight.deliver_report",
+      summary: "Review customer digest",
+      parameters: {
+        channel: "email",
+        subject: "Original subject",
+        content: "Original body",
+        targetLabel: "owner@example.invalid",
+      },
+    },
+  };
+  let decided = false;
+  await page.addInitScript(() =>
+    sessionStorage.setItem(
+      "piggybot.ownerAccessToken",
+      `test.${btoa(JSON.stringify({ exp: 4102444800 }))}.test`,
+    ),
+  );
+  await page.route("**/api/**", async (route) => {
+    const req = route.request(),
+      url = new URL(req.url()),
+      p = url.pathname,
+      method = req.method();
+    if (method !== "GET")
+      calls.push({ path: p, method, body: req.postDataJSON() ?? {} });
+    if (p === "/api/auth/me")
+      return route.fulfill({
+        json: {
+          user: {
+            email: "owner@example.invalid",
+            displayName: "Owner",
+            passwordSet: true,
+          },
+          workspace: { id: "workspace-1", name: "Feedback Studio" },
+          role: "owner",
+          plan: "creator",
+          subscriptionStatus: "active",
+        },
+      });
+    if (p === "/api/billing/usage")
+      return route.fulfill({
+        json: {
+          status: "active",
+          taskUsed: 1,
+          taskQuota: 100,
+          aiCreditsAvailable: 100,
+          plan: "creator",
+          subscriptionStatus: "active",
+        },
+      });
+    if (p === "/api/feedback/accounts")
+      return route.fulfill({
+        json: [
+          {
+            id: accountId,
+            displayName: "My YouTube",
+            platform: "youtube",
+            status: "connected",
+            supported: true,
+          },
+          {
+            id: "disabled",
+            displayName: "My Instagram",
+            platform: "instagram",
+            status: "connected",
+            supported: false,
+          },
+        ],
+      });
+    if (p === "/api/feedback/scans")
+      return route.fulfill({ json: { id: "scan-1" } });
+    if (p === "/api/feedback/scans/scan-1")
+      return route.fulfill({
+        json: {
+          id: "scan-1",
+          status: "partial",
+          batchId: "batch-1",
+          itemCount: 12,
+          createdAt: "2026-11-05T09:00:00Z",
+          coverage: [
+            {
+              accountId,
+              displayName: "My YouTube",
+              complete: false,
+              inserted: 12,
+              duplicates: 3,
+              error: "feedback_rate_limited",
+            },
+          ],
+        },
+      });
+    if (p === "/api/feedback/schedules" && method === "POST") {
+      schedules = [
+        {
+          ...req.postDataJSON(),
+          id: "schedule-1",
+          version: 1,
+          nextRunAt: "2026-11-06T01:00:00Z",
+        },
+      ];
+      return route.fulfill({ json: { id: "schedule-1" } });
+    }
+    if (p === "/api/feedback/schedules")
+      return route.fulfill({ json: schedules });
+    if (p.endsWith("/schedule-1/pause")) {
+      schedules = schedules.map((s) => ({ ...s, enabled: false, version: 2 }));
+      return route.fulfill({ json: { id: "schedule-1" } });
+    }
+    if (p.endsWith("/history")) return route.fulfill({ json: [] });
+    if (p === "/api/approval-requests")
+      return route.fulfill({ json: decided ? [] : [approval] });
+    if (p.endsWith("/approval-1/content")) {
+      const b = req.postDataJSON();
+      approval = {
+        ...approval,
+        version: 2,
+        requestedAction: {
+          ...approval.requestedAction,
+          parameters: {
+            ...approval.requestedAction.parameters,
+            subject: b.subject,
+            content: b.content,
+          },
+        },
+      };
+      return route.fulfill({ json: approval });
+    }
+    if (p.endsWith("/approval-1/approved")) {
+      decided = true;
+      return route.fulfill({ json: { status: "approved" } });
+    }
+    if (p === "/api/topics")
+      return route.fulfill({ json: { run: null, topics: [] } });
+    if (p === "/api/task-preferences")
+      return route.fulfill({
+        json: {
+          persona: "creators",
+          modelBand: "standard",
+          language: locale,
+          goal: "",
+        },
+      });
+    return route.fulfill({ json: [] });
+  });
+  await page.goto(`/login?locale=${locale}${path}`);
+  await expect(page.locator("[data-nav=start]")).toBeVisible();
+  return calls;
+}
+for (const locale of ["en", "zh", "es"])
+  for (const width of [390, 1440])
+    test(`${locale}/${width}: schedule entry, dark mode, consent form and accessible layout`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 1000 });
+      await fixture(page, locale);
+      await page.locator("[data-nav=schedules]").click();
+      await expect(page.locator("[data-nav=review]")).toHaveCount(0);
+      const appearance = page.getByLabel(
+        { en: "Appearance", zh: "外观显示", es: "Apariencia" }[locale]!,
+      );
+      await appearance.selectOption("dark");
+      await expect(page.locator("html")).toHaveAttribute(
+        "data-workspace-theme",
+        "dark",
+      );
+      await page
+        .getByRole("button", {
+          name: {
+            en: "New scheduled task",
+            zh: "新建定时任务",
+            es: "Nueva tarea programada",
+          }[locale],
+          exact: true,
+        })
+        .click();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog).toBeVisible();
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+      await page.addScriptTag({ content: axe.source });
+      const violations = await page.evaluate(async () => {
+        const a = (window as unknown as { axe: typeof axe }).axe;
+        return (
+          await a.run(document, {
+            runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21aa"] },
+          })
+        ).violations;
+      });
+      expect(violations).toEqual([]);
+      await page.screenshot({
+        path: `/tmp/feedback-built-${locale}-${width}.png`,
+        fullPage: true,
+      });
+      await page.keyboard.press("Escape");
+      await expect(dialog).not.toBeVisible();
+      await page.reload();
+      await expect(page.locator("html")).toHaveAttribute(
+        "data-workspace-theme",
+        "dark",
+      );
+    });
+test("partial feedback requires scope acceptance before goal; collection alone does not quote AI", async ({
+  page,
+}) => {
+  const calls = await fixture(page);
+  await page.getByLabel("Source type", { exact: true }).selectOption("scan");
+  await page.getByLabel("My YouTube", { exact: false }).check();
+  await expect(
+    page.getByLabel("My Instagram", { exact: false }),
+  ).toBeDisabled();
+  await page
+    .getByRole("button", { name: "Collect channel feedback", exact: true })
+    .click();
+  const next = page.getByRole("button", {
+    name: "Confirm goal →",
+    exact: true,
+  });
+  await expect(next).toBeDisabled();
+  await page
+    .getByLabel("Analyze only the collected evidence; I understand the gaps.")
+    .check();
+  await next.click();
+  await expect(page.getByLabel("Task goal", { exact: true })).toBeVisible();
+  expect(calls.map((c) => c.path)).toEqual([
+    "/api/feedback/scans",
+    "/api/feedback/scans/scan-1/accept",
+  ]);
+});
+test("scheduled task persists explicit consent and pauses with version", async ({
+  page,
+}) => {
+  const calls = await fixture(page, "en", "#schedules");
+  await page
+    .getByRole("button", { name: "New scheduled task", exact: true })
+    .click();
+  const d = page.getByRole("dialog");
+  await d.getByLabel("Name", { exact: true }).fill("Daily customer feedback");
+  await d.getByLabel("My YouTube", { exact: false }).check();
+  await d
+    .getByLabel("Analysis goal", { exact: true })
+    .fill("Explain onboarding friction with citations");
+  await d.getByLabel("Daily credit ceiling", { exact: true }).fill("12");
+  await expect(d.getByRole("button", { name: "Save schedule" })).toBeDisabled();
+  await d
+    .getByLabel(
+      "I authorize recurring collection and analysis within this daily ceiling.",
+    )
+    .check();
+  await d.getByRole("button", { name: "Save schedule" }).click();
+  await expect(d).not.toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Daily customer feedback" }),
+  ).toBeVisible();
+  expect(calls[0].body).toMatchObject({
+    consent: true,
+    dailyCredits: 12,
+    accountIds: [accountId],
+  });
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Review & resume" }),
+  ).toBeVisible();
+  expect(calls[1].body).toEqual({ expectedVersion: 1 });
+});
+test("legacy review opens unified page; editing saves a new version and approval sends that version", async ({
+  page,
+}) => {
+  const calls = await fixture(page, "en", "#review");
+  await expect(page.locator("[data-nav=pipelines]")).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await page.getByRole("button", { name: "Edit content", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Approve", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByLabel("Email subject", { exact: true })
+    .fill("Reviewed subject");
+  await page.getByLabel("Message", { exact: true }).fill("Reviewed exact body");
+  await page.getByRole("button", { name: "Save new version" }).click();
+  await expect(page.locator(".approval-snapshot")).toHaveText(
+    "Reviewed exact body",
+  );
+  await page.getByRole("button", { name: "Approve", exact: true }).click();
+  await expect(page.getByRole("dialog").locator("pre")).toHaveText(
+    "Reviewed exact body",
+  );
+  await page.getByRole("button", { name: "Confirm decision" }).click();
+  expect(calls[0].body).toEqual({
+    expectedVersion: 1,
+    content: "Reviewed exact body",
+    subject: "Reviewed subject",
+  });
+  expect(calls[1].body).toEqual({ expectedVersion: 2 });
+});

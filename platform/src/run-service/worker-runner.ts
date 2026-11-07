@@ -1,3 +1,5 @@
+import {FeedbackService} from '../feedback-service/service';
+import type {InboxReader} from '../feedback-service/reader';
 import { CostBudgetRequired, costContext, finishCost } from '../billing/cost-metering';
 import {refundAiReservations,settleAiReservations} from '../billing/ai-refunds';
 import {convertSubscribedTrial} from '../billing/trial-conversion';
@@ -65,6 +67,7 @@ export interface RunWorkerAiRuntime {
 }
 
 export interface RunWorkerZernio {
+  readInboxPage?:InboxReader["readInboxPage"];
   executeAction(idempotencyKey: string, action: ActionPlan['actions'][number], workspaceId?: string): Promise<unknown>;
   getActionResult?(postId: string, action: ActionPlan['actions'][number], workspaceId?: string): Promise<unknown>;
 }
@@ -96,7 +99,7 @@ export class RunWorker {
   async runOne(): Promise<boolean> {
     const job = await this.options.database.claimNextJob(this.options.workerName);
     if (!job) return false;
-    if (['task.turn', 'import.classify', 'insight.generate', 'topics.cluster', 'execute_approved_actions', 'notification.send', 'insight.deliver'].includes(job.kind)) {
+    if (['feedback.scan', 'task.turn', 'import.classify', 'insight.generate', 'topics.cluster', 'execute_approved_actions', 'notification.send', 'insight.deliver'].includes(job.kind)) {
       try {
         await withJobLease(this.options.database, job, this.options.workerName, database =>
           new RunWorker({ ...this.options, database }).executeClaimed(job));
@@ -114,7 +117,8 @@ export class RunWorker {
 
   private async executeWithCostContext(job: ClaimedJob): Promise<void> {
     try {
-      if(job.kind==='task.turn'){if(!this.options.aiRuntime.taskStep)throw new Error('task_runtime_unavailable');await executeTaskTurn(this.options.database,{taskStep:payload=>this.options.aiRuntime.taskStep!(payload)},job);}
+      if(job.kind==='feedback.scan'){await new FeedbackService(this.options.database,this.options.zernio?.readInboxPage?{readInboxPage:(p,w)=>this.options.zernio!.readInboxPage!(p,w)}:undefined).executeScan(job.workspaceId,String(job.payload.scanId));await this.options.database.withWorkspace(job.workspaceId,tx=>tx.query("UPDATE job SET status='succeeded',locked_at=NULL,locked_by=NULL,updated_at=now() WHERE workspace_id=$1 AND id=$2",[job.workspaceId,job.id]));}
+      else if(job.kind==='task.turn'){if(!this.options.aiRuntime.taskStep)throw new Error('task_runtime_unavailable');await executeTaskTurn(this.options.database,{taskStep:payload=>this.options.aiRuntime.taskStep!(payload)},job);}
       else if (job.kind === 'prepare_ai_run') await this.executePrepare(job);
       else if (job.kind === 'reconcile_ai_run') await this.reconcileAiRun(job);
       else if (job.kind === 'execute_approved_actions') await this.executeApprovedActions(job);
@@ -130,7 +134,14 @@ export class RunWorker {
 
     } catch (error) {
       if (error instanceof JobLeaseLost) throw error;
-      if (error instanceof TrialConversionRequired) {
+      if (job.payload.scheduleId && (error instanceof CostBudgetRequired || error instanceof ModelChoiceRequired || error instanceof TrialConversionRequired)) {
+        await this.options.database.withWorkspace(job.workspaceId, async tx=>{
+          await tx.query("UPDATE feedback_schedule SET enabled=false,last_error='ai_budget_insufficient' WHERE workspace_id=$1 AND id=$2",[job.workspaceId,job.payload.scheduleId]);
+          await tx.query('UPDATE job SET attempt=max_attempts WHERE workspace_id=$1 AND id=$2',[job.workspaceId,job.id]);
+        });
+        await this.failJob(job,new Error('ai_budget_insufficient'));
+      }
+      else if (error instanceof TrialConversionRequired) {
         // Persist the payment boundary before any external side effect. A lost
         // response or webhook reporting active must not unlock unpaid credits.
         await this.options.database.withWorkspace(job.workspaceId,tx=>tx.query("UPDATE workspace_billing SET trial_credit_handoff_pending=true WHERE workspace_id=$1 AND subscription_status='trialing' AND trial_credit_handoff_at IS NULL",[job.workspaceId]));
@@ -672,10 +683,10 @@ export class RunWorker {
 
     // 1. 领取报告（状态守卫防重复消费）并聚合确定性证据包。
     const prepared = await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
-      const report = await tx.query<{ template: string; modelBand: string; batchIds: string[] }>(
+      const report = await tx.query<{ template: string; modelBand: string; batchIds: string[];goal:string }>(
         `UPDATE insight_report SET status = 'generating', error = NULL
           WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND status IN ('pending', 'generating')
-          RETURNING template, model_band AS "modelBand", batch_ids AS "batchIds"`,
+          RETURNING template, model_band AS "modelBand", batch_ids AS "batchIds",goal`,
         [reportId],
       );
       const reportRow = report.rows[0];
@@ -709,13 +720,13 @@ export class RunWorker {
           `SELECT template, title, report->>'summary' AS summary
              FROM insight_report
             WHERE workspace_id = current_setting('app.workspace_id')::uuid
-              AND status = 'generated' AND id <> $1
+              AND status = 'generated' AND template <> 'daily_ops' AND id <> $1
             ORDER BY created_at DESC LIMIT 4`,
           [reportId],
         );
         priorReports = prior.rows.filter((row) => row.summary).map((row, index) => ({ ref: `p${index + 1}`, template: row.template, title: row.title, summary: row.summary! }));
       }
-      return { deferred: false as const, template, modelBand: reservation.band, provider: reservation.provider, pack: buildEvidencePack(items.rows), priorReports, fullTextById: new Map(items.rows.map((row) => [row.id, row.text])) };
+      return { deferred: false as const, goal:reportRow.goal, template, modelBand: reservation.band, provider: reservation.provider, pack: buildEvidencePack(items.rows), priorReports, fullTextById: new Map(items.rows.map((row) => [row.id, row.text])) };
     });
     if (prepared.deferred) return;
 
@@ -732,6 +743,7 @@ export class RunWorker {
     // 2. LLM 生成；schema 非法 → 抛错走 job 重试（与 import.classify 同一语义）。
     const result = await this.options.aiRuntime.generateInsightReport({
       template: prepared.template,
+      goal:prepared.goal,
       language: ['en', 'es', 'zh'].includes(String(job.payload.language)) ? job.payload.language : 'auto',
       modelBand: prepared.modelBand,
       provider: prepared.provider,
@@ -787,11 +799,12 @@ export class RunWorker {
           ...cleaned,
           _language: ['en', 'es', 'zh'].includes(String(job.payload.language)) ? job.payload.language : 'auto',
           _evidence: prepared.pack.refMap,
+          _inputCoverage: result._inputCoverage,
           _priorEvidence: prepared.priorReports ?? [],
           _countBasis: 'distinct_cited_sources',
           // Calculated over ALL selected source rows before evidence sampling.
           // Never accept population statistics supplied by the model.
-          _dataset: { ...prepared.pack.totals, sampledItems: prepared.pack.topItems.length },
+          _dataset: { ...prepared.pack.totals, sampledItems: Array.isArray((result._inputCoverage as any)?.selectedRefs)?(result._inputCoverage as any).selectedRefs.length:prepared.pack.topItems.length },
           _metrics: { droppedCitations: stats.dropped, droppedConclusions: grounding.droppedConclusions, groundedConclusions: grounding.groundedConclusions, totalConclusions: grounding.totalConclusions, groundedRate },
         }), stats.dropped],
       );
@@ -799,8 +812,8 @@ export class RunWorker {
         'INSERT INTO audit_event (workspace_id, event_type, payload) VALUES ($1, $2, $3)',
         [job.workspaceId, 'insight.generated', { reportId, template: prepared.template, droppedCitations: stats.dropped, droppedConclusions: grounding.droppedConclusions, groundedRate }],
       );
-      // Module 4：报告生成后按工作区通知规则规划定时交付（早间推送/周报/紧急风险）。
-      await tx.query(
+      // Scheduled feedback reports require explicit approval for external delivery.
+      if (!job.payload.scheduleId) await tx.query(
         "INSERT INTO job (workspace_id, kind, payload) VALUES ($1, 'notification.plan', $2)",
         [job.workspaceId, { reportId }],
       );
@@ -1025,6 +1038,7 @@ export class RunWorker {
   private async failJob(job: ClaimedJob, error: unknown): Promise<void> {
     const message = error instanceof Error ? error.message : String(error);
     await this.options.database.withWorkspace(job.workspaceId, async (tx) => {
+      if(message==='ai_input_exceeds_confirmed_limit')await tx.query('UPDATE job SET attempt=max_attempts WHERE workspace_id=$1 AND id=$2',[job.workspaceId,job.id]);
       const result = await tx.query<{ status: string }>("UPDATE job SET status = CASE WHEN attempt >= max_attempts THEN 'dead_lettered'::job_status ELSE 'queued'::job_status END, available_at = now() + interval '30 seconds', locked_at = NULL, locked_by = NULL, last_error = $3, updated_at = now() WHERE id = $1 AND workspace_id = $2 RETURNING status", [job.id, job.workspaceId, message]);
       if (result.rows[0]?.status === 'dead_lettered') {
         // Publication/delivery failures do not refund successfully generated AI.
@@ -1034,6 +1048,11 @@ export class RunWorker {
           : job.kind==='topics.cluster' ? {subjectId:String(job.payload.runId),actionType:'ai.topics'}
           : job.kind==='prepare_ai_run' && job.runId ? {runId:job.runId} : undefined;
         if(subject) await refundAiReservations(tx,subject,'generation_dead_lettered');
+      }
+      if(result.rows[0]?.status==='dead_lettered'&&job.payload.scheduleId)await tx.query('UPDATE feedback_schedule SET enabled=false,last_error=$3 WHERE workspace_id=$1 AND id=$2',[job.workspaceId,job.payload.scheduleId,message.slice(0,200)]);
+      if(result.rows[0]?.status==='dead_lettered'&&job.kind==='feedback.scan') {
+        await tx.query("UPDATE feedback_scan SET status='failed',analysis_error=$3,finished_at=now() WHERE workspace_id=$1 AND id=$2 AND status IN ('queued','running')",[job.workspaceId,job.payload.scanId,'feedback_scan_failed']);
+        await tx.query("UPDATE feedback_schedule SET enabled=false,last_error='feedback_scan_failed' WHERE workspace_id=$1 AND id=(SELECT schedule_id FROM feedback_scan WHERE workspace_id=$1 AND id=$2)",[job.workspaceId,job.payload.scanId]);
       }
       if (result.rows[0]?.status === 'dead_lettered' && job.runId) {
         await tx.query("UPDATE workflow_run SET status = 'dead_lettered', finished_at = now() WHERE id = $1 AND workspace_id = $2 AND status IN ('pending', 'queued', 'running')", [job.runId, job.workspaceId]);

@@ -1,13 +1,9 @@
 import type { Context } from 'egg';
 
-/**
- * 每日运营任务调度（P1）：每天早上 07:00 为符合条件的订阅工作区生成
- * daily_ops 洞察报告。幂等性由 enqueue_daily_ops_reports() 的
- * 20 小时去重窗口保证。
- */
+/** Check explicitly authorized schedules every minute; per-schedule runs are idempotent. */
 export default {
   schedule: {
-    cron: '0 7 * * *',
+    interval: '60s',
     type: 'worker',
     immediate: false,
   },

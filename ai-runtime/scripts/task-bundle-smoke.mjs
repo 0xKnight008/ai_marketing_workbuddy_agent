@@ -22,7 +22,8 @@ const model=createServer(async(req,res)=>{
  if(replyMode==='slow')await new Promise(resolve=>setTimeout(resolve,600));
  if(replyMode==='http-timeout')await new Promise(resolve=>setTimeout(resolve,1600));
  const text=current.messages.map(message=>typeof message.content==='string'?message.content:(message.content??[]).map(part=>part.text??'').join('')).findLast(value=>value.includes('Items as JSON:\n'));
- const result=text?{assignments:JSON.parse(text.slice(text.indexOf('Items as JSON:\n')+'Items as JSON:\n'.length)).map(item=>({itemIndex:item.index,tags:[],sentiment:{label:'neutral',confidence:1,evidence:item.text}}))}:{action:'answer',query:'',markdown:'## Welcome\n\nHere is the requested draft.',citations:[]};
+ const insight=current.messages.some(message=>JSON.stringify(message.content).includes('Evidence pack as JSON:'));
+ const result=insight?{summary:'Feedback summary',tasks:[{title:'Improve onboarding',reason:'Readers need a guide',suggestedAction:'Write the guide',priority:'normal',dueHint:'Today',citations:[{ref:'i1',snippet:'Please improve onboarding.'}]}]}:text?{assignments:JSON.parse(text.slice(text.indexOf('Items as JSON:\n')+'Items as JSON:\n'.length)).map(item=>({itemIndex:item.index,tags:[],sentiment:{label:'neutral',confidence:1,evidence:item.text}}))}:{action:'answer',query:'',markdown:'## Welcome\n\nHere is the requested draft.',citations:[]};
  if(replyMode==='rich')result.markdown='## Evidence\n\n| Item | Value |\n|---|---|\n| Quote | \"quoted\" |\n\n```text\nC:\\fixture\\data\n```';
  if(replyMode==='invalid-schema')result.action='unsupported';
  if(replyMode==='missing-content')result.markdown='';
@@ -104,6 +105,15 @@ try{
  const timed=()=>fetch(`${base}/internal/classify`,{method:'POST',headers,body:JSON.stringify(timeoutPayload)});
  const timedResult=await timed(),timedBody=await timedResult.json();assert.equal(timedResult.status,502);assert.equal(timedBody._metering[0].status,'unknown');
  const timedReplay=await timed();assert.equal(timedReplay.status,502);assert.deepEqual(await timedReplay.json(),timedBody);assert.equal(requests.length,beforeTimeout+1);
+ replyMode='normal';
+ const insightPayload={template:'daily_ops',modelBand:'eco',language:'en',goal:'Improve onboarding',totals:{items:1,taggedItems:0,tagDistribution:{}},topItems:[{ref:'i1',platform:'youtube',text:'Please improve onboarding.',tags:[]}],tagSamples:[],_metering:{...metered._metering,requestId:randomUUID(),operationId:randomUUID(),maxCostNanos:'100000000',maxInputTokens:64000,creditBoundOutput:true,insightEvidence:true}};
+ const beforeInsight=requests.length;
+ const sendInsight=payload=>fetch(`${base}/internal/insight-report`,{method:'POST',headers,body:JSON.stringify(payload)});
+ const insightResponse=await sendInsight(insightPayload),insightBody=await insightResponse.json();
+ assert.equal(insightResponse.status,200,JSON.stringify(insightBody));assert.deepEqual(insightBody._inputCoverage.selectedRefs,['i1']);assert.ok(insightBody._inputCoverage.inputUpperBound>100);assert.equal(requests.length,beforeInsight+1);
+ const inputTooLarge={...insightPayload,_metering:{...insightPayload._metering,requestId:randomUUID(),operationId:randomUUID(),maxInputTokens:100}};
+ const blocked=await sendInsight(inputTooLarge),blockedBody=await blocked.json();assert.equal(blocked.status,422,JSON.stringify(blockedBody));assert.equal(blockedBody.error,'ai_input_exceeds_confirmed_limit');assert.equal(requests.length,beforeInsight+1,'complete-request preflight must reject before any upstream request');
+ console.log('Built daily report: actual SDK serialization preserves evidence coverage and rejects insufficient input allowance before upstream execution.');
  console.log('Compiled deadlines: delayed classification succeeds, genuine transport timeout stays bounded, receipts and replay remain durable.');
  console.log('Built unified proxy tasks: JSON modes, all bands, output failures, call correlation, sanitized traces and single-charge replay passed.');
  console.log('Built classification API: all three bands in shadow/cost-v1, 48 items in two chunks, strict input, provider calls, receipts and replay passed.');

@@ -489,7 +489,10 @@ test('mobile conversation keeps exports and sending clear of the support launche
 
 for(const locale of ['en','zh','es'] as const)test(`${locale}: budget cancellation makes no generation request, confirmation binds the quote and shows actual settlement`,async({page})=>{
  const s=state();await fixture(page,s);await createTask(page);s.costMode=true;
- await page.setViewportSize({width:390,height:950});await page.goto(`/app?locale=${locale}#start/task/${s.task.id}`);
+ await page.setViewportSize({width:390,height:950});
+ // Use the real language control instead of racing a full navigation against
+ // task completion/history updates from the preceding submission.
+ await page.getByRole('combobox',{name:'Interface language',exact:true}).selectOption(locale);
  const label={en:'Continue this task',zh:'继续这个任务',es:'Continuar tarea'}[locale],send={en:'Send follow-up',zh:'发送后续目标',es:'Enviar seguimiento'}[locale];
  await page.getByLabel(label,{exact:true}).fill('Analyze another goal');const before=s.requests.filter(r=>r.path.endsWith('/messages')).length;
  await page.getByRole('button',{name:send,exact:true}).click();let dialog=page.getByRole('dialog');await expect(dialog).toBeVisible();

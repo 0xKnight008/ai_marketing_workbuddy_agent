@@ -1,3 +1,5 @@
+import {FeedbackService} from '../feedback-service/service';
+import {editApproval} from '../run-service/approval-edit';
 import { quoteCost, bindCostQuote } from '../billing/cost-metering';
 import {runDiagnostics} from '../run-service/diagnostics';
 import {ModelChoiceService} from '../billing/model-choice';
@@ -65,6 +67,7 @@ export class PlatformService {
   private readonly imports: ImportService;
   private readonly insights: InsightService;
   private readonly topics: TopicService;
+  readonly feedback:FeedbackService;
   readonly tasks:TaskService;
   readonly modelChoices:ModelChoiceService;
 
@@ -82,6 +85,7 @@ export class PlatformService {
     this.insights = new InsightService(database);
     this.topics = new TopicService(database);
     this.tasks=new TaskService(database);
+    this.feedback=new FeedbackService(database,config.ZERNIO_API_KEY&&config.ZERNIO_BASE_URL?this.zernioClient():undefined);
     this.modelChoices=new ModelChoiceService(database,config.STRIPE_SECRET_KEY);
   }
 
@@ -225,7 +229,7 @@ export class PlatformService {
 
   /** egg schedule 每日调用：为符合条件的订阅工作区入队 daily_ops 报告。 */
   async enqueueScheduledDailyOps(): Promise<number> {
-    return this.insights.enqueueScheduledDailyOps();
+    const rows=await this.database.withAdmin(tx=>tx.query<{workspace_id:string}>('SELECT * FROM due_feedback_workspaces()'));let n=0;for(const row of rows.rows){n+=await this.feedback.enqueueDue(row.workspace_id);}return n;
   }
 
   /** Module 4：egg schedule 晚间复盘入口。 */
@@ -641,6 +645,7 @@ export class PlatformService {
     return { disconnected: true };
   }
 
+  async editApproval(actor:ActorContext,id:string,body:unknown){return this.database.withWorkspace(actor.workspaceId,tx=>editApproval(tx,actor,id,body));}
   async pendingApprovals(actor: ActorContext): Promise<unknown[]> {
     requirePermission(actor.role, 'approval:decide');
     return this.orm.pendingApprovals(actor.workspaceId);
@@ -658,11 +663,11 @@ export class PlatformService {
     });
   }
 
-  async decideApproval(actor: ActorContext, approvalId: string, decision: string, reason: unknown): Promise<unknown> {
+  async decideApproval(actor: ActorContext, approvalId: string, decision: string, reason: unknown, expectedVersion?: unknown): Promise<unknown> {
     requirePermission(actor.role, 'approval:decide');
     const params = z.object({ approvalId: z.string().uuid(), decision: z.enum(['approved', 'rejected']) }).parse({ approvalId, decision });
     const body = z.object({ reason: z.string().max(1000).optional() }).parse({ reason });
-    return this.database.withWorkspace(actor.workspaceId, (tx) => decideApproval(tx, actor, params.approvalId, params.decision, body.reason));
+    return this.database.withWorkspace(actor.workspaceId, (tx) => decideApproval(tx, actor, params.approvalId, params.decision, body.reason, expectedVersion===undefined?1:z.number().int().positive().parse(expectedVersion)));
   }
 
   async taskEvents(actor: ActorContext): Promise<unknown[]> {

@@ -100,7 +100,7 @@ export class AiRuntimeClient {
       // 证据包最大 ~64 条 × 600 字 + 标签样本，flagship 档位生成可能显著更慢。
       signal: AbortSignal.timeout(AI_RUNTIME_INSIGHT_TIMEOUT_MS),
     });
-    if (!response.ok) throw new Error(`AI runtime insight report failed: ${response.status}`);
+    if (!response.ok) {const data=await response.json().catch(()=>({})) as {error?:string};throw new Error(data.error==='ai_input_exceeds_confirmed_limit'?'ai_input_exceeds_confirmed_limit':`AI runtime insight report failed: ${response.status}`);}
     return await response.json() as Record<string, unknown>;
   }
 

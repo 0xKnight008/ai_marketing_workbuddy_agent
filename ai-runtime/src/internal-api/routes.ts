@@ -298,6 +298,7 @@ export const internalApiRoutes = [
         const agent = createInsightReportAgent(request.template, modelForBand(config, request.modelBand, request.provider));
         const prompt = `Generate the ${request.template} insight report from this evidence pack. Output language: ${request.language === 'auto' ? 'match the majority source language' : request.language}. Preserve all citations verbatim in the source language. Evidence pack as JSON:\n${JSON.stringify({
           workspaceLabel: request.workspaceLabel,
+          goal:request.goal,
           totals: request.totals,
           topItems: request.topItems,
           tagSamples: request.tagSamples,
@@ -319,10 +320,11 @@ export const internalApiRoutes = [
         } else {
           object = (await agent.generate(prompt, { structuredOutput: structuredOutputForBand(insightResultSchemas.daily_ops, request.modelBand) })).object;
         }
-        return c.json(object as Record<string, unknown>, 200);
+        return c.json({...object as Record<string, unknown>,_inputCoverage:runtimeCostContext.getStore()?.inputCoverage}, 200);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        return c.json({ error: 'insight_report_failed', message }, 502);
+        const deterministic=/ai_input_exceeds_confirmed_limit|ai_confirmed_budget_exhausted|insight_preflight_format_invalid/.test(message);
+        return c.json({error:deterministic?'ai_input_exceeds_confirmed_limit':'insight_report_failed',message:deterministic?'ai_input_exceeds_confirmed_limit':message},deterministic?422:502);
       }
     },
   }),

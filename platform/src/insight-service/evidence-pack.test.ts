@@ -211,3 +211,8 @@ test('a real anchor with a fabricated quote is not a grounded conclusion', () =>
   assert.deepEqual(clean.topContent, []);
   assert.equal(stats.groundedConclusions, 0);
 });
+
+test('raw channel feedback includes lower-interaction evidence without inventing classifier labels',()=>{
+ const rows=Array.from({length:100},(_,i)=>({id:String(i),platform:'youtube',author:'reader',text:`Feedback ${i}`,metrics:{source:'channel_feedback',likes:100-i,publishedAt:'2026-11-05T09:00:00Z'},tags:[]}));
+ const pack=buildEvidencePack(rows);assert.equal(pack.totals.items,100);assert.equal(pack.totals.taggedItems,0);assert.equal(pack.topItems.length,40);assert.ok(Object.values(pack.refMap).some(id=>Number(id)>80));assert.equal(pack.topItems[0]?.publishedAt,'2026-11-05T09:00:00Z');
+});

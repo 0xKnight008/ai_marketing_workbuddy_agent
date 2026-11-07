@@ -1,3 +1,4 @@
+import {FeedbackScan} from "./Feedback";
 import {CostReceiptView,type CostReceipt} from './CostReceipt';
 import { useAiBudgetFetch } from './AiBudget';
 import {WorkflowRunDetails} from './WorkflowRunDetails';
@@ -101,7 +102,7 @@ export function TaskWorkspace(props: Props) {
     [busy, setBusy] = useState(false);
   const [readingFile, setReadingFile] = useState(false),
     [stage, setStage] = useState(1),
-    [source, setSource] = useState<"paste" | "csv" | "existing">("paste"),
+    [source, setSource] = useState<"paste" | "csv" | "existing" | "scan">("paste"),
     [content, setContent] = useState(""),
     [label, setLabel] = useState(""),
     [selected, setSelected] = useState<string[]>([]),
@@ -425,6 +426,7 @@ export function TaskWorkspace(props: Props) {
                     setSource(e.target.value as typeof source);
                   }}
                 >
+                  <option value="scan">{w("Scan channel feedback", "Recopilar comentarios", "扫描渠道留言")}</option>
                   <option value="paste">
                     {w("Paste text", "Pegar texto", "粘贴文本")}
                   </option>
@@ -438,7 +440,7 @@ export function TaskWorkspace(props: Props) {
                   </option>
                 </select>
               </label>
-              {source === "existing" ? (
+              {source === "scan" ? <FeedbackScan token={props.token} apiBase={props.apiBase} onCollected={(id,label)=>{setBatches(b=>[...b,{id,label,status:"classified"}]);setSelected([id]);setSource("existing");setStage(2)}}/> : source === "existing" ? (
                 <div>
                   {batches
                     .filter((b) => b.status === "classified")
@@ -536,7 +538,7 @@ export function TaskWorkspace(props: Props) {
                   )}
                 </>
               )}
-              <button
+              {source !== "scan" && <button
                 className="workspace-primary"
                 disabled={readingFile}
                 onClick={() => {
@@ -569,7 +571,7 @@ export function TaskWorkspace(props: Props) {
                 }}
               >
                 {w("Confirm the goal →", "Confirmar objetivo →", "确认目标 →")}
-              </button>
+              </button>}
             </section>
           ) : (
             <section className="workspace-card">
@@ -588,7 +590,7 @@ export function TaskWorkspace(props: Props) {
                           (id) => batches.find((b) => b.id === id)?.label ?? id,
                         )
                         .join("\n")
-                    : previewImport(content, source).slice(0, 5).join("\n\n")}
+                    : previewImport(content, source === "csv" ? "csv" : "paste").slice(0, 5).join("\n\n")}
                 </pre>
               </details>
               <label>

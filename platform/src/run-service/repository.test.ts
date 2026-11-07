@@ -64,7 +64,7 @@ test('decideApproval on a report-delivery approval enqueues insight.deliver with
     async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
       statements.push(sql);
       if (sql.startsWith('UPDATE approval_request')) {
-        return { rows: [{ runId: null, insightReportId: 'report-1', actionPlan: { actionType: 'insight.deliver_report' } }] as unknown as Row[], rowCount: 1 };
+        return { rows: [{ runId: null, insightReportId: 'report-1', actionPlan: { actionType: 'insight.deliver_report',parameters:{content:'Reviewed body',subject:'Reviewed subject'} } }] as unknown as Row[], rowCount: 1 };
       }
       if (sql.startsWith('UPDATE insight_report SET delivery')) deliveryPatches.push(JSON.parse(String(values?.[2])));
       if (sql.startsWith('INSERT INTO job')) jobs.push([...(values ?? [])]);
@@ -79,7 +79,7 @@ test('decideApproval on a report-delivery approval enqueues insight.deliver with
   assert.equal(result.runId, null);
   assert.equal(result.status, 'approved');
   assert.equal(statements.some((sql) => sql.includes('UPDATE workflow_run')), false);
-  assert.deepEqual(deliveryPatches[0] ? { ...(deliveryPatches[0] as Record<string, unknown>), decidedAt: 'x' } : null, { status: 'approved', decidedBy: 'user-1', decidedAt: 'x' });
+  assert.deepEqual(deliveryPatches[0] ? { ...(deliveryPatches[0] as Record<string, unknown>), decidedAt: 'x' } : null, { status: 'approved', decidedBy: 'user-1', decidedAt: 'x',content:'Reviewed body',subject:'Reviewed subject',approvedVersion:1 });
   assert.ok(statements.some((sql) => sql.startsWith('INSERT INTO job') && sql.includes("'insight.deliver'")));
   assert.ok(auditEvents.includes('insight.delivery_approved'));
   assert.deepEqual(JSON.parse(String(jobs[0]?.[1])), { reportId: 'report-1', approvalId: 'approval-1' });
@@ -93,7 +93,7 @@ test('decideApproval rejection on a report-delivery approval marks the delivery 
   const tx: TenantTransaction = {
     async query<Row extends QueryResultRow = QueryResultRow>(sql: string, values?: readonly unknown[]): Promise<{ rows: Row[]; rowCount: number }> {
       if (sql.startsWith('UPDATE approval_request')) {
-        return { rows: [{ runId: null, insightReportId: 'report-1', actionPlan: { actionType: 'insight.deliver_report' } }] as unknown as Row[], rowCount: 1 };
+        return { rows: [{ runId: null, insightReportId: 'report-1', actionPlan: { actionType: 'insight.deliver_report',parameters:{content:'Reviewed body',subject:'Reviewed subject'} } }] as unknown as Row[], rowCount: 1 };
       }
       if (sql.startsWith('UPDATE insight_report SET delivery')) deliveryPatches.push(JSON.parse(String(values?.[2])));
       if (sql.startsWith('INSERT INTO job')) jobs.push([...(values ?? [])]);

@@ -220,6 +220,13 @@ export class ZernioClient {
     return { workspaceId: compactToUuid(compactWorkspaceId), profileId, platform };
   }
 
+  async readInboxPage(path:string,workspaceId:string):Promise<Record<string,unknown>> {
+    if(!path.startsWith('/v1/inbox/comments'))throw new Error('feedback_invalid_provider_path');
+    const response=await this.request(path,{method:'GET',redirect:'error'},0,workspaceId);
+    if(!response.ok)throw new Error(response.status===401||response.status===403?'feedback_account_permission_required':response.status===429?'feedback_rate_limited':'feedback_source_unavailable');
+    const body=await response.json();if(!body||typeof body!=='object'||Array.isArray(body))throw new Error('feedback_invalid_provider_response');return body as Record<string,unknown>;
+  }
+
   async createProfile(workspaceId: string): Promise<string> {
     const name = `piggybot:${workspaceId}`;
     const response = await this.request('/v1/profiles', {

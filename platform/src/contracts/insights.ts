@@ -200,6 +200,7 @@ export const createInsightReportSchema = z.object({
   language: z.enum(['en', 'es', 'zh', 'auto']).optional(),
   template: insightTemplateSchema,
   title: z.string().trim().min(1).max(120).optional(),
+  goal:z.string().trim().max(4000).optional(),
   batchIds: z.array(z.string().uuid()).max(10).optional(),
   modelBand: modelBandSchema.default('eco'),
 }).strict();
