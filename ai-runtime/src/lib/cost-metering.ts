@@ -1,3 +1,4 @@
+import {fitInsightEvidence} from './insight-preflight';
 import { cacheWriteUsage, inputBudgetRate } from '../../../shared/ai-metering';
 import { Agent } from 'undici';
 import { tracedModelFetch, markTaskFailure } from './request-trace';
@@ -56,6 +57,7 @@ function envelopeValue(value: unknown): MeterEnvelope {
     ) ||
     !/^\d+$/.test(m.maxCostNanos) ||
     BigInt(m.maxCostNanos) <= 0n ||
+    (m.insightEvidence !== undefined && typeof m.insightEvidence !== "boolean") ||
     (m.creditBoundOutput !== undefined && typeof m.creditBoundOutput !== "boolean") ||
     ![m.maxInputTokens, m.maxOutputTokens].every(
       (n) => Number.isSafeInteger(n) && n > 0 && n <= 1000000,
@@ -198,6 +200,7 @@ export async function boundedModelFetch(
   if (!meta.shadow && body.model !== meta.rate.model)
     throw new Error("metered_model_mismatch");
   if (body.stream) throw new Error("metered_stream_not_supported"); // Agent.generate uses non-streaming; do not guess partial usage.
+  if(meta.insightEvidence && !meta.shadow)meta.inputCoverage=fitInsightEvidence(body,meta);
   const bytes =
     Buffer.byteLength(
       JSON.stringify({
@@ -244,7 +247,7 @@ export async function boundedModelFetch(
       .reduce((a, b) => (a > b ? a : b));
     const affordable = ((remaining - inputCost) * 1000000n) / outputRate;
     const output = meta.creditBoundOutput && !meta.shadow
-      ? Number(affordable)
+      ? Math.min(Number(affordable),meta.rate.providerMaxOutputTokens??Number(affordable),meta.rate.providerContextTokens===undefined?Number(affordable):meta.rate.providerContextTokens-bytes)
       : Math.min(
       meta.maxOutputTokens,
       Number(affordable),

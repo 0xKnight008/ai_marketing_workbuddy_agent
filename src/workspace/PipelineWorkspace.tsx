@@ -1,3 +1,4 @@
+import {ApprovalEditor} from "./ApprovalEditor";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspaceLanguage } from "./useWorkspaceLanguage";
 import { t } from "./translate";
@@ -416,9 +417,10 @@ export function PipelineWorkspace({
     id: string,
     decision: "approved" | "rejected",
     reason?: string,
+    expectedVersion?:number,
   ) {
     try {
-      await request(`/api/approval-requests/${id}/${decision}`, { reason });
+      await request(`/api/approval-requests/${id}/${decision}`, { reason,expectedVersion });
       await refreshRun();
       void onChange();
       return true;
@@ -900,6 +902,7 @@ export function PipelineWorkspace({
                         <PipelineReview
                           key={a.id}
                           approval={a}
+                          token={token} apiBase={apiBase}
                           accounts={accounts}
                           onDecision={decide}
                           onRevision={canEdit ? revise : undefined}
@@ -1039,21 +1042,27 @@ export function PipelineWorkspace({
 }
 
 function PipelineReview({
-  approval,
+  approval: original,
+  token,apiBase,
   accounts,
   onDecision,
   onRevision,
 }: {
   approval: WorkspaceApproval;
+  token:string;apiBase:string;
   accounts: Account[];
   onDecision: (
     id: string,
     decision: "approved" | "rejected",
     reason?: string,
+    expectedVersion?:number,
   ) => Promise<boolean>;
   onRevision?: () => void;
 }) {
   const { w } = useWorkspaceLanguage();
+  const [editing,setEditing]=useState(false);
+  const [edited,setEdited]=useState<WorkspaceApproval|null>(null);
+  const approval=edited&&(edited.version??1)>(original.version??1)?edited:original;
   const [checked, setChecked] = useState(false),
     [decision, setDecision] = useState<
       "approved" | "rejected" | "revise" | null
@@ -1080,6 +1089,7 @@ function PipelineReview({
           snapshot.id,
           decision === "approved" ? "approved" : "rejected",
           reason.trim() || undefined,
+          snapshot.version??1,
         )
       ) {
         if (revise) onRevision?.();
@@ -1140,6 +1150,7 @@ function PipelineReview({
           {JSON.stringify(approval.requestedAction, null, 2)}
         </pre>
       )}
+      {!decision&&<ApprovalEditor approval={approval} token={token} apiBase={apiBase} onEditing={v=>{setEditing(v);if(v)setChecked(false)}} onSaved={a=>{setEdited(a);setChecked(false);setSnapshot(null)}}/>}
       {decision ? (
         <section className="pipeline-confirm">
           <h3>
@@ -1223,17 +1234,17 @@ function PipelineReview({
             )}
           </label>
           <div className="workspace-button-row">
-            <button onClick={() => choose("rejected")}>
+            <button disabled={editing} onClick={() => choose("rejected")}>
               {w("Do not publish yet", "No publicar todavía", "暂不发布")}
             </button>
             {onRevision && (
-              <button onClick={() => choose("revise")}>
+              <button disabled={editing} onClick={() => choose("revise")}>
                 {w("Request changes", "Solicitar cambios", "请求修改")}
               </button>
             )}
             <button
               className="workspace-primary"
-              disabled={!checked}
+              disabled={!checked||editing}
               onClick={() => choose("approved")}
             >
               {w("Approve & publish", "Aprobar y publicar", "批准并发布")}

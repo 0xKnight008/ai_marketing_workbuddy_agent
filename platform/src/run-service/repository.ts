@@ -39,7 +39,9 @@ export async function createDurableRun(tx: TenantTransaction, actor: ActorContex
   return run;
 }
 
-export async function decideApproval(tx: TenantTransaction, actor: ActorContext, approvalId: string, decision: 'approved' | 'rejected', reason?: string): Promise<{ runId: string | null; status: string }> {
+export async function decideApproval(tx: TenantTransaction, actor: ActorContext, approvalId: string, decision: 'approved' | 'rejected', reason?: string, expectedVersion = 1): Promise<{ runId: string | null; status: string }> {
+  const locked=await tx.query<{version:number}>("SELECT version FROM approval_request WHERE workspace_id=$1 AND id=$2 FOR UPDATE",[actor.workspaceId,approvalId]);
+  if(locked.rows[0] && locked.rows[0].version!==expectedVersion)throw new HttpError(409,'approval_version_conflict');
   const approval = await tx.query<{ runId: string | null; insightReportId: string | null; actionPlan: ActionPlan }>("UPDATE approval_request SET status = $2, decided_by = $3, decided_at = now(), decision_reason = $4 WHERE id = $1 AND workspace_id = $5 AND status = 'pending' RETURNING run_id AS \"runId\", insight_report_id AS \"insightReportId\", requested_action AS \"actionPlan\"", [approvalId, decision, actor.actorId, reason ?? null, actor.workspaceId]);
   const row = approval.rows[0];
   if (!row) {
@@ -55,8 +57,9 @@ export async function decideApproval(tx: TenantTransaction, actor: ActorContext,
   // delivery 快照投递；拒绝则把状态机置为 rejected，允许之后重新发起。
   if (row.insightReportId) {
     const decidedAt = new Date().toISOString();
+    const frozen=(row.actionPlan as unknown as {parameters:{content:string;subject:string}}).parameters;
     const patch = decision === 'approved'
-      ? { status: 'approved', decidedBy: actor.actorId, decidedAt }
+      ? { status: 'approved', decidedBy: actor.actorId, decidedAt, content:frozen.content,subject:frozen.subject,approvedVersion:expectedVersion }
       : { status: 'rejected', decidedBy: actor.actorId, decidedAt };
     await tx.query(
       "UPDATE insight_report SET delivery = COALESCE(delivery, '{}'::jsonb) || $3::jsonb WHERE id = $1 AND workspace_id = $2 AND delivery->>'approvalId' = $4",

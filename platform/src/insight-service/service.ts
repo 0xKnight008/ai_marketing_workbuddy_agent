@@ -99,10 +99,10 @@ export class InsightService {
       const labels = INSIGHT_TEMPLATE_LABELS[input.template];
       const title = input.title ?? `${input.language === 'es' ? labels.es : input.language === 'en' ? labels.en : labels.zh} · ${new Date().toISOString().slice(0, 10)}`;
       const inserted = await tx.query<{ id: string }>(
-        `INSERT INTO insight_report (workspace_id, template, title, model_band, batch_ids, item_count, created_by)
-         VALUES (current_setting('app.workspace_id')::uuid, $1, $2, $3, $4::jsonb, $5, $6)
+        `INSERT INTO insight_report (workspace_id, template, title, model_band, batch_ids, item_count, created_by,goal)
+         VALUES (current_setting('app.workspace_id')::uuid, $1, $2, $3, $4::jsonb, $5, $6, $7)
          RETURNING id`,
-        [input.template, title, input.modelBand, JSON.stringify(batchIds), count, actor.actorId],
+        [input.template, title, input.modelBand, JSON.stringify(batchIds), count, actor.actorId,input.goal??''],
       );
       const reportId = inserted.rows[0]?.id;
       if (!reportId) throw new Error('insight_report_insert_failed');

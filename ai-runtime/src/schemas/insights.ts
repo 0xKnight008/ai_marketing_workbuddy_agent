@@ -48,6 +48,7 @@ export const insightReportRequestSchema = z.object({
   provider: z.enum(['primary', 'fallback']).default('primary'),
   language: z.string().min(2).max(10).default('auto'),
   workspaceLabel: z.string().max(120).optional(),
+  goal:z.string().max(4000).optional(),
   totals: z.object({
     items: z.number().int().nonnegative(),
     taggedItems: z.number().int().nonnegative(),

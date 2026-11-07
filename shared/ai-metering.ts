@@ -16,6 +16,9 @@ export interface Rate {
   currency?: string;
   fxSnapshot?: string;
   validUntil?: string;
+  /** Optional provider-confirmed limits, captured with the accepted tariff. */
+  providerMaxOutputTokens?: number;
+  providerContextTokens?: number;
   periods?: Array<{
     id: string;
     startsAt: string;
@@ -46,6 +49,8 @@ export interface MeterEnvelope {
   maxOutputTokens: number;
   /** Pipeline output capacity comes from remaining confirmed credits, not tier token limits. */
   creditBoundOutput?: boolean;
+  insightEvidence?: boolean;
+  inputCoverage?: {inputUpperBound:number;originalEvidence:number;selectedRefs:string[];sampling:'representative';estimator:'utf8-upper-bound'};
 }
 export interface Receipt extends Usage {
   id: string;
@@ -89,6 +94,9 @@ export function validateRate(value: unknown): Rate {
   }
   if (r.validUntil !== undefined && !Number.isFinite(Date.parse(r.validUntil)))
     throw new Error("invalid_rate_expiry");
+  for(const limit of [r.providerMaxOutputTokens,r.providerContextTokens]) {
+    if(limit!==undefined&&(!Number.isSafeInteger(limit)||limit<1))throw new Error('invalid_provider_token_limit');
+  }
   if (r.periods) {
     if (!Array.isArray(r.periods) || r.periods.length > 1000 || !r.validUntil)
       throw new Error("invalid_tariff_calendar");

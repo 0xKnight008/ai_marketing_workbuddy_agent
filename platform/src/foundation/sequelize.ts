@@ -2,6 +2,7 @@ import { DataTypes, Model, Sequelize, type Transaction } from 'sequelize';
 
 export interface PendingApprovalView {
   id: string;
+  version: number;
   runId: string;
   requestedAction: Record<string, unknown>;
   requestedAt: Date;
@@ -14,6 +15,7 @@ interface ApprovalRequestAttributes extends PendingApprovalView {
 
 class ApprovalRequest extends Model<ApprovalRequestAttributes> implements ApprovalRequestAttributes {
   declare id: string;
+  declare version: number;
   declare workspaceId: string;
   declare runId: string;
   declare status: 'pending' | 'approved' | 'rejected';
@@ -41,6 +43,7 @@ export class PlatformOrm {
       workspaceId: { type: DataTypes.UUID, allowNull: false, field: 'workspace_id' },
       runId: { type: DataTypes.UUID, allowNull: false, field: 'run_id' },
       status: { type: DataTypes.ENUM('pending', 'approved', 'rejected'), allowNull: false },
+      version: { type: DataTypes.INTEGER, allowNull: false },
       requestedAction: { type: DataTypes.JSONB, allowNull: false, field: 'requested_action' },
       requestedAt: { type: DataTypes.DATE, allowNull: false, field: 'requested_at' },
     }, {
@@ -52,7 +55,7 @@ export class PlatformOrm {
 
   async pendingApprovals(workspaceId: string): Promise<PendingApprovalView[]> {
     return this.withWorkspace(workspaceId, (transaction) => this.approvalRequest.findAll({
-      attributes: ['id', 'runId', 'requestedAction', 'requestedAt'],
+      attributes: ['id', 'version', 'runId', 'requestedAction', 'requestedAt'],
       where: { workspaceId, status: 'pending' },
       order: [['requestedAt', 'ASC']],
       limit: 100,

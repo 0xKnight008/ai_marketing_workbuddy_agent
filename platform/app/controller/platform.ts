@@ -315,6 +315,14 @@ export default class PlatformController extends Controller {
 
   async syncZernio(): Promise<void> { this.ctx.body = await this.app.platform.service.syncZernio(this.actor()); }
   async disconnectZernio(): Promise<void> { this.ctx.body = await this.app.platform.service.disconnectZernioAccount(this.actor(), this.ctx.params.accountId); }
+  async feedbackAccounts():Promise<void>{this.ctx.body=await this.app.platform.service.feedback.accounts(this.actor());}
+  async feedbackScan():Promise<void>{this.ctx.body=await this.app.platform.service.feedback.createScan(this.actor(),this.ctx.request.body);}
+  async acceptFeedbackScan():Promise<void>{this.ctx.body=await this.app.platform.service.feedback.acceptScan(this.actor(),this.ctx.params.scanId,this.ctx.request.body);}
+  async feedbackScanDetail():Promise<void>{this.ctx.body=await this.app.platform.service.feedback.scan(this.actor(),this.ctx.params.scanId);}
+  async feedbackSchedules():Promise<void>{this.ctx.body=await this.app.platform.service.feedback.schedules(this.actor());}
+  async saveFeedbackSchedule():Promise<void>{this.ctx.body=await this.app.platform.service.feedback.saveSchedule(this.actor(),this.ctx.params.scheduleId,this.ctx.request.body);}
+  async pauseFeedbackSchedule():Promise<void>{this.ctx.body=await this.app.platform.service.feedback.pause(this.actor(),this.ctx.params.scheduleId,this.ctx.request.body);}
+  async feedbackScheduleHistory():Promise<void>{this.ctx.body=await this.app.platform.service.feedback.history(this.actor(),this.ctx.params.scheduleId);}
   async approvals(): Promise<void> { this.ctx.body = await this.app.platform.service.pendingApprovals(this.actor()); }
 
   async run(): Promise<void> {
@@ -323,9 +331,11 @@ export default class PlatformController extends Controller {
     this.ctx.body = run;
   }
 
+  async editApproval():Promise<void>{this.ctx.body=await this.app.platform.service.editApproval(this.actor(),this.ctx.params.approvalId,this.ctx.request.body);}
+
   async decideApproval(): Promise<void> {
-    const body = (this.ctx.request.body ?? {}) as { reason?: unknown };
-    this.ctx.body = await this.app.platform.service.decideApproval(this.actor(), this.ctx.params.approvalId, this.ctx.params.decision, body.reason);
+    const body = (this.ctx.request.body ?? {}) as { reason?: unknown; expectedVersion?:unknown };
+    this.ctx.body = await this.app.platform.service.decideApproval(this.actor(), this.ctx.params.approvalId, this.ctx.params.decision, body.reason, body.expectedVersion);
   }
 
   async taskEvents(): Promise<void> { this.ctx.body = await this.app.platform.service.taskEvents(this.actor()); }

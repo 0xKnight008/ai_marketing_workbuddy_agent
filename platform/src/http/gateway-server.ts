@@ -227,7 +227,7 @@ app.post('/api/zernio/accounts/:accountId/disconnect', async (request) => {
 app.get('/api/approval-requests', async (request) => {
   const actor = actorFrom(request);
   requirePermission(actor.role, 'approval:decide');
-  const rows = await database.withWorkspace(actor.workspaceId, (tx) => tx.query("SELECT id, run_id AS \"runId\", requested_action AS \"requestedAction\", requested_at AS \"requestedAt\" FROM approval_request WHERE workspace_id = $1 AND status = 'pending' ORDER BY requested_at LIMIT 100", [actor.workspaceId]));
+  const rows = await database.withWorkspace(actor.workspaceId, (tx) => tx.query("SELECT id, version, run_id AS \"runId\", requested_action AS \"requestedAction\", requested_at AS \"requestedAt\" FROM approval_request WHERE workspace_id = $1 AND status = 'pending' ORDER BY requested_at LIMIT 100", [actor.workspaceId]));
   return rows.rows;
 });
 
@@ -245,12 +245,23 @@ app.get('/api/runs/:runId', async (request, reply) => {
   return run ? reply.send(run) : reply.code(404).send({ error: 'run_not_found' });
 });
 
+app.put('/api/approval-requests/:approvalId/content',async request=>platformService.editApproval(actorFrom(request),z.object({approvalId:z.string().uuid()}).parse(request.params).approvalId,request.body));
+app.get('/api/feedback/accounts',async request=>platformService.feedback.accounts(actorFrom(request)));
+app.post('/api/feedback/scans',async request=>platformService.feedback.createScan(actorFrom(request),request.body));
+app.post('/api/feedback/scans/:scanId/accept',async request=>platformService.feedback.acceptScan(actorFrom(request),z.object({scanId:z.string().uuid()}).parse(request.params).scanId,request.body));
+app.get('/api/feedback/scans/:scanId',async request=>platformService.feedback.scan(actorFrom(request),z.object({scanId:z.string().uuid()}).parse(request.params).scanId));
+app.get('/api/feedback/schedules',async request=>platformService.feedback.schedules(actorFrom(request)));
+app.post('/api/feedback/schedules',async request=>platformService.feedback.saveSchedule(actorFrom(request),undefined,request.body));
+app.put('/api/feedback/schedules/:scheduleId',async request=>platformService.feedback.saveSchedule(actorFrom(request),z.object({scheduleId:z.string().uuid()}).parse(request.params).scheduleId,request.body));
+app.post('/api/feedback/schedules/:scheduleId/pause',async request=>platformService.feedback.pause(actorFrom(request),z.object({scheduleId:z.string().uuid()}).parse(request.params).scheduleId,request.body));
+app.get('/api/feedback/schedules/:scheduleId/history',async request=>platformService.feedback.history(actorFrom(request),z.object({scheduleId:z.string().uuid()}).parse(request.params).scheduleId));
+
 app.post('/api/approval-requests/:approvalId/:decision', async (request) => {
   const actor = actorFrom(request);
   requirePermission(actor.role, 'approval:decide');
   const params = z.object({ approvalId: z.string().uuid(), decision: z.enum(['approved', 'rejected']) }).parse(request.params);
-  const body = z.object({ reason: z.string().max(1000).optional() }).parse(request.body ?? {});
-  return database.withWorkspace(actor.workspaceId, (tx) => decideApproval(tx, actor, params.approvalId, params.decision, body.reason));
+  const body = z.object({ reason: z.string().max(1000).optional(), expectedVersion:z.number().int().positive().default(1) }).parse(request.body ?? {});
+  return database.withWorkspace(actor.workspaceId, (tx) => decideApproval(tx, actor, params.approvalId, params.decision, body.reason,body.expectedVersion));
 });
 
 app.get('/api/billing/task-events', async (request) => {

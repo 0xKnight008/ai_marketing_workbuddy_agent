@@ -361,3 +361,10 @@ test("Pipeline output follows remaining confirmed credits for every tier instead
     assert.equal(calls, 0, 'no upstream call without enough confirmed credits');
   }
 });
+
+test('credit-derived output respects provider-confirmed metadata without reinstating a tier cap',async()=>{
+ const meta={...envelope(),rate:{...rate,providerMaxOutputTokens:1200,providerContextTokens:4096},maxCostNanos:'50000000',maxInputTokens:3000,creditBoundOutput:true};
+ let sent=0;
+ await runtimeCostContext.run(meta,()=>boundedModelFetch(async(_url,init)=>{const body=JSON.parse(String(init?.body));sent=body.max_tokens;return Response.json({model:'actual-fixture',usage:{prompt_tokens:100,completion_tokens:50,prompt_tokens_details:{cached_tokens:0}}})},'https://proxy.test/v1/chat/completions',{method:'POST',body:JSON.stringify({model:'primary-flagship',messages:[{role:'user',content:'A short request'}],max_tokens:100})}));
+ assert.equal(sent,1200); // More than the 100-token quote reference, within the actual provider limit.
+});

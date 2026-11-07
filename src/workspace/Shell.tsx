@@ -1,6 +1,7 @@
 import officialLogo from "../assets/piggybot-logo.png";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
+  CalendarClock,
   Sprout,
   SquareCheck,
   BookOpen,
@@ -18,22 +19,26 @@ import {
 } from "lucide-react";
 import { useWorkspaceLanguage } from "./useWorkspaceLanguage";
 import "./workspace.css";
-import { sections, type Section } from "./routes";
+import { type Section } from "./routes";
 import { primarySections } from "./routes";
 import "./workspace-b.css";
+import "./feedback.css";
+import {Appearance} from "./Appearance";
 function useSectionLabels() {
   const { w } = useWorkspaceLanguage();
   return {
+    schedules: w("Scheduled tasks", "Tareas programadas", "定时任务"),
     start: w("Current task", "Tarea actual", "当前任务"),
     review: w("Review & schedule", "Revisión y programación", "审核与排期"),
     reports: w("Report library", "Informes", "报告库"),
-    pipelines: w("Publish", "Publicar", "发布"),
+    pipelines: w("Publish & review", "Publicar y revisar", "发布与审核"),
     accounts: w("Channels", "Canales", "渠道账号"),
     activity: w("Activity", "Actividad", "活动"),
     settings: w("Settings & usage", "Ajustes y consumo", "设置与用量"),
   };
 }
 const icons = {
+  schedules: CalendarClock,
   start: Sprout,
   review: SquareCheck,
   reports: BookOpen,
@@ -247,7 +252,7 @@ export function WorkspaceShell({
               >
                 <Icon size={18} aria-hidden="true" />
                 <span>{labels[id]}</span>
-                {id === "review" && pending > 0 && <b>{pending}</b>}
+                {id === "pipelines" && pending > 0 && <b>{pending}</b>}
               </button>
             );
           })}
@@ -295,6 +300,7 @@ export function WorkspaceShell({
             {name} <span>/</span> {labels[section]}
           </span>
           <div className="workspace-toolbar">
+            <Appearance/>
             <button
               onClick={() => setSearch(true)}
               aria-label={w(
@@ -327,7 +333,7 @@ export function WorkspaceShell({
                 "Revisar pendientes",
                 "审核待处理事项",
               )}
-              onClick={() => go("review")}
+              onClick={() => go("pipelines")}
             >
               <Bell size={19} />
               {pending > 0 && <b>{pending}</b>}
@@ -361,7 +367,7 @@ export function WorkspaceShell({
             onChange={(e) => setQuery(e.target.value)}
           />
           <div className="search-results">
-            {sections
+            {primarySections
               .filter((id) =>
                 labels[id]
                   .toLocaleLowerCase()

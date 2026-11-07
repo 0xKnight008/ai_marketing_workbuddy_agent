@@ -1,6 +1,7 @@
 export type Section =
   | "start"
   | "review"
+  | "schedules"
   | "reports"
   | "pipelines"
   | "accounts"
@@ -9,18 +10,20 @@ export type Section =
 export const sections: Section[] = [
   "start",
   "review",
+  "schedules",
   "reports",
   "pipelines",
   "accounts",
   "activity",
   "settings",
 ];
-export const primarySections = sections;
+export const primarySections = sections.filter(s=>s!=="review");
 /** Old bookmarks resolve into the canonical workspace instead of a second UI. */
 export function sectionFromHash(hash: string): Section {
   const route = hash.replace(/^#/, "").split("/")[0];
   if (route === "insights") return hash.split("/")[1] ? "reports" : "start";
   const aliases: Record<string, Section> = {
+    review: "pipelines",
     dashboard: "start",
     imports: "start",
     topics: "reports",

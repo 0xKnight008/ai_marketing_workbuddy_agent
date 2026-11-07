@@ -1,3 +1,4 @@
+import {ApprovalEditor} from "./ApprovalEditor";
 import { ExecutionHistory } from "./ModelControls";
 import { t } from "./translate";
 import { useState } from "react";
@@ -12,6 +13,7 @@ export interface WorkspaceReport {
   itemCount: number;
 }
 export interface WorkspaceApproval {
+  version?:number;
   runId?: string | null;
   id: string;
   requestedAt: string;
@@ -43,9 +45,12 @@ export function ApprovalQueue({
     id: string,
     decision: "approved" | "rejected",
     reason?: string,
+    expectedVersion?:number,
   ) => Promise<boolean>;
 }) {
   const { w } = useWorkspaceLanguage();
+  const [editingId,setEditingId]=useState<string|null>(null);
+  const [edited,setEdited]=useState<Record<string,WorkspaceApproval>>({});
   const [confirm, setConfirm] = useState<{
     approval: WorkspaceApproval;
     decision: "approved" | "rejected";
@@ -115,13 +120,14 @@ export function ApprovalQueue({
           </p>
         </section>
       )}
-      {approvals.map((a) => (
+      {approvals.map((original) => { const a=edited[original.id]&&(edited[original.id].version??1)>(original.version??1)?edited[original.id]:original; return (
         <article className="workspace-card" key={a.id}>
           <h2>
             {a.requestedAction.summary ||
               w("Approval request", "Solicitud de aprobación", "审批请求")}
           </h2>
           {snapshot(a)}
+          {token&&<ApprovalEditor approval={a} token={token} apiBase={apiBase} onEditing={v=>setEditingId(v?a.id:null)} onSaved={next=>{setEdited(v=>({...v,[a.id]:next}));setConfirm(null)}}/>}
           {token &&
             (a.runId ||
               typeof a.requestedAction.parameters?.reportId === "string") && (
@@ -135,6 +141,7 @@ export function ApprovalQueue({
           <div className="workspace-button-row">
             <button
               className="workspace-primary"
+              disabled={editingId===a.id}
               onClick={() => {
                 setFailure("");
                 setReason("");
@@ -144,6 +151,7 @@ export function ApprovalQueue({
               {w("Approve", "Aprobar", "批准")}
             </button>
             <button
+              disabled={editingId===a.id}
               onClick={() => {
                 setFailure("");
                 setReason("");
@@ -154,7 +162,7 @@ export function ApprovalQueue({
             </button>
           </div>
         </article>
-      ))}
+      )})}
       {confirm && (
         <WorkspaceDialog
           title={
@@ -200,6 +208,7 @@ export function ApprovalQueue({
                     confirm.approval.id,
                     confirm.decision,
                     reason.trim() || undefined,
+                    confirm.approval.version??1,
                   )
                 )
                   setConfirm(null);

@@ -28,8 +28,9 @@ async function fixture(page:Page, options: { paused?: boolean; initialPath?: str
 }
 async function nav(page:Page,route:string){
  // Navigation remains visible as a left icon rail on mobile.
- const canonical:Record<string,string>={dashboard:'start',imports:'start',insights:'start',topics:'reports',notifications:'settings'};
+ const canonical:Record<string,string>={review:'pipelines',dashboard:'start',imports:'start',insights:'start',topics:'reports',notifications:'settings'};
  await page.locator(`[data-nav=${canonical[route]??route}]`).click();
+ if(route==='review')await page.locator('details.workspace-card>summary').click();
  if(route==='imports')await page.getByRole('button',{name:/^(Source library|Biblioteca de fuentes|素材库)$/}).click();
  if(route==='insights')await page.getByRole('button',{name:/^(Structured templates|Plantillas|结构化模板)$/}).click();
  if(route==='topics')await page.getByRole('tab',{name:/^(Topics|Temas|主题)$/}).click();
@@ -42,7 +43,7 @@ for(const locale of ['en','es','zh'])for(const size of ['desktop','mobile'])for(
   await page.addScriptTag({content:axe.source});
   const result=await page.evaluate(async()=>{ const engine=(window as unknown as {axe: typeof axe}).axe; return engine.run(document, {runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21a','wcag21aa','wcag22aa']}}); });expect(result.violations,`${locale} ${route}`).toEqual([]);
 });
-test('approval has an explicit immutable confirmation and updates home count',async({page})=>{const requests=await fixture(page);await nav(page,'review');await page.getByRole('button',{name:'Approve',exact:true}).click();await expect(page.getByRole('dialog')).toBeVisible();expect(requests).toHaveLength(0);await expect(page.getByRole('dialog').locator('pre')).toHaveText(original);await page.getByRole('button',{name:'Confirm decision'}).click();await expect(page.getByRole('dialog')).not.toBeVisible();expect(requests[0]).toEqual({path:'/api/approval-requests/approval-1/approved',body:{}});await expect(page.locator('[data-nav=review] b')).toHaveCount(0);});
+test('approval has an explicit immutable confirmation and updates home count',async({page})=>{const requests=await fixture(page);await nav(page,'review');await page.getByRole('button',{name:'Approve',exact:true}).click();await expect(page.getByRole('dialog')).toBeVisible();expect(requests).toHaveLength(0);await expect(page.getByRole('dialog').locator('pre')).toHaveText(original);await page.getByRole('button',{name:'Confirm decision'}).click();await expect(page.getByRole('dialog')).not.toBeVisible();expect(requests[0]).toEqual({path:'/api/approval-requests/approval-1/approved',body:{expectedVersion:1}});await expect(page.locator('[data-nav=pipelines] b')).toHaveCount(0);});
 for (const locale of ['en', 'zh', 'es']) test(`${locale}: Sources exposes only CSV and Discord, without Google requests`, async ({ page }) => {
  const googleRequests: string[] = [];
  page.on('request', request => { if (request.url().includes('/api/imports/google/')) googleRequests.push(request.url()); });

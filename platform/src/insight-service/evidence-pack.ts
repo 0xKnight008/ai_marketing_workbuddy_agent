@@ -138,6 +138,12 @@ export function buildEvidencePack(rows: EvidenceSourceRow[]): EvidencePack {
       .slice(0, PER_SENTIMENT_REPS);
     for (const entry of reps) pickedIds.add(entry.row.id);
   }
+  // Read-only scans have no paid classifier labels. Include evenly spaced
+  // lower-engagement comments as well as the head, rather than claiming that
+  // popularity represents all feedback. All originals remain in import_item.
+  const unread = indexed.filter(e=>e.row.metrics.source==='channel_feedback'&&!pickedIds.has(e.row.id));
+  const extra = Math.min(16,unread.length);
+  for(let n=0;n<extra;n++)pickedIds.add(unread[Math.floor(n*unread.length/extra)]!.row.id);
   // ref 按互动分顺序分配（头部内容仍排最前），总量封顶。
   const picked = indexed.filter((entry) => pickedIds.has(entry.row.id)).sort(byEngagement).slice(0, MAX_EVIDENCE_ITEMS).map((entry) => entry.row);
   const refMap: Record<string, string> = {};

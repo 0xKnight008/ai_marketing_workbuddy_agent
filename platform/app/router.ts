@@ -12,6 +12,15 @@ export default (app: Application) => {
   router.post('/api/auth/login', controller.platform.loginWithEmail);
   router.get('/api/auth/me', controller.platform.me);
   router.post('/api/auth/password', controller.platform.setPassword);
+  router.get('/api/feedback/accounts', controller.platform.feedbackAccounts);
+  router.post('/api/feedback/scans', controller.platform.feedbackScan);
+  router.post('/api/feedback/scans/:scanId/accept',controller.platform.acceptFeedbackScan);
+  router.get('/api/feedback/scans/:scanId', controller.platform.feedbackScanDetail);
+  router.get('/api/feedback/schedules', controller.platform.feedbackSchedules);
+  router.post('/api/feedback/schedules', controller.platform.saveFeedbackSchedule);
+  router.put('/api/feedback/schedules/:scheduleId', controller.platform.saveFeedbackSchedule);
+  router.post('/api/feedback/schedules/:scheduleId/pause', controller.platform.pauseFeedbackSchedule);
+  router.get('/api/feedback/schedules/:scheduleId/history', controller.platform.feedbackScheduleHistory);
   router.post('/api/imports', controller.platform.createImport);
   router.get('/api/imports', controller.platform.listImports);
   router.get('/api/imports/google/connect', controller.platform.connectGoogleSheets);
@@ -71,6 +80,7 @@ export default (app: Application) => {
   router.post('/api/zernio/sync', controller.platform.syncZernio);
   router.post('/api/zernio/accounts/:accountId/disconnect', controller.platform.disconnectZernio);
   router.get('/api/zernio/accounts', controller.platform.connectedAccounts);
+  router.put('/api/approval-requests/:approvalId/content', controller.platform.editApproval);
   router.get('/api/approval-requests', controller.platform.approvals);
   router.get('/api/runs/:runId', controller.platform.run);
   router.post('/api/approval-requests/:approvalId/:decision', controller.platform.decideApproval);

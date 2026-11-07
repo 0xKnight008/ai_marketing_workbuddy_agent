@@ -1,0 +1,217 @@
+.feedback-panel,
+.feedback-page {
+  min-width: 0;
+}
+.feedback-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.feedback-grid label {
+  margin: 8px 0;
+}
+.feedback-grid :is(input, select) {
+  width: 100%;
+  min-width: 0;
+}
+.feedback-accounts {
+  margin: 16px 0;
+  border: 1px solid var(--feedback-border, #ddd4c8);
+  padding: 12px;
+  border-radius: 10px;
+}
+.feedback-accounts label,
+.feedback-check {
+  display: flex !important;
+  align-items: start;
+  gap: 10px;
+  margin: 12px 0 !important;
+}
+.feedback-accounts input,
+.feedback-check input {
+  width: 18px !important;
+  flex: none;
+  margin-top: 4px;
+}
+.feedback-accounts small {
+  display: block;
+  color: var(--muted);
+}
+.feedback-scope {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.feedback-result {
+  margin: 18px 0;
+  padding: 16px;
+  background: var(--paper);
+  border: 1px solid var(--feedback-border, #ddd4c8);
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+.feedback-result p {
+  margin: 8px 0;
+}
+.feedback-page > .workspace-button-row {
+  margin: 20px 0;
+}
+.feedback-page form textarea {
+  width: 100%;
+}
+.feedback-page article {
+  margin: 16px 0;
+}
+.feedback-page code,
+.feedback-panel code {
+  font-size: 12px;
+}
+.approval-editor textarea {
+  width: 100%;
+  min-height: 140px;
+}
+.approval-editor input:not([type="checkbox"]) {
+  width: 100%;
+}
+.approval-editor label {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+}
+.approval-editor .feedback-check {
+  display: flex;
+}
+.approval-editor pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+[data-workspace-theme] .workspace-v6 {
+  --paper: #f8f5f0;
+  --card: #fffdf9;
+  --ink: #322d28;
+  --muted: #6a6158;
+  --green: #a64b20;
+  --feedback-border: #ded5c9;
+  color: var(--ink);
+  background-color: var(--paper);
+}
+[data-workspace-theme] .workspace-sidebar {
+  background: #eee8df;
+}
+[data-workspace-theme] .workspace-v6 .workspace-primary {
+  background: var(--green);
+  color: #fff;
+}
+[data-workspace-theme] .workspace-sidebar nav button[aria-current="page"] {
+  background: var(--card);
+  color: var(--green);
+}
+[data-workspace-theme="dark"] .workspace-v6 {
+  --paper: #181b20;
+  --card: #22262d;
+  --ink: #eee9e1;
+  --muted: #b9b4ac;
+  --green: #ad5326;
+  --feedback-border: #484b52;
+  color-scheme: dark;
+}
+[data-workspace-theme="dark"]
+  .workspace-v6
+  :is(
+    .workspace-card,
+    .workspace-topbar,
+    .workspace-dialog,
+    .workspace-name,
+    .workspace-meter,
+    .pipeline-editor,
+    .pipeline-result,
+    .pipeline-post,
+    .pipeline-confirm,
+    .pipeline-summary,
+    .task-composer,
+    .task-review,
+    .approval-snapshot,
+    .feedback-result
+  ) {
+  background: var(--card);
+  color: var(--ink);
+  border-color: var(--feedback-border);
+}
+[data-workspace-theme="dark"] .workspace-sidebar {
+  background: #202329;
+  border-color: #484b52;
+  color: #eee9e1;
+}
+[data-workspace-theme="dark"]
+  .workspace-sidebar
+  nav
+  button[aria-current="page"] {
+  color: #ffc297;
+  background: #34302b;
+  border-color: #80634c;
+}
+[data-workspace-theme="dark"]
+  .workspace-v6
+  :is(input, select, textarea, button) {
+  color: var(--ink);
+  background-color: var(--card);
+  border-color: var(--feedback-border);
+}
+[data-workspace-theme="dark"]
+  .workspace-v6
+  :is(.workspace-primary, .support-launcher) {
+  background: #ad5326;
+  color: white;
+}
+[data-workspace-theme="dark"]
+  .workspace-v6
+  :is(
+    .model-execution,
+    .workspace-row,
+    .workspace-stat,
+    .workspace-stats > div,
+    .sketch,
+    .pipeline-stepper,
+    .pipeline-rail,
+    .pipeline-run-status
+  ) {
+  background: #292e36;
+  color: var(--ink);
+  border-color: var(--feedback-border);
+}
+[data-workspace-theme="dark"]
+  .workspace-v6
+  :is(.text-ink, .text-ink\/50, .text-ink\/60, .text-ink\/70, .text-ink\/80) {
+  color: var(--ink);
+}
+[data-workspace-theme="dark"]
+  .workspace-v6
+  :is(.bg-white, .bg-paper, .bg-paper\/80) {
+  background: var(--card);
+}
+[data-workspace-theme="dark"]
+  .workspace-v6
+  :is(pre, small, .workspace-intro, .workspace-breadcrumb) {
+  color: var(--muted);
+}
+[data-workspace-theme="dark"] .workspace-v6 a {
+  color: #ffc297;
+}
+[data-workspace-theme="dark"] .workspace-v6 :focus-visible {
+  outline: 3px solid #ffc297;
+  outline-offset: 3px;
+}
+@media (max-width: 760px) {
+  .feedback-grid {
+    grid-template-columns: 1fr;
+  }
+  .feedback-page .workspace-button-row {
+    flex-wrap: wrap;
+  }
+  .workspace-toolbar select[aria-label] {
+    max-width: 100px;
+  }
+  .feedback-accounts {
+    padding: 8px;
+  }
+}

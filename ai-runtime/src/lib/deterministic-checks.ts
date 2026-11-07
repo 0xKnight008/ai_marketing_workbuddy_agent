@@ -5,18 +5,7 @@ import type { BrandProfile, ComplianceIssue, Draft } from '../schemas/announceme
  * 规则来自代码而非模型，保证可复现、可单测。
  */
 
-const PLATFORM_LENGTH_LIMITS: Record<string, number> = {
-  x: 280,
-  telegram: 4096,
-  discord: 2000,
-  linkedin: 3000,
-  instagram: 2200,
-  reddit: 40000,
-  substack: 100000,
-  tiktok: 2200,
-  youtube: 5000,
-  rednote: 1000,
-};
+import {PLATFORM_LENGTH_LIMITS} from '../../../shared/social-content-limits';
 
 export function runDeterministicChecks(
   drafts: Draft[],

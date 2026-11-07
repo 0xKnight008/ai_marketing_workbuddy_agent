@@ -245,7 +245,7 @@ export class ScheduledNotificationService {
         `SELECT template, title, report, item_count AS "itemCount", dropped_citations AS "droppedCitations",
                 COALESCE(generated_at, created_at)::text AS "generatedAt"
            FROM insight_report
-          WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND status = 'generated'`, [id]);
+          WHERE id = $1 AND workspace_id = current_setting('app.workspace_id')::uuid AND status = 'generated' AND NOT EXISTS (SELECT 1 FROM feedback_scan fs WHERE fs.workspace_id=insight_report.workspace_id AND fs.report_id=insight_report.id)`, [id]);
       const row = report.rows[0];
       if (!row) return { created: 0 }; // report failed validation afterwards; nothing to plan
       const rules = await tx.query<RuleRow>(
@@ -331,7 +331,7 @@ export class ScheduledNotificationService {
           `SELECT template, report, action_feedback AS feedback
              FROM insight_report
             WHERE workspace_id = current_setting('app.workspace_id')::uuid AND status = 'generated'
-              AND action_feedback <> '{}'::jsonb`, []);
+              AND action_feedback <> '{}'::jsonb AND NOT EXISTS (SELECT 1 FROM feedback_scan fs WHERE fs.workspace_id=insight_report.workspace_id AND fs.report_id=insight_report.id)`, []);
         const completed: Array<{ title: string; effect: string }> = [];
         let planned = 0;
         let dismissed = 0;

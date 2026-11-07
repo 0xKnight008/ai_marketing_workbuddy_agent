@@ -310,7 +310,7 @@ export async function reserveCost(
       }) * (action === "ai" ? 3n : 1n);
     // A Pipeline contains three sequential model calls. Its output capacity is
     // derived from the confirmed operation budget, not a per-tier token quota.
-    const max = op.kind === "prepare_ai_run" ? remaining : remaining < perCall ? remaining : perCall;
+    const max = ["prepare_ai_run","insight.generate"].includes(op.kind) ? remaining : remaining < perCall ? remaining : perCall;
     request = await tx.query(
       `INSERT INTO ai_cost_request(id,workspace_id,operation_id,action_type,attempt,max_cost_nanos) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,max_cost_nanos::text,state`,
       [randomUUID(), ctx.workspaceId, op.id, action, attempt, max.toString()],
@@ -325,9 +325,10 @@ export async function reserveCost(
     shadow: op.mode === "shadow",
     band: requested,
     maxCostNanos: req.max_cost_nanos,
-    maxInputTokens: policy.maxInputTokens,
+    maxInputTokens: op.kind === "insight.generate" ? 64000 : policy.maxInputTokens,
     maxOutputTokens: policy.maxOutputTokens,
-    ...(op.kind === "prepare_ai_run" ? { creditBoundOutput: true } : {}),
+    ...(["prepare_ai_run","insight.generate"].includes(op.kind) ? { creditBoundOutput: true } : {}),
+    ...(op.kind === "insight.generate" ? {insightEvidence:true} : {}),
   };
   if (op.mode === "shadow") return;
   return {
