@@ -31,6 +31,8 @@ test('sync persists verified health states and clears stale capabilities in the 
     assert.equal(writes[i]?.values?.[7], null);
   }
   assert.match(writes[4]!.sql, /status = 'disconnected'/);
+  assert.match(writes[4]!.sql, /capabilities = '\[\]'::jsonb/);
+  assert.ok(writes.every(w => !/DELETE FROM/i.test(w.sql)));
   for (const account of accounts) {
     const invoke = () => assertExecutableAction({ workspaceId: 'workspace', runId: 'run', stepId: 'step', attempt: 1,
       account: { id: account.externalId, workspaceId: 'workspace', status: account.status, capabilities: account.capabilities },

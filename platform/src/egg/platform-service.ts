@@ -835,7 +835,7 @@ export class PlatformService {
         );
       }
       await tx.query(
-        `UPDATE connected_account SET status = 'disconnected', last_synced_at = now()
+        `UPDATE connected_account SET status = 'disconnected', capabilities = '[]'::jsonb, last_synced_at = now()
           WHERE workspace_id = $1 AND provider = 'zernio' AND zernio_profile_id = $2
             AND NOT (external_account_id = ANY($3::text[]))`,
         [workspaceId, profileId, accounts.map((account) => account.externalId)],

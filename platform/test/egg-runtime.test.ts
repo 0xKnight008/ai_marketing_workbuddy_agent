@@ -46,6 +46,17 @@ describe('Egg production gateway', () => {
     await app.httpRequest().post(`/api/approval-requests/11111111-1111-4111-8111-111111111111/${decision}`).set('authorization',`Bearer ${ownerToken}`).send({reason:'Checked original draft'}).expect(200).expect({status:decision});
   });
 
+  it('routes account post previews through workspace auth with no-store', async () => {
+    const accountId='11111111-1111-4111-8111-111111111111';
+    await app.httpRequest().get(`/api/feedback/accounts/${accountId}/posts`).expect(401);
+    mm(app.platform.service.feedback,'recentPosts',async(actor:{workspaceId:string},id:string)=>{
+      assert.equal(actor.workspaceId,'22222222-2222-4222-8222-222222222222');
+      assert.equal(id,accountId);return {posts:[],limit:25};
+    });
+    await app.httpRequest().get(`/api/feedback/accounts/${accountId}/posts`).set('authorization',`Bearer ${ownerToken}`)
+      .expect('Cache-Control','no-store').expect(200).expect({posts:[],limit:25});
+  });
+
   it('requires authentication before disconnecting a social account', async () => {
     await app.httpRequest().post('/api/zernio/accounts/11111111-1111-4111-8111-111111111111/disconnect')
       .send({}).expect(401);

@@ -315,6 +315,7 @@ export default class PlatformController extends Controller {
 
   async syncZernio(): Promise<void> { this.ctx.body = await this.app.platform.service.syncZernio(this.actor()); }
   async disconnectZernio(): Promise<void> { this.ctx.body = await this.app.platform.service.disconnectZernioAccount(this.actor(), this.ctx.params.accountId); }
+  async feedbackRecentPosts():Promise<void>{this.ctx.set('Cache-Control','no-store');this.ctx.body=await this.app.platform.service.feedback.recentPosts(this.actor(),this.ctx.params.accountId);}
   async feedbackAccounts():Promise<void>{this.ctx.body=await this.app.platform.service.feedback.accounts(this.actor());}
   async feedbackScan():Promise<void>{this.ctx.body=await this.app.platform.service.feedback.createScan(this.actor(),this.ctx.request.body);}
   async acceptFeedbackScan():Promise<void>{this.ctx.body=await this.app.platform.service.feedback.acceptScan(this.actor(),this.ctx.params.scanId,this.ctx.request.body);}

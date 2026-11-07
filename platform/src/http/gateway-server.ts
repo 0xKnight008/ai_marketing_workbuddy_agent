@@ -246,6 +246,7 @@ app.get('/api/runs/:runId', async (request, reply) => {
 });
 
 app.put('/api/approval-requests/:approvalId/content',async request=>platformService.editApproval(actorFrom(request),z.object({approvalId:z.string().uuid()}).parse(request.params).approvalId,request.body));
+app.get('/api/feedback/accounts/:accountId/posts',async(request,reply)=>{reply.header('Cache-Control','no-store');return platformService.feedback.recentPosts(actorFrom(request),z.object({accountId:z.string().uuid()}).parse(request.params).accountId)});
 app.get('/api/feedback/accounts',async request=>platformService.feedback.accounts(actorFrom(request)));
 app.post('/api/feedback/scans',async request=>platformService.feedback.createScan(actorFrom(request),request.body));
 app.post('/api/feedback/scans/:scanId/accept',async request=>platformService.feedback.acceptScan(actorFrom(request),z.object({scanId:z.string().uuid()}).parse(request.params).scanId,request.body));

@@ -83,10 +83,27 @@ export async function feedbackScheduleRegression(
               pagination: { hasMore: truncated,cursor:truncated?"repeat":undefined },
             }
           : {
-              data: [{ id: "post", accountId: "remote" }],
+              posts: [{ id: "post", accountId: "remote" }],
               pagination: { hasMore: false },
             };
       },
+    });
+    await t.test('recent-post preview enforces tenant, role, subscription and connection before upstream reads', async () => {
+      const before=providerCalls;
+      assert.equal((await svc.recentPosts(actor,account)).posts[0]?.id,'post');
+      const after=providerCalls;assert.equal(after,before+1);
+      await assert.rejects(svc.recentPosts({...actor,role:'viewer'},account));
+      await assert.rejects(svc.recentPosts({...actor,workspaceId:randomUUID()},account));
+      await assert.rejects(svc.recentPosts(actor,randomUUID()));
+      await client.query("UPDATE connected_account SET status='disconnected' WHERE id=$1",[account]);
+      await assert.rejects(svc.recentPosts(actor,account));
+      assert.equal((await svc.accounts(actor)).length,0);
+      await client.query("UPDATE connected_account SET status='connected' WHERE id=$1",[account]);
+      await client.query("UPDATE workspace_billing SET subscription_status='none' WHERE workspace_id=$1",[actor.workspaceId]);
+      await assert.rejects(svc.recentPosts(actor,account));
+      await client.query("UPDATE workspace_billing SET subscription_status='active' WHERE workspace_id=$1",[actor.workspaceId]);
+      assert.equal(providerCalls,after);
+      const visible=await svc.accounts(actor);assert.equal(visible[0]?.postsSupported,true);assert.equal(visible[0]?.supported,true);
     });
     const scanBody = {
       requestId: randomUUID(),
@@ -244,7 +261,7 @@ export async function feedbackScheduleRegression(
       const id=(await svc.saveSchedule(actor,undefined,{...schedule,name:'Budget stop',dailyCredits:10000})).id;
       await client.query("UPDATE feedback_schedule SET next_run_at=now()-interval '1 minute' WHERE id=$1",[id]);await svc.enqueueDue(actor.workspaceId);const scan=(await svc.history(actor,id))[0]!;
       await svc.executeScan(actor.workspaceId,String(scan.id));const result=await svc.scan(actor,String(scan.id));assert.equal(result.analysisError,'ai_budget_insufficient');assert.equal(result.reportId,null);
-      const empty=new FeedbackService(db,{readInboxPage:async()=>({data:[],pagination:{hasMore:false}})});
+      const empty=new FeedbackService(db,{readInboxPage:async()=>({posts:[]})});
       const emptyId=(await empty.saveSchedule(actor,undefined,{...schedule,name:'Empty',dailyCredits:10000})).id;
       await client.query("UPDATE feedback_schedule SET next_run_at=now()-interval '1 minute' WHERE id=$1",[emptyId]);await empty.enqueueDue(actor.workspaceId);const emptyScan=(await empty.history(actor,emptyId))[0]!;await empty.executeScan(actor.workspaceId,String(emptyScan.id));
       const done=await empty.scan(actor,String(emptyScan.id));assert.equal(done.itemCount,0);assert.equal(done.analysisError,null);assert.equal(done.reportId,null);assert.equal((await client.query('SELECT enabled FROM feedback_schedule WHERE id=$1',[emptyId])).rows[0].enabled,true);

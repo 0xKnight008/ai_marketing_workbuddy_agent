@@ -94,7 +94,7 @@ test('revoked and disabled accounts never regain connected status or supplier-su
     return Response.json({ accounts: [
       { _id: 'revoked', displayName: 'Revoked', needsReconnection: true, capabilities: ['publish'] },
       { _id: 'disabled', displayName: 'Disabled', enabled: false },
-      { _id: 'inactive', displayName: 'Inactive', isActive: false },
+      { _id: 'inactive', displayName: 'Inactive', isActive: false, needsReconnection: true },
     ] });
   });
   const accounts = await provider.listAccounts('profile-a');
@@ -168,4 +168,15 @@ test('uses a caller-configured shared request limit instead of a fixed plan tier
   await client.listAccounts('token');
   await assert.rejects(() => client.listAccounts('token'), SupplierUnavailableError);
   assert.equal(DEFAULT_ZERNIO_CLIENT_RPM, 480);
+});
+
+test('feedback reads allow only documented GET routes and preserve encoded native IDs',async()=>{
+  const provider=client(async(input,init)=>{assert.equal(init?.method,'GET');assert.equal(init?.redirect,'error');assert.ok(String(input).startsWith('https://zernio.example/api/v1/'));return Response.json({posts:[]});});
+  for(const path of ['/v1/accounts/remote/posts','/v1/inbox/comments?accountId=remote','/v1/inbox/comments/at%3A%2F%2Fdid%3Aabc?accountId=remote'])await provider.readInboxPage(path,'w');
+  for(const path of ['https://foreign.example','/v1/accounts/remote','/v1/posts','/v1/inbox/conversations','/v1/accounts/remote/posts?accountId=foreign'])await assert.rejects(provider.readInboxPage(path,'w'),/feedback_invalid_provider_path/);
+});
+test('feedback maps provider codes without disclosing private upstream messages',async()=>{
+  for(const [status,code,expected] of [[401,'TOKEN_EXPIRED','feedback_reconnect_required'],[403,'X_INBOX_NOT_ENABLED','feedback_x_inbox_disabled'],[403,'X_ANALYTICS_NOT_ENABLED','feedback_x_analytics_disabled'],[400,'PLATFORM_LIMITATION','feedback_platform_limitation'],[403,'OTHER','feedback_account_permission_required'],[429,'OTHER','feedback_rate_limited'],[402,'OTHER','feedback_provider_billing_required']] as const){
+    await assert.rejects(client(async()=>Response.json({code,error:'private upstream secret'},{status})).readInboxPage('/v1/accounts/remote/posts','w'),{message:expected});
+  }
 });
