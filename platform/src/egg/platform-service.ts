@@ -1,3 +1,4 @@
+import {deleteImport} from '../import-service/delete';
 import {FeedbackService} from '../feedback-service/service';
 import {editApproval} from '../run-service/approval-edit';
 import { quoteCost, bindCostQuote } from '../billing/cost-metering';
@@ -158,6 +159,8 @@ export class PlatformService {
   async disconnectGoogleSheets(actor: ActorContext): Promise<unknown> {
     return this.imports.disconnectGoogleSheets(actor);
   }
+
+  async deleteImport(actor:ActorContext,id:unknown,body:unknown){return deleteImport(this.database,actor,id,body);}
 
   async listImports(actor: ActorContext): Promise<unknown> {
     return this.imports.listImports(actor);
@@ -682,7 +685,7 @@ export class PlatformService {
   async auditEvents(actor: ActorContext): Promise<unknown[]> {
     requirePermission(actor.role, 'workspace:manage');
     const events = await this.database.withWorkspace(actor.workspaceId, (tx) => tx.query(
-      'SELECT id, run_id AS "runId", event_type AS "eventType", payload, created_at AS "createdAt" FROM audit_event WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 100',
+      'SELECT id, run_id AS "runId", event_type AS "eventType", payload, created_at AS "createdAt" FROM workspace_activity_audit WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 100',
       [actor.workspaceId],
     ));
     return events.rows;

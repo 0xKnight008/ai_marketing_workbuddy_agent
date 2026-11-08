@@ -57,6 +57,24 @@ describe('Egg production gateway', () => {
       .expect('Cache-Control','no-store').expect(200).expect({posts:[],limit:25});
   });
 
+  it('deleting source content requires authentication and forwards explicit confirmation',async()=>{
+    const id='11111111-1111-4111-8111-111111111111';
+    await app.httpRequest().delete(`/api/imports/${id}`).send({confirm:true}).expect(401);
+    mm(app.platform.service,'deleteImport',async(actor:{role:string},batchId:string,body:unknown)=>{
+      assert.equal(actor.role,'owner');assert.equal(batchId,id);assert.deepEqual(body,{confirm:true});return {id,deleted:true};
+    });
+    await app.httpRequest().delete(`/api/imports/${id}`).set('authorization',`Bearer ${ownerToken}`).send({confirm:true}).expect('Cache-Control','no-store').expect(200).expect({id,deleted:true});
+  });
+  it('successful OAuth callback binds its close script to the response CSP',async()=>{
+    const {createHash}=require('node:crypto');
+    mm(app.platform.service,'completeZernioOAuth',async()=>({kind:'connected'}));
+    const response=await app.httpRequest().get('/api/zernio/callback').expect(200);
+    const script=response.text.match(/<script>([\s\S]*)<\/script>/)?.[1];assert.ok(script);
+    const csp=response.headers['content-security-policy'];assert.ok(csp);
+    assert.ok(csp.includes(createHash('sha256').update(script).digest('base64')));
+    assert.doesNotMatch(response.text,/onclick=/);
+  });
+
   it('requires authentication before disconnecting a social account', async () => {
     await app.httpRequest().post('/api/zernio/accounts/11111111-1111-4111-8111-111111111111/disconnect')
       .send({}).expect(401);

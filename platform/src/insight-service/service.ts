@@ -63,13 +63,13 @@ export class InsightService {
         ? await tx.query<{ id: string }>(
           `SELECT id FROM import_batch
             WHERE workspace_id = current_setting('app.workspace_id')::uuid
-              AND id = ANY($1::uuid[]) AND status = 'classified'`,
+              AND id = ANY($1::uuid[]) AND status = 'classified' AND deleted_at IS NULL FOR SHARE`,
           [input.batchIds],
         )
         : await tx.query<{ id: string }>(
           `SELECT id FROM import_batch
             WHERE workspace_id = current_setting('app.workspace_id')::uuid AND status = 'classified'
-            ORDER BY created_at DESC LIMIT $1`,
+            ORDER BY created_at DESC LIMIT $1 FOR SHARE`,
           [MAX_SOURCE_BATCHES],
         );
       const batchIds = batches.rows.map((row) => row.id);

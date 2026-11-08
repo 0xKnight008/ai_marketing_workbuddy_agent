@@ -399,7 +399,7 @@ export class ScheduledNotificationService {
         const batches = await tx.query<{ id: string }>(
           `SELECT id FROM import_batch
             WHERE workspace_id = current_setting('app.workspace_id')::uuid AND status = 'classified'
-            ORDER BY created_at DESC LIMIT 5`, []);
+            ORDER BY created_at DESC LIMIT 5 FOR SHARE`, []);
         if (batches.rows.length === 0) return false;
         const items = await tx.query<{ count: string }>(
           `SELECT COUNT(*)::text AS count FROM import_item i JOIN import_batch b ON b.id = i.batch_id

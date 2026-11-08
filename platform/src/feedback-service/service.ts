@@ -219,10 +219,11 @@ export class FeedbackService {
         [actor.workspaceId, id, actor.actorId],
       );
       if (!r.rows[0]) throw new HttpError(409, "feedback_scan_not_acceptable");
-      await tx.query(
-        "UPDATE import_batch SET status='classified',classified_at=now() WHERE workspace_id=$1 AND id=$2",
+      const restored = await tx.query(
+        "UPDATE import_batch SET status='classified',classified_at=now() WHERE workspace_id=$1 AND id=$2 AND deleted_at IS NULL RETURNING id",
         [actor.workspaceId, r.rows[0].batch_id],
       );
+      if(!restored.rowCount)throw new HttpError(410,"import_deleted");
       await tx.query(
         "INSERT INTO audit_event(workspace_id,actor_id,event_type,payload) VALUES($1,$2,'feedback.partial_accepted',$3)",
         [actor.workspaceId, actor.actorId, { scanId: id }],

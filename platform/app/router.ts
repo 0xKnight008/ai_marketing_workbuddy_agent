@@ -28,6 +28,7 @@ export default (app: Application) => {
   router.get('/api/imports/google/callback', controller.platform.googleSheetsCallback);
   router.get('/api/imports/google/connection', controller.platform.googleSheetsConnection);
   router.post('/api/imports/google/disconnect', controller.platform.disconnectGoogleSheets);
+  router.delete('/api/imports/:batchId',controller.platform.deleteImport);
   router.get('/api/imports/:batchId', controller.platform.importDetail);
   router.post('/api/insights', controller.platform.createInsight);
   router.get('/api/insights', controller.platform.listInsights);

@@ -243,6 +243,14 @@ export function PipelineWorkspace({
       window.clearTimeout(timer);
     };
   }, [refreshRun, locale, runId, finished]);
+  useEffect(() => {
+    if (view !== 'prepare' || busy || uncertain) return;
+    const removed = new Set(accounts.filter(a => a.status === 'disconnected').map(a => a.id));
+    if (draft.targetAccountIds.some(id => removed.has(id))) {
+      setDraft(d => ({...d,targetAccountIds:d.targetAccountIds.filter(id => !removed.has(id))}));
+      setQuote(null);
+    }
+  }, [accounts, view, draft.targetAccountIds, busy, uncertain]);
   function change<K extends keyof Draft>(key: K, value: Draft[K]) {
     setDraft((d) => ({ ...d, [key]: value }));
     setQuote(null);
@@ -954,7 +962,7 @@ export function PipelineWorkspace({
                 </p>
                 {view === "prepare" ? (
                   <fieldset disabled={busy || uncertain || !canEdit}>
-                    {accounts.map((a) => {
+                    {accounts.filter(a => a.status !== "disconnected").map((a) => {
                       const available =
                         a.status === "connected" &&
                         supportsAnnouncement(a.platform) &&

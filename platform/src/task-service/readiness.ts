@@ -12,6 +12,8 @@ export async function assertTaskSchema(database: Pick<Database, "withAdmin">) {
     await tx.query(
       "SELECT workspace_id,user_id,goal FROM workspace_task_preference LIMIT 0",
     );
+    await tx.query("SELECT id,deleted_at,deleted_by FROM import_batch LIMIT 0");
+    await tx.query("SELECT id,event_type FROM workspace_activity_audit LIMIT 0");
     await tx.query("SELECT id,version FROM approval_request LIMIT 0");
     await tx.query("SELECT id,goal FROM insight_report LIMIT 0");
     await tx.query("SELECT id,enabled,daily_credits,next_run_at FROM feedback_schedule LIMIT 0");

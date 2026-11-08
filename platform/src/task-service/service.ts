@@ -57,7 +57,7 @@ export class TaskService {
       `INSERT INTO workspace_task(workspace_id,source_kind,source_id,goal,persona,language,model_band,batch_ids,created_by,created_at,updated_at) SELECT workspace_id,'report',id,left(title,4000),CASE template WHEN 'review_attribution' THEN 'sellers' WHEN 'community_digest' THEN 'community-hosts' ELSE 'creators' END,CASE WHEN report->>'_language' IN ('en','zh','es') THEN report->>'_language' ELSE 'en' END,model_band,batch_ids,created_by,created_at,created_at FROM insight_report WHERE workspace_id=current_setting('app.workspace_id')::uuid ON CONFLICT(workspace_id,source_kind,source_id) DO NOTHING`,
     );
     await tx.query(
-      `INSERT INTO workspace_task(workspace_id,source_kind,source_id,goal,model_band,batch_ids,created_by,created_at,updated_at) SELECT workspace_id,'import',id,left(label,4000),model_band,jsonb_build_array(id::text),created_by,created_at,created_at FROM import_batch WHERE workspace_id=current_setting('app.workspace_id')::uuid AND status='failed' AND NOT EXISTS(SELECT 1 FROM workspace_task c WHERE c.workspace_id=import_batch.workspace_id AND c.source_kind='conversation' AND c.batch_ids @> jsonb_build_array(import_batch.id::text)) ON CONFLICT(workspace_id,source_kind,source_id) DO NOTHING`,
+      `INSERT INTO workspace_task(workspace_id,source_kind,source_id,goal,model_band,batch_ids,created_by,created_at,updated_at) SELECT workspace_id,'import',id,left(label,4000),model_band,jsonb_build_array(id::text),created_by,created_at,created_at FROM import_batch WHERE workspace_id=current_setting('app.workspace_id')::uuid AND status='failed' AND deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM workspace_task c WHERE c.workspace_id=import_batch.workspace_id AND c.source_kind='conversation' AND c.batch_ids @> jsonb_build_array(import_batch.id::text)) ON CONFLICT(workspace_id,source_kind,source_id) DO NOTHING`,
     );
     await tx.query(
       `INSERT INTO workspace_task(workspace_id,source_kind,source_id,goal,model_band,created_by,created_at,updated_at) SELECT r.workspace_id,'workflow',r.id,left(w.name,4000),CASE WHEN r.input->>'modelBand' IN ('eco','standard','flagship') THEN r.input->>'modelBand' ELSE 'standard' END,r.requested_by,r.created_at,r.created_at FROM workflow_run r JOIN workflow w ON w.id=r.workflow_id AND w.workspace_id=r.workspace_id WHERE r.workspace_id=current_setting('app.workspace_id')::uuid ON CONFLICT(workspace_id,source_kind,source_id) DO NOTHING`,
@@ -136,7 +136,7 @@ export class TaskService {
       }
       if (input.batchIds.length) {
         const found = await tx.query(
-          "SELECT id FROM import_batch WHERE workspace_id=$1 AND id=ANY($2::uuid[]) AND status='classified'",
+          "SELECT id FROM import_batch WHERE workspace_id=$1 AND id=ANY($2::uuid[]) AND status='classified' AND deleted_at IS NULL FOR SHARE",
           [actor.workspaceId, input.batchIds],
         );
         if (found.rowCount !== new Set(input.batchIds).size)
@@ -197,6 +197,10 @@ export class TaskService {
         throw new HttpError(409, "task_version_conflict");
       if (["queued", "running"].includes(task.status))
         throw new HttpError(409, "task_turn_in_progress");
+      if(task.batchIds.length){
+        const sources=await tx.query('SELECT id FROM import_batch WHERE workspace_id=$1 AND id=ANY($2::uuid[]) AND deleted_at IS NULL FOR SHARE',[actor.workspaceId,task.batchIds]);
+        if(sources.rowCount!==task.batchIds.length)throw new HttpError(410,'task_sources_deleted');
+      }
       await requireAutomationAccess(tx, true);
       await tx.query(
         `INSERT INTO workspace_task_message(workspace_id,task_id,request_id,role,content,model_band,created_by) VALUES($1,$2,$3,'user',$4,$5,$6)`,
@@ -292,7 +296,10 @@ export class TaskService {
         "SELECT id,text,author,platform FROM import_item WHERE workspace_id=$1 AND id=$2 AND batch_id=ANY($3::uuid[])",
         [actor.workspaceId, itemId, task.batchIds],
       );
-      if (!item.rows[0]) throw new HttpError(404, "task_evidence_not_found");
+      if (!item.rows[0]) {
+        const deleted=await tx.query('SELECT 1 FROM import_batch WHERE workspace_id=$1 AND id=ANY($2::uuid[]) AND deleted_at IS NOT NULL',[actor.workspaceId,task.batchIds]);
+        throw new HttpError(deleted.rowCount?410:404,deleted.rowCount?'task_sources_deleted':'task_evidence_not_found');
+      }
       return item.rows[0];
     });
   }
