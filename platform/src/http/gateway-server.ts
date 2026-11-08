@@ -1,3 +1,4 @@
+import {connectionSuccess} from '../zernio/success-page';
 import { meteringMode, COST_VERSION } from "../../../shared/ai-metering";
 import {assertTaskSchema} from '../task-service/readiness';
 import { createHmac, timingSafeEqual } from 'node:crypto';
@@ -200,8 +201,9 @@ app.get('/api/zernio/connect', async (request, reply) => {
 
 const zernioCallbackHandler = async (request: FastifyRequest, reply: FastifyReply) => {
   const result = await platformService.completeZernioOAuth(request.query as Record<string, unknown>);
+  if(result.kind==='connected'){const success=connectionSuccess('zernio',config.PUBLIC_SITE_URL);return reply.header('Content-Security-Policy',success.csp).header('Referrer-Policy','no-referrer').header('Cache-Control','no-store').type('text/html').send(success.html);}
   return reply.code(200).header('cache-control', 'no-store').header('referrer-policy', 'no-referrer').type('text/html').send(
-    result.kind === 'selection' ? legacySelectionPage(result.platform, result.choices) : legacySuccessPage(),
+    legacySelectionPage(result.platform, result.choices),
   );
 };
 app.get('/api/zernio/callback', zernioCallbackHandler);
@@ -210,7 +212,8 @@ app.get('/z/cb', zernioCallbackHandler);
 app.post('/api/zernio/select', async (request, reply) => {
   const body = z.object({ selection: z.string().min(1) }).parse(request.body);
   const result = await platformService.selectZernioAccount(body.selection);
-  return reply.code(result.kind === 'connected' ? 200 : 202).header('cache-control', 'no-store').header('referrer-policy', 'no-referrer').type('text/html').send(result.kind === 'connected' ? legacySuccessPage() : pendingConnectionPage());
+  if(result.kind==='connected'){const success=connectionSuccess('zernio',config.PUBLIC_SITE_URL);return reply.header('Content-Security-Policy',success.csp).header('Referrer-Policy','no-referrer').header('Cache-Control','no-store').type('text/html').send(success.html);}
+  return reply.code(202).header('cache-control', 'no-store').header('referrer-policy', 'no-referrer').type('text/html').send(pendingConnectionPage());
 });
 
 app.post('/api/zernio/sync', async (request) => {
@@ -247,6 +250,7 @@ app.get('/api/runs/:runId', async (request, reply) => {
 
 app.put('/api/approval-requests/:approvalId/content',async request=>platformService.editApproval(actorFrom(request),z.object({approvalId:z.string().uuid()}).parse(request.params).approvalId,request.body));
 app.get('/api/feedback/accounts/:accountId/posts',async(request,reply)=>{reply.header('Cache-Control','no-store');return platformService.feedback.recentPosts(actorFrom(request),z.object({accountId:z.string().uuid()}).parse(request.params).accountId)});
+app.delete('/api/imports/:batchId',async request=>platformService.deleteImport(actorFrom(request),z.object({batchId:z.string().uuid()}).parse(request.params).batchId,request.body));
 app.get('/api/feedback/accounts',async request=>platformService.feedback.accounts(actorFrom(request)));
 app.post('/api/feedback/scans',async request=>platformService.feedback.createScan(actorFrom(request),request.body));
 app.post('/api/feedback/scans/:scanId/accept',async request=>platformService.feedback.acceptScan(actorFrom(request),z.object({scanId:z.string().uuid()}).parse(request.params).scanId,request.body));
@@ -363,10 +367,11 @@ app.post('/api/admin/referrals/:ledgerId/void', async (request, reply) => {
   return platformService.adminVoidReferral(actorFrom(request), adminTokenFrom(request), ledgerId, request.body);
 });
 
-app.get('/api/audit-events', async (request) => {
+app.get('/api/audit-events', async (request,reply) => {
+  reply.header('Cache-Control','no-store');
   const actor = actorFrom(request);
   requirePermission(actor.role, 'workspace:manage');
-  const events = await database.withWorkspace(actor.workspaceId, (tx) => tx.query('SELECT id, run_id AS "runId", event_type AS "eventType", payload, created_at AS "createdAt" FROM audit_event WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 100', [actor.workspaceId]));
+  const events = await database.withWorkspace(actor.workspaceId, (tx) => tx.query('SELECT id, run_id AS "runId", event_type AS "eventType", payload, created_at AS "createdAt" FROM workspace_activity_audit WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 100', [actor.workspaceId]));
   return events.rows;
 });
 
@@ -378,10 +383,6 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 }
 
 void main();
-
-function legacySuccessPage(): string {
-  return '<!doctype html><meta charset="utf-8"><title>Piggybot</title><script>window.opener?.postMessage({type:"piggybot:zernio-connected"}, "*");</script><main><h1>Account connected</h1><p>Your social account is ready in Piggybot. You may close this window.</p></main>';
-}
 
 function legacySelectionPage(platform: string, choices: Array<{ label: string; detail?: string; token: string }>): string {
   const options = choices.map((choice, index) => `<label><input type="radio" name="selection" value="${choice.token}" ${index === 0 ? 'checked' : ''} required> ${escapeLegacyHtml(choice.label)}${choice.detail ? ` — ${escapeLegacyHtml(choice.detail)}` : ''}</label><br>`).join('');

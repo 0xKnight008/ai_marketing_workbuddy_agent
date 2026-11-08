@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { useWorkspaceLanguage } from "./useWorkspaceLanguage";
-type Mode = "system" | "light" | "dark";
+type Mode = "system" | "dark";
 export function Appearance() {
   const { w } = useWorkspaceLanguage();
   const [mode, setMode] = useState<Mode>(() => {
     try {
       const s = localStorage.getItem("piggybot.appearance");
-      return s === "light" || s === "dark" ? s : "system";
+      return s === "dark" ? s : "system";
     } catch {
       return "system";
     }
@@ -34,7 +34,6 @@ export function Appearance() {
       onChange={(e) => setMode(e.target.value as Mode)}
     >
       <option value="system">{w("System", "Sistema", "跟随系统")}</option>
-      <option value="light">☀ {w("Light", "Claro", "浅色")}</option>
       <option value="dark">☾ {w("Dark", "Oscuro", "暗夜")}</option>
     </select>
   );

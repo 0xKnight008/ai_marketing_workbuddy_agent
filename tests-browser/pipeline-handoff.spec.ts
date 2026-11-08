@@ -105,7 +105,7 @@ async function setup(
         ],
       });
     if (path === "/api/zernio/accounts")
-      return route.fulfill({ json: [account] });
+      return route.fulfill({ json: [account,{...account,id:"removed",displayName:"Disconnected X",status:"disconnected",capabilities:[]}] });
     if (path === "/api/pipelines" && req.method() === "GET")
       return route.fulfill({ json: pipeline ? [pipeline] : [] });
     if (
@@ -474,4 +474,10 @@ for (const [locale, heading, explanation] of [
   expect(state.decisions).toHaveLength(0);
   expect(state.published).toBe(false);
   expect(state.activations).toHaveLength(1);
+});
+
+test('new Pipeline hides disconnected accounts while preserving a usable publish destination',async({page})=>{
+ await setup(page);
+ await expect(page.getByRole('checkbox',{name:/Disconnected X/})).toHaveCount(0);
+ await expect(page.getByRole('checkbox',{name:/Test X/})).toBeChecked();
 });

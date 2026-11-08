@@ -51,6 +51,7 @@ export class TopicService {
     const input = createTopicRunSchema.parse(body ?? {});
 
     return this.database.withWorkspace(actor.workspaceId, async (tx) => {
+      await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`source-content:${actor.workspaceId}`]);
       const billing = await tx.query<{ status: string; trialEndsAt: string | null }>(
         `SELECT subscription_status AS status, trial_ends_at::text AS "trialEndsAt"
            FROM workspace_billing WHERE workspace_id = current_setting('app.workspace_id')::uuid`,

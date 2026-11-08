@@ -1,3 +1,4 @@
+import { connectionSuccess } from '../../src/zernio/success-page';
 import { meteringMode, COST_VERSION } from "../../../shared/ai-metering";
 import {executionHistory} from '../../src/billing/model-choice';
 import {assertTaskSchema} from '../../src/task-service/readiness';
@@ -82,6 +83,7 @@ export default class PlatformController extends Controller {
     this.ctx.body = await this.app.platform.service.createImport(this.actor(), this.ctx.request.body);
   }
 
+  async deleteImport(){this.ctx.set('Cache-Control','no-store');this.ctx.body=await this.app.platform.service.deleteImport(this.actor(),this.ctx.params.batchId,this.ctx.request.body);}
   async listImports(): Promise<void> {
     this.ctx.set('Cache-Control', 'no-store');
     this.ctx.body = await this.app.platform.service.listImports(this.actor());
@@ -102,8 +104,9 @@ export default class PlatformController extends Controller {
     this.ctx.type = 'html';
     this.ctx.set('Cache-Control', 'no-store');
     this.ctx.set('Referrer-Policy', 'no-referrer');
-    this.ctx.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-KRFtUlQMceLgz+1bgqYT0dz3I/s+OlXv4GAu+TNrR0w='; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
-    this.ctx.body = googleSheetsPage();
+    const success = connectionSuccess('google-sheets');
+    this.ctx.set('Content-Security-Policy',success.csp);
+    this.ctx.body = success.html;
   }
 
   async googleSheetsConnection(): Promise<void> {
@@ -298,8 +301,9 @@ export default class PlatformController extends Controller {
     this.ctx.type = 'html';
     this.ctx.set('Cache-Control', 'no-store');
     this.ctx.set('Referrer-Policy', 'no-referrer');
-    this.ctx.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-s6ZpQMzFYFq3nShNxsGs170woi5zeqQZ2p0fBavjIl8='; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
-    this.ctx.body = result.kind === 'selection' ? selectionPage(result.platform, result.choices) : successPage();
+    this.ctx.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+    if(result.kind === 'selection') this.ctx.body=selectionPage(result.platform,result.choices);
+    else {const success=connectionSuccess('zernio');this.ctx.set('Content-Security-Policy',success.csp);this.ctx.body=success.html;}
   }
 
   async selectZernio(): Promise<void> {
@@ -309,8 +313,9 @@ export default class PlatformController extends Controller {
     this.ctx.type = 'html';
     this.ctx.set('Cache-Control', 'no-store');
     this.ctx.set('Referrer-Policy', 'no-referrer');
-    this.ctx.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'");
-    this.ctx.body = result.kind === 'connected' ? successPage() : pendingConnectionPage();
+    this.ctx.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'");
+    if(result.kind==='connected'){const success=connectionSuccess('zernio');this.ctx.set('Content-Security-Policy',success.csp);this.ctx.body=success.html;}
+    else this.ctx.body=pendingConnectionPage();
   }
 
   async syncZernio(): Promise<void> { this.ctx.body = await this.app.platform.service.syncZernio(this.actor()); }
@@ -410,7 +415,7 @@ export default class PlatformController extends Controller {
       this.actor(), this.adminToken(), this.ctx.params.ledgerId, this.ctx.request.body,
     );
   }
-  async auditEvents(): Promise<void> { this.ctx.body = await this.app.platform.service.auditEvents(this.actor()); }
+  async auditEvents(): Promise<void> { this.ctx.set('Cache-Control','no-store');this.ctx.body = await this.app.platform.service.auditEvents(this.actor()); }
   async modelExecutions(){this.ctx.set('Cache-Control','no-store');this.ctx.body=await executionHistory(this.app.platform.database,this.actor(),this.ctx.params.kind,this.ctx.params.sourceId);}
   async modelChoices(){this.ctx.set('Cache-Control','no-store');this.ctx.body=await this.app.platform.service.modelChoices.list(this.actor());}
   async chooseModel(){this.ctx.set('Cache-Control','no-store');this.ctx.body=await this.app.platform.service.modelChoices.choose(this.actor(),this.ctx.params.jobId,this.ctx.request.body);}
@@ -437,22 +442,13 @@ export default class PlatformController extends Controller {
   private adminToken() { return this.ctx.get('x-billing-admin-token'); }
 }
 
-function successPage(): string {
-  return page('Account connected', '<p>Your social account is ready in Piggybot.</p><button type="button" onclick="window.close()">Close this window</button>', 'piggybot:zernio-connected');
-}
-
-function googleSheetsPage(): string {
-  return page('Google Sheets connected', '<p>Your Google account is linked. Back in Piggybot, paste a spreadsheet ID to import its rows.</p><button type="button" onclick="window.close()">Close this window</button>', 'piggybot:google-sheets-connected');
-}
-
 function selectionPage(platform: string, choices: Array<{ label: string; detail?: string; token: string }>): string {
   const options = choices.map((choice, index) => `<label class="choice"><input type="radio" name="selection" value="${choice.token}" ${index === 0 ? 'checked' : ''} required><span><strong>${escapeHtml(choice.label)}</strong>${choice.detail ? `<small>${escapeHtml(choice.detail)}</small>` : ''}</span></label>`).join('');
   return page(`Choose your ${escapeHtml(platform)} account`, `<p>Choose the account Piggybot should use. This selection stays inside Piggybot.</p><form method="post" action="/api/zernio/select">${options}<button type="submit">Connect selected account</button></form>`);
 }
 
-function page(title: string, content: string, notifyMessage?: string): string {
-  const script = notifyMessage ? `<script>window.opener?.postMessage({type:"${notifyMessage}"}, "*");</script>` : '';
-  return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${title} · Piggybot</title><style>body{box-sizing:border-box;margin:0;min-height:100vh;padding:32px;background:#fffaf0;color:#172033;font:16px/1.5 system-ui,sans-serif}main{max-width:560px;margin:5vh auto;padding:28px;border:2px solid #172033;border-radius:18px;background:#fff}h1{margin-top:0;font-size:28px}.choice{display:flex;gap:12px;align-items:flex-start;margin:12px 0;padding:14px;border:1px solid #b8c2d0;border-radius:12px;cursor:pointer}.choice:has(input:checked){border-color:#176b87;background:#edfaff}.choice small{display:block;color:#596579}button{margin-top:18px;padding:12px 18px;border:0;border-radius:9px;background:#176b87;color:#fff;font-weight:700;cursor:pointer}</style>${script}<main><p>🐷 Piggybot</p><h1>${title}</h1>${content}</main></html>`;
+function page(title: string, content: string): string {
+  return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${title} · Piggybot</title><style>body{box-sizing:border-box;margin:0;min-height:100vh;padding:32px;background:#fffaf0;color:#172033;font:16px/1.5 system-ui,sans-serif}main{max-width:560px;margin:5vh auto;padding:28px;border:2px solid #172033;border-radius:18px;background:#fff}h1{margin-top:0;font-size:28px}.choice{display:flex;gap:12px;align-items:flex-start;margin:12px 0;padding:14px;border:1px solid #b8c2d0;border-radius:12px;cursor:pointer}.choice:has(input:checked){border-color:#176b87;background:#edfaff}.choice small{display:block;color:#596579}button{margin-top:18px;padding:12px 18px;border:0;border-radius:9px;background:#176b87;color:#fff;font-weight:700;cursor:pointer}</style><main><p>🐷 Piggybot</p><h1>${title}</h1>${content}</main></html>`;
 }
 
 function escapeHtml(value: string): string {

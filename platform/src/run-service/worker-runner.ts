@@ -691,6 +691,8 @@ export class RunWorker {
       );
       const reportRow = report.rows[0];
       if (!reportRow) throw new Error('insight report not found or already terminal');
+      const sources = await tx.query<{deletedAt:string|null}>('SELECT deleted_at AS "deletedAt" FROM import_batch WHERE workspace_id=$1 AND id=ANY($2::uuid[]) FOR SHARE',[job.workspaceId,reportRow.batchIds]);
+      if(sources.rows.some(source=>source.deletedAt))throw new Error('insight_sources_deleted');
       const template = insightTemplateSchema.parse(reportRow.template);
       // 迭代 5：每份报告按档位计量一次 AI credits（attempt=1，幂等去重 ——
       // job 重试不会重复扣费）；额度暂停时延迟 job，充值/账期重置后自动续跑。

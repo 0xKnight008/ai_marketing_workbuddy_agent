@@ -1441,6 +1441,11 @@ function taskError(
           "Revisa tu plan y créditos para continuar.",
           "请检查套餐和可用额度后继续。",
         ),
+        task_sources_deleted: w(
+          'These sources were deleted. Saved results remain available; start a new task with new sources to continue.',
+          'Estas fuentes se eliminaron. Los resultados guardados siguen disponibles; inicia una tarea con fuentes nuevas.',
+          '这些素材已删除。历史结果仍保留；请导入新素材并新建任务继续分析。',
+        ),
         task_sources_not_ready: w(
           "Some sources are not ready. Review their import status first.",
           "Hay fuentes pendientes. Revisa su importación.",

@@ -300,7 +300,7 @@ export class ImportService {
   async listImports(actor: ActorContext): Promise<ImportBatchView[]> {
     return this.database.withWorkspace(actor.workspaceId, async (tx) => {
       const batches = await tx.query<{ id: string }>(
-        'SELECT id FROM import_batch WHERE workspace_id = current_setting(\'app.workspace_id\')::uuid AND NOT EXISTS(SELECT 1 FROM workspace_task t WHERE t.workspace_id=import_batch.workspace_id AND t.source_kind=\'import\' AND t.source_id=import_batch.id AND t.archived_at IS NOT NULL) ORDER BY created_at DESC LIMIT 50',
+        'SELECT id FROM import_batch WHERE workspace_id = current_setting(\'app.workspace_id\')::uuid AND deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM workspace_task t WHERE t.workspace_id=import_batch.workspace_id AND t.source_kind=\'import\' AND t.source_id=import_batch.id AND t.archived_at IS NOT NULL) ORDER BY created_at DESC LIMIT 50',
         [],
       );
       const views: ImportBatchView[] = [];
@@ -312,6 +312,8 @@ export class ImportService {
   async importDetail(actor: ActorContext, batchId: unknown): Promise<{ batch: ImportBatchView; items: ImportItemView[] }> {
     const id = z.string().uuid().parse(batchId);
     return this.database.withWorkspace(actor.workspaceId, async (tx) => {
+      const deleted = await tx.query<{deletedAt:string|null}>(`SELECT deleted_at AS "deletedAt" FROM import_batch WHERE workspace_id=current_setting('app.workspace_id')::uuid AND id=$1`,[id]);
+      if(deleted.rows[0]?.deletedAt) throw new HttpError(410,'import_deleted');
       const batch = await this.batchView(tx, id);
       const items = await tx.query<{
         id: string; platform: string; author: string | null; text: string; metrics: Record<string, unknown>;
