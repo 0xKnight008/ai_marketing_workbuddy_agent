@@ -234,6 +234,9 @@ export async function executionHistory(
       )
     ).rows;
     const costs=await costOperations(tx,false,[sourceId]);
-    return [...legacy,...costs.map(row=>({step:0,band:row.band,provider:row.band==='flagship'?'configured-proxy':'direct',credits:row.settledCredits,reservationState:row.state,costReceipt:row}))];
+    return [...legacy,...costs.map(row=>{
+      const kimiDirect=row.band==='flagship'&&Array.isArray(row.actualModels)&&row.actualModels.length>0&&row.actualModels.every((m:unknown)=>typeof m==='string'&&m.startsWith('kimi-'));
+      return {step:0,band:row.band,provider:row.band==='flagship'&&!kimiDirect?'configured-proxy':'direct',credits:row.settledCredits,reservationState:row.state,costReceipt:row};
+    })];
   });
 }

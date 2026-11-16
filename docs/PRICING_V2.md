@@ -18,7 +18,7 @@ The public trial is up to 7 days or 30 AI credits. Inactive accounts cannot run 
 | --- | ---: | ---: | ---: | --- |
 | Eco | 8K tokens | 1.5K tokens | 5 | DeepSeek direct |
 | Standard | 16K tokens | 2K tokens | 10 | Z.AI direct |
-| Flagship | 32K tokens | 4K tokens | 20 | LiteLLM |
+| Flagship | 32K tokens | 4K tokens | 20 | Moonshot direct (three-channel) / LiteLLM (proxy profile) |
 
 Cost-v1 replaces fixed 1/6/20 internal-step prices with `ceil(valid saved operation cost USD × 1.06 / 0.01)`. Child calls accumulate before rounding. Operators must verify versioned input/output/cache prices and tariff conditions; customer estimates are conservative caps, not supplier invoice evidence. See [metering](AI_CREDIT_METERING.md) for the complete contract.
 

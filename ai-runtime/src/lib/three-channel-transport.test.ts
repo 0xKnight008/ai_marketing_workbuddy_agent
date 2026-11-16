@@ -11,18 +11,17 @@ import { createTokenLedger, tokenUsageOptions } from './token-ledger';
 
 test('installed Mastra sends channel-specific Chat Completions requests and parses structured results', async (t) => {
   const env = {
-    AI_MODEL_ROUTING_MODE: 'three-channel', OPENAI_BASE_URL: 'https://litellm.test/v1',
-    OPENAI_API_KEY: 'litellm-virtual-test', DEEPSEEK_API_KEY: 'ds-test', ZAI_API_KEY: 'glm-test',
-    AI_MODEL_FLAGSHIP: 'openai/primary-flagship',
+    AI_MODEL_ROUTING_MODE: 'three-channel',
+    DEEPSEEK_API_KEY: 'ds-test', ZAI_API_KEY: 'zai-test', MOONSHOT_API_KEY: 'moonshot-test',
   };
   const config = loadConfig(env);
   const cases = [
-    ['eco', 'primary', 'https://api.deepseek.com/v1/chat/completions', 'deepseek-flash', 'ds-test'],
-    ['eco', 'fallback', 'https://api.deepseek.com/v1/chat/completions', 'deepseek-flash', 'ds-test'],
-    ['standard', 'primary', 'https://api.z.ai/api/paas/v4/chat/completions', 'glm-5.3-flash', 'glm-test'],
-    ['flagship', 'primary', 'https://litellm.test/v1/chat/completions', 'primary-flagship', 'litellm-virtual-test'],
+    ['eco', 'primary', 'https://api.deepseek.com/v1/chat/completions', 'deepseek-flash', 'ds-test', 'deepseek'],
+    ['eco', 'fallback', 'https://api.deepseek.com/v1/chat/completions', 'deepseek-flash', 'ds-test', 'deepseek'],
+    ['standard', 'primary', 'https://api.z.ai/api/paas/v4/chat/completions', 'glm-5.3-flash', 'zai-test', 'zai'],
+    ['flagship', 'primary', 'https://api.moonshot.ai/v1/chat/completions', 'kimi-k3.1-pro', 'moonshot-test', 'moonshot'],
   ] as const;
-  for (const [band, provider, url, wireModel, key] of cases) {
+  for (const [band, provider, url, wireModel, key, providerLabel] of cases) {
     let requests = 0;
     let reply: unknown = { ok: true };
     let omitUsage = false;
@@ -33,11 +32,11 @@ test('installed Mastra sends channel-specific Chat Completions requests and pars
       const body = JSON.parse(String(init?.body));
       assert.equal(body.model, wireModel);
       if (body.stream) assert.equal(body.stream_options?.include_usage, true, 'streaming calls must request usage');
-      if (band !== 'flagship') {
-        assert.notEqual(body.response_format?.type, 'json_schema');
-        assert.ok(body.messages.some((message: { content?: unknown }) =>
-          typeof message.content === 'string' && message.content.includes('"ok"')));
-      }
+      // Mastra itself sends no response_format; the traced transport injects
+      // json_object for official channels (covered in request-trace tests).
+      assert.notEqual(body.response_format?.type, 'json_schema');
+      assert.ok(body.messages.some((message: { content?: unknown }) =>
+        typeof message.content === 'string' && message.content.includes('"ok"')));
       const output = JSON.stringify(reply);
       const base = { id: 'test-completion', object: 'chat.completion', created: 1, model: wireModel };
       if (!body.stream) {
@@ -62,11 +61,11 @@ test('installed Mastra sends channel-specific Chat Completions requests and pars
       assert.equal(rows.length, 1);
       assert.ok(rows[0]);
       assert.equal(rows[0].run_id, contextRunId);
-      assert.equal((await ledger.list(Number.MAX_SAFE_INTEGER,contextRunId)).length,1);
+      assert.equal((await ledger.list(Number.MAX_SAFE_INTEGER, contextRunId)).length, 1);
       assert.equal(rows[0].prompt_tokens, 10);
       assert.equal(rows[0].completion_tokens, 5);
       assert.equal(rows[0].model_name, wireModel);
-      assert.equal(rows[0].provider, band === 'eco' ? 'deepseek' : band === 'standard' ? 'zai' : 'configured-proxy');
+      assert.equal(rows[0].provider, providerLabel);
       if (band !== 'flagship') {
         reply = { ok: 'invalid-boolean' };
         await assert.rejects(agent.generate('Return JSON.', {

@@ -75,6 +75,32 @@ STRIPE_SECRET_KEY=sk_test_...        # staging 只用 test 模式
 
 ## 第 3 步：ai-runtime 接真实 routing proxy
 
+### 选项 A（推荐）：three-channel 官方直连
+
+不需要 proxy，三个 band 全部走供应商官方端点，只需三个独立官方密钥：
+
+```dotenv
+AI_MODEL_ROUTING_MODE=three-channel
+DEEPSEEK_API_KEY=<DeepSeek 官方独立 staging key>
+ZAI_API_KEY=<Z.AI 官方独立 staging key>
+MOONSHOT_API_KEY=<Moonshot 官方独立 staging key>
+
+INTERNAL_API_TOKEN=<随机A，必须与 platform.env 的 INTERNAL_SERVICE_TOKEN 完全一致>
+EVENT_CALLBACK_SIGNING_SECRET=<随机C，必须与 AI_RUNTIME_EVENT_SIGNING_SECRET 一致>
+RUN_SERVICE_CALLBACK_URL=http://127.0.0.1:4200/internal/ai-runtime-events
+PORT=4211
+HOST=127.0.0.1
+MASTRA_STORAGE_URL=file:./mastra-staging.db
+```
+
+此模式下不要设置 `OPENAI_BASE_URL`/`OPENAI_API_KEY`，也不要填
+`AI_MODEL_*` 别名（路由表由代码固定）。wire model 分别是
+`deepseek-flash`、`glm-5.3-flash`、`kimi-k3.1-pro`。上线前用
+`node scripts/check-flagship-direct.mjs` 做只读探测，再带 `--generate`
+跑一次小额付费结构化探针。详见 [THREE_CHANNEL_ROUTING.md](THREE_CHANNEL_ROUTING.md)。
+
+### 选项 B：保留 proxy（回滚路径）
+
 ```bash
 sudoedit /etc/piggybot-staging/ai-runtime.env
 ```

@@ -19,7 +19,8 @@ export type ChatCompletionsModel =
 
 export function chatCompletionsModel(model: string, env: Readonly<Record<string, string | undefined>> = process.env): ChatCompletionsModel {
   const official = officialChannelModel(model, env);
-  if (official) return official;
+  // The provider label is ledger metadata only; never pass it to Mastra.
+  if (official) return { id: official.id, url: official.url, apiKey: official.apiKey };
   if (!model.startsWith('openai/')) return model;
 
   const url = env.OPENAI_BASE_URL;

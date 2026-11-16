@@ -5,7 +5,8 @@
 The seven runtime agent factories record every completed model step in LibSQL
 `ai_token_usage`, using the runtime's existing `MASTRA_STORAGE_URL` and token.
 This covers classification, topics, six insight templates, planning, copy and
-compliance across DeepSeek, Z.AI and the configured Flagship proxy. Official
+compliance across DeepSeek, Z.AI and Moonshot official channels (three-channel
+profile), or the configured Flagship proxy in legacy/litellm profiles. Official
 traffic need not pass through one-api. No oneapi.db edits or PostgreSQL migration
 are needed. The table is created idempotently on first use; back up LibSQL.
 

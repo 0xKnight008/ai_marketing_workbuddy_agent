@@ -102,10 +102,14 @@ curl -X POST http://localhost:4111/internal/ai-runs/prepare-announcement \
 
 ## 部署注意（§10 / §12）
 
-- 生产环境必须通过一个 OpenAI-compatible routing proxy 访问 LLM：设置
+- 在 `proxy` 模式下，生产环境通过一个 OpenAI-compatible routing proxy 访问 LLM：设置
   `AI_MODEL_ROUTING_MODE=proxy`，并让 `OPENAI_BASE_URL` 指向 proxy 的 `/v1`
   API。1token.ai 与 Kimi 的上游凭证只保存在 proxy；详见
   [`../docs/LLM_ROUTING_PROXY.md`](../docs/LLM_ROUTING_PROXY.md)。
+- 也可以选择 `AI_MODEL_ROUTING_MODE=three-channel`：三个 band 全部走供应商官方直连
+  （DeepSeek、Z.AI `glm-5.3-flash`、Moonshot `kimi-k3.1-pro`），只需要
+  `DEEPSEEK_API_KEY`、`ZAI_API_KEY`、`MOONSHOT_API_KEY` 三个官方密钥，不经过 proxy。
+  详见 [`../docs/THREE_CHANNEL_ROUTING.md`](../docs/THREE_CHANNEL_ROUTING.md)。
 - Proxy 模式要求每个 model band 都有不同的 primary/fallback alias。若
   run-service 选择 fallback 而 alias 缺失，runtime 会明确失败，不再静默调用 primary。
 - 生产环境必须将 `MASTRA_STORAGE_URL` 配置为共享 LibSQL endpoint（例如 Turso）；本地 `file:` storage 会在启动时被拒绝。
@@ -118,6 +122,10 @@ curl -X POST http://localhost:4111/internal/ai-runs/prepare-announcement \
 ## Staged unified LiteLLM routing
 
 `AI_MODEL_ROUTING_MODE=litellm` uses fixed `primary-eco`, `primary-standard`, and `primary-flagship` aliases. `AI_PROXY_BANDS=standard,flagship` keeps Eco direct for initial rollout; omit it or use `eco,standard,flagship` after acceptance. Each band retains its official supplier and there is no automatic model fallback. See [the migration and request-tracing guide](../docs/UNIFIED_LITELLM_MIGRATION.md) for protected env candidates, rate identities, virtual-key permissions, JSON output validation and rollback.
+
+## Three-channel official direct routing
+
+`AI_MODEL_ROUTING_MODE=three-channel` resolves all three bands locally to official endpoints: Eco to DeepSeek `deepseek-flash`, Standard to Z.AI `glm-5.3-flash`, and Flagship to Moonshot `kimi-k3.1-pro`. Each uses its own isolated key (`DEEPSEEK_API_KEY`, `ZAI_API_KEY`, `MOONSHOT_API_KEY`); no proxy key or `OPENAI_BASE_URL` is involved. Flagship uses `response_format` JSON mode with prompt-injected schemas, and the transport strips the K3 server-fixed parameters (`temperature`, `top_p`, `n`, penalties). A credential-safe probe lives at `scripts/check-flagship-direct.mjs`. See [the routing guide](../docs/THREE_CHANNEL_ROUTING.md).
 
 ## Long-running model requests
 
