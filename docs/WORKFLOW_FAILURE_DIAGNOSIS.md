@@ -14,7 +14,10 @@ credentials and provider error messages are not returned to the browser.
 
 - `provider_auth`: the provider rejected its server credential. Update the
   existing protected credential for that channel and verify it before retrying.
-  A Flagship proxy credential is separate from the Standard Z.AI credential.
+  Each channel keeps its own key: DeepSeek (`DEEPSEEK_API_KEY`), Z.AI
+  (`ZAI_API_KEY`) and, in the three-channel profile, Moonshot
+  (`MOONSHOT_API_KEY`) for Flagship. In proxy/litellm profiles the Flagship
+  proxy credential is instead separate from the Standard Z.AI credential.
 - `content_blocked`: generation completed but the publication policy rejected
   the generated text. It has not entered approval or been published. For X,
   the current platform policy counts both the content and appended hashtags

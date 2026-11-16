@@ -79,6 +79,13 @@ Virtual-key management/spend tracking still uses the dedicated database.
 
 ## Acceptance and activation
 
+> Note (2026-11): this page records the historical LiteLLM/proxy cutover and the
+> then-current `scripts/check-flagship-proxy.mjs`. Flagship has since moved to a
+> Moonshot official direct channel in the three-channel profile, so that probe
+> was replaced by `scripts/check-flagship-direct.mjs` (targeting
+> `kimi-k3.1-pro`). Use the new probe for current three-channel acceptance; the
+> steps below are retained for the proxy-rollback path.
+
 1. Copy the runtime env into a protected candidate file. Change only
    `OPENAI_BASE_URL=http://127.0.0.1:4400/v1`, `OPENAI_API_KEY=<virtual key>` and
    `AI_MODEL_FLAGSHIP=openai/primary-flagship`. Keep all Eco/Standard values and
