@@ -50,7 +50,7 @@ jobs:
         run: npm run check:lockfile-registries
 
       - name: Test proxy migration preflight and credential-safe probes
-        run: node --test scripts/litellm-preflight.test.mjs scripts/prepare-unified-proxy.test.mjs ai-runtime/scripts/check-flagship-proxy.test.mjs ai-runtime/scripts/check-unified-proxy.test.mjs
+        run: node --test scripts/litellm-preflight.test.mjs scripts/prepare-unified-proxy.test.mjs ai-runtime/scripts/check-flagship-direct.test.mjs ai-runtime/scripts/check-unified-proxy.test.mjs
 
       - name: Test deployment preflight
         run: node --test scripts/deploy-production.test.mjs scripts/activate-cost-pricing.test.mjs

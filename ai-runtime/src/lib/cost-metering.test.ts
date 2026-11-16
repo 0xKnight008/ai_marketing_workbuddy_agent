@@ -368,3 +368,43 @@ test('credit-derived output respects provider-confirmed metadata without reinsta
  await runtimeCostContext.run(meta,()=>boundedModelFetch(async(_url,init)=>{const body=JSON.parse(String(init?.body));sent=body.max_tokens;return Response.json({model:'actual-fixture',usage:{prompt_tokens:100,completion_tokens:50,prompt_tokens_details:{cached_tokens:0}}})},'https://proxy.test/v1/chat/completions',{method:'POST',body:JSON.stringify({model:'primary-flagship',messages:[{role:'user',content:'A short request'}],max_tokens:100})}));
  assert.equal(sent,1200); // More than the 100-token quote reference, within the actual provider limit.
 });
+
+test('strips K3 server-fixed parameters for the Moonshot flagship wire model', async () => {
+  const meta = { ...envelope(), rate: { ...rate, model: 'kimi-k3.1-pro', responseModels: ['kimi-k3.1-pro'] } };
+  let calls = 0;
+  await runtimeCostContext.run(meta, () =>
+    boundedModelFetch(
+      async (_input, init) => {
+        calls++;
+        const body = JSON.parse(String(init?.body));
+        for (const fixed of ['temperature', 'top_p', 'n', 'presence_penalty', 'frequency_penalty']) {
+          assert.equal(body[fixed], undefined, `K3 rejects explicit ${fixed}`);
+        }
+        assert.equal(body.model, 'kimi-k3.1-pro');
+        return Response.json({
+          model: 'kimi-k3.1-pro',
+          usage: { prompt_tokens: 10, completion_tokens: 5, prompt_tokens_details: { cached_tokens: 0 } },
+        });
+      },
+      'https://api.moonshot.ai/v1/chat/completions',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          model: 'kimi-k3.1-pro',
+          temperature: 0.2,
+          top_p: 0.8,
+          n: 1,
+          presence_penalty: 0.5,
+          frequency_penalty: 0.5,
+          messages: [{ role: 'user', content: 'Return JSON.' }],
+          max_tokens: 50,
+        }),
+      },
+    ),
+  );
+  assert.equal(calls, 1);
+  const [receipt] = await requestReceipts(meta.requestId);
+  assert.ok(receipt);
+  assert.equal(receipt.model, 'kimi-k3.1-pro');
+  assert.equal(receipt.status, 'known');
+});

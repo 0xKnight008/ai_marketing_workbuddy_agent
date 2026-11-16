@@ -1,3 +1,4 @@
+import { KIMI_WIRE_MODEL } from './model-constants';
 type Environment = Readonly<Record<string, string | undefined>>;
 export const PROXY_MODELS = { eco: 'openai/primary-eco', standard: 'openai/primary-standard', flagship: 'openai/primary-flagship' } as const;
 export function proxyBands(env: Environment): Set<string> {
@@ -26,5 +27,5 @@ export function litellmConfig(env: Environment) {
 export function usesJsonObject(model: string, env: Environment = process.env): boolean {
   if (!['three-channel', 'litellm'].includes(env.AI_MODEL_ROUTING_MODE?.trim() ?? '')) return false;
   const id = model.replace(/^openai\//, '');
-  return ['deepseek-flash', 'glm-5.3-flash', 'primary-eco', 'primary-standard'].includes(id) || (env.AI_MODEL_ROUTING_MODE === 'litellm' && env.AI_PROXY_MODEL_PROFILE === 'onetoken' && id === 'primary-flagship');
+  return ['deepseek-flash', 'glm-5.3-flash', KIMI_WIRE_MODEL, 'primary-eco', 'primary-standard'].includes(id) || (env.AI_MODEL_ROUTING_MODE === 'litellm' && env.AI_PROXY_MODEL_PROFILE === 'onetoken' && id === 'primary-flagship');
 }

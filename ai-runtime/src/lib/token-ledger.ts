@@ -47,7 +47,7 @@ interface StepUsage {
 
 export function tokenUsageOptions(model: string, operation: string, store = ledger, env = process.env, contextRunId?: string) {
   const official = officialChannelModel(model, env);
-  const provider = official ? (official.url.includes('deepseek.com') ? 'deepseek' : 'zai') : 'configured-proxy';
+  const provider = official ? official.provider : 'configured-proxy';
   return {
     modelSettings: { maxRetries: 0, ...(runtimeCostContext.getStore() && !runtimeCostContext.getStore()!.shadow && !runtimeCostContext.getStore()!.creditBoundOutput ? { maxOutputTokens: runtimeCostContext.getStore()!.maxOutputTokens } : {}) },
     // Per completed model step, not both usage and totalUsage (which double-counts).
