@@ -11,11 +11,16 @@ export function validateLiteLlmEnvironment(env){
  if(!/^openai\/[^\s]+$/.test(env.FLAGSHIP_UPSTREAM_MODEL))throw new Error('FLAGSHIP_UPSTREAM_MODEL must be openai/<reviewed compatible wire model>');
  let url;try{url=new URL(env.FLAGSHIP_UPSTREAM_BASE_URL)}catch{throw new Error('Invalid FLAGSHIP_UPSTREAM_BASE_URL')}
  if(url.protocol!=='https:'||url.username||url.password||url.search||url.hash||!url.pathname.replace(/\/$/,'').endsWith('/v1'))throw new Error('Flagship upstream requires a credential-free HTTPS API root ending in /v1');
- if(env.LITELLM_ROUTING_PROFILE && !['unified','onetoken'].includes(env.LITELLM_ROUTING_PROFILE))throw new Error('Invalid LITELLM_ROUTING_PROFILE');
+ if(env.LITELLM_ROUTING_PROFILE && !['unified','onetoken','kimi'].includes(env.LITELLM_ROUTING_PROFILE))throw new Error('Invalid LITELLM_ROUTING_PROFILE');
  if(env.LITELLM_ROUTING_PROFILE==='unified'){
   for(const key of ['DEEPSEEK_API_KEY','ZAI_API_KEY'])if(!env[key]?.trim())throw new Error(`Missing ${key}`);
   if(env.LITELLM_CONFIG_FILE!=='/etc/piggybot/litellm-config.yaml')throw new Error('Unified routing requires server-owned /etc/piggybot/litellm-config.yaml');
   if(env.FLAGSHIP_UPSTREAM_MODEL!=='openai/gpt-6-sol')throw new Error('Unified pricing requires the reviewed openai/gpt-6-sol contract');
+ }
+ if(env.LITELLM_ROUTING_PROFILE==='kimi'){
+  for(const name of ['DEEPSEEK_API_KEY','ZAI_API_KEY'])if(!env[name]?.trim())throw new Error(`Missing ${name}`);
+  if(env.FLAGSHIP_UPSTREAM_MODEL!=='openai/kimi-k3.1-pro'||env.FLAGSHIP_UPSTREAM_BASE_URL!=='https://api.moonshot.ai/v1')throw new Error('Kimi profile requires the official Moonshot model and root');
+  if(env.LITELLM_CONFIG_FILE!=='/etc/piggybot/litellm-config.yaml')throw new Error('Kimi routing requires server-owned configuration');
  }
  if(env.LITELLM_ROUTING_PROFILE==='onetoken'){
   for(const name of ['DEEPSEEK_API_KEY','STANDARD_UPSTREAM_MODEL','STANDARD_UPSTREAM_BASE_URL','STANDARD_UPSTREAM_API_KEY'])if(!env[name]?.trim())throw new Error(`Missing ${name}`);

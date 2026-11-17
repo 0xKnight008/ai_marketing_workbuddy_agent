@@ -36,3 +36,17 @@ test('1Token Opus uses prompt-injected JSON with no ZAI credentials or partial r
  assert.throws(()=>loadConfig({...next,AI_PROXY_BANDS:'standard,flagship',DEEPSEEK_API_KEY:'fixture'}),/all three/);
  assert.throws(()=>loadConfig({...next,AI_PROXY_MODEL_PROFILE:'unknown'}),/Unknown/);
 });
+
+test('Kimi profile routes GLM and Kimi via isolated proxy aliases, preserving direct Eco',()=>{
+ const next={...env,AI_PROXY_MODEL_PROFILE:'kimi',DEEPSEEK_API_KEY:'deepseek-only'};
+ const config=loadConfig(next);
+ for(const band of ['standard','flagship'] as const){
+  assert.deepEqual(chatCompletionsModel(config.models[band],next),{id:'openai/primary-'+band,url:env.OPENAI_BASE_URL,apiKey:env.OPENAI_API_KEY});
+  assert.equal(usesJsonObject('primary-'+band,next),true);
+  assert.equal(structuredOutputForBand({},band,next).jsonPromptInjection,true);
+ }
+ assert.deepEqual(chatCompletionsModel(config.models.eco,next),{id:'openai/deepseek-flash',url:'https://api.deepseek.com/v1',apiKey:'deepseek-only'});
+ assert.throws(()=>loadConfig({...next,AI_PROXY_BANDS:'flagship'}),/Standard/);
+ const all={...next,AI_PROXY_BANDS:'eco,standard,flagship'};
+ assert.deepEqual(chatCompletionsModel(loadConfig(all).models.eco,all),{id:'openai/primary-eco',url:env.OPENAI_BASE_URL,apiKey:env.OPENAI_API_KEY});
+});

@@ -159,3 +159,24 @@ test('cache write aliases require consistent counts and explicit TTL, and reserv
  assert.equal(cacheWriteUsage({cache_creation_input_tokens:10,cache_creation:{ephemeral_5m_input_tokens:9}}),null);
  assert.equal(inputBudgetRate({...rate,cacheWrite5mUsdPerMillion:'5',cacheWrite1hUsdPerMillion:'8'}).inputUsdPerMillion,'8');
 });
+
+test('Moonshot raw and LiteLLM-prefixed TTL headers must agree with usage and each other',()=>{
+ const usage={prompt_tokens_details:{cache_write_tokens:10}};
+ assert.equal(cacheWriteUsage({},new Headers(),true),null);
+ assert.deepEqual(cacheWriteUsage({prompt_tokens_details:{cache_write_tokens:0}},new Headers(),true),{cacheWrite5m:0,cacheWrite1h:0});
+ const headers=new Headers({'Msh-Usage-Cache-Write-Tokens-5m':'6','Msh-Usage-Cache-Write-Tokens-1h':'4'});
+ assert.deepEqual(cacheWriteUsage(usage,headers),{cacheWrite5m:6,cacheWrite1h:4});
+ for(const [k,v] of [...headers])headers.set('llm_provider-'+k,v);
+ assert.deepEqual(cacheWriteUsage(usage,headers),{cacheWrite5m:6,cacheWrite1h:4});
+ headers.set('llm_provider-msh-usage-cache-write-tokens-1h','5');
+ assert.equal(cacheWriteUsage(usage,headers),null);
+ for(const value of ['-1','1.5','NaN','6, 6','9007199254740992','']){
+  headers.delete('llm_provider-msh-usage-cache-write-tokens-1h');headers.delete('llm_provider-msh-usage-cache-write-tokens-5m');
+  headers.set('msh-usage-cache-write-tokens-5m',value);
+  assert.equal(cacheWriteUsage(usage,headers),null);
+ }
+ assert.equal(cacheWriteUsage(usage,new Headers({'msh-usage-cache-write-tokens-5m':'10'})),null);
+ assert.equal(cacheWriteUsage({prompt_tokens_details:{cache_write_tokens:11}},new Headers({'msh-usage-cache-write-tokens-5m':'6','msh-usage-cache-write-tokens-1h':'4'})),null);
+ assert.equal(cacheWriteUsage({...usage,cache_creation:{ephemeral_5m_input_tokens:10}},new Headers({'msh-usage-cache-write-tokens-5m':'6','msh-usage-cache-write-tokens-1h':'4'})),null);
+ assert.deepEqual(cacheWriteUsage({},new Headers({'llm_provider-msh-usage-cache-write-tokens-5m':'0','llm_provider-msh-usage-cache-write-tokens-1h':'0'})),{cacheWrite5m:0,cacheWrite1h:0});
+});
