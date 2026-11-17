@@ -50,7 +50,14 @@ for(const kind of ['zernio','google-sheets'] as const)test(`${kind}: CSP allows 
  await page.context().route('**/callback-fixture',route=>route.fulfill({contentType:'text/html',headers:{'Content-Security-Policy':success.csp},body:success.html}));
  const popupPromise=page.waitForEvent('popup');await page.evaluate(()=>window.open('/callback-fixture','oauth-test','popup,width=720,height=820'));
  const popup=await popupPromise;await expect(popup.getByRole('heading',{name:'Account connected',exact:true})).toBeVisible();
- const closed=popup.waitForEvent('close');await popup.getByRole('button',{name:/Close this window/}).click();await closed;
+ // The handler closes its own window; wait for that close explicitly instead of
+ // letting click wait for post-action work in an already-destroyed page.
+ await Promise.all([
+  popup.waitForEvent('close'),
+  popup.getByRole('button',{name:/Close this window/}).click({noWaitAfter:true}),
+ ]);
+ expect(popup.isClosed()).toBe(true);
+ await expect(page).toHaveTitle('OAuth opener');
 });
 test('standalone connection callback always offers a safe return link',async({page})=>{
  const success=connectionSuccess('zernio','http://127.0.0.1:5178');
