@@ -50,13 +50,25 @@ for(const kind of ['zernio','google-sheets'] as const)test(`${kind}: CSP allows 
  await page.context().route('**/callback-fixture',route=>route.fulfill({contentType:'text/html',headers:{'Content-Security-Policy':success.csp},body:success.html}));
  const popupPromise=page.waitForEvent('popup');await page.evaluate(()=>window.open('/callback-fixture','oauth-test','popup,width=720,height=820'));
  const popup=await popupPromise;await expect(popup.getByRole('heading',{name:'Account connected',exact:true})).toBeVisible();
- // The handler closes its own window; wait for that close explicitly instead of
- // letting click wait for post-action work in an already-destroyed page.
- await Promise.all([
+ // Record a real user click in the surviving opener. This observer does not
+ // close the popup: the production handler must still execute under its CSP.
+ await page.evaluate(()=>{(window as any).__oauthCloseClicks=0;});
+ await popup.evaluate(()=>{
+  document.getElementById('close-window')!.addEventListener('click',event=>{
+   if(event.isTrusted)window.opener.__oauthCloseClicks++;
+  },{capture:true});
+ });
+ // Chromium can destroy the target before acknowledging the mouse command,
+ // even with noWaitAfter. Accept only that error, after an observed close AND
+ // a trusted click; timeouts, detached buttons and other errors still fail.
+ const [closed,clicked]=await Promise.allSettled([
   popup.waitForEvent('close'),
   popup.getByRole('button',{name:/Close this window/}).click({noWaitAfter:true}),
  ]);
+ if(closed.status==='rejected')throw closed.reason;
  expect(popup.isClosed()).toBe(true);
+ if(clicked.status==='rejected'&&!(clicked.reason instanceof Error&&clicked.reason.message.startsWith('locator.click: Target page, context or browser has been closed')))throw clicked.reason;
+ expect(await page.evaluate(()=>(window as any).__oauthCloseClicks)).toBe(1);
  await expect(page).toHaveTitle('OAuth opener');
 });
 test('standalone connection callback always offers a safe return link',async({page})=>{
