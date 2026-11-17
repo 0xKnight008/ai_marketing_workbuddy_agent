@@ -139,6 +139,42 @@ export async function costMeteringRegression(
     );
   });
   try {
+    await t.test("Kimi TTL receipts settle once using the saved tariff and release unused credits", async () => {
+      // Synthetic tariff, not a production price. Test header parsing through
+      // runtime separately; the platform independently recalculates receipts.
+      const op=await setup(30),before=await available();
+      await client.query('UPDATE ai_cost_operation SET rate=$1 WHERE id=$2',[JSON.stringify({...rate,model:'primary-flagship',responseModels:['primary-flagship','kimi-k3.1-pro'],cacheWrite5mUsdPerMillion:'3',cacheWrite1hUsdPerMillion:'4'}),op.quote.quoteId]);
+      for(let attempt=1;attempt<=2;attempt++){
+        await costContext.run({workspaceId,database:db},async()=>{
+          await db.withWorkspace(workspaceId,tx=>reserveAiRun(tx,['flagship'],{subjectId:op.subjectId,actionType:'ai.task',attempt},'flagship'));
+          const envelope=costContext.getStore()!.envelope!;
+          const receipt={id:randomUUID(),requestId:envelope.requestId,operationId:envelope.operationId,workspaceId,model:attempt===1?'primary-flagship':'kimi-k3.1-pro',input:1000,output:100,cached:200,cacheWrite5m:300,cacheWrite1h:100,costNanos:'999999999',status:'known'};
+          for(let duplicate=0;duplicate<2;duplicate++)await db.withWorkspace(workspaceId,tx=>receiveCostReceipts(tx,workspaceId,[receipt]));
+          const saved=(await client.query('SELECT cost_nanos::text FROM ai_cost_receipt WHERE id=$1',[receipt.id])).rows[0];
+          assert.equal(saved.cost_nanos,'3140000','recompute from saved tariff, never trust supplied total');
+          await db.withWorkspace(workspaceId,tx=>settleAiReservations(tx,{subjectId:op.subjectId,actionType:'ai.task',attempt}));
+        });
+      }
+      for(let retry=0;retry<2;retry++)await db.withWorkspace(workspaceId,tx=>finishCost(tx,op.subjectId));
+      const row=(await db.withWorkspace(workspaceId,tx=>costOperations(tx))).find(r=>r.subjectId===op.subjectId)!;
+      assert.equal(row.settledCredits,1); // ceil((0.00314 + 0.00314) * 1.06 / 0.01)
+      assert.equal(row.releasedCredits,29);assert.equal(row.heldCredits,0);
+      assert.equal((await available()).aiCreditsAvailable,before.aiCreditsAvailable-1);
+    });
+    await t.test("Kimi missing TTL evidence holds for reconciliation and releases after expiry without a guessed debit",async()=>{
+      const op=await setup(30),before=await available();
+      await costContext.run({workspaceId,database:db},async()=>{
+        await db.withWorkspace(workspaceId,tx=>reserveAiRun(tx,['flagship'],{subjectId:op.subjectId,actionType:'ai.task'},'flagship'));
+        const envelope=costContext.getStore()!.envelope!;
+        await db.withWorkspace(workspaceId,tx=>receiveCostReceipts(tx,workspaceId,[{id:randomUUID(),requestId:envelope.requestId,operationId:envelope.operationId,workspaceId,model:'kimi-k3.1-pro',input:1000,output:100,cached:200,costNanos:null,status:'unknown'}]));
+      });
+      await db.withWorkspace(workspaceId,tx=>settleAiReservations(tx,{subjectId:op.subjectId,actionType:'ai.task'}));
+      const pending=(await db.withWorkspace(workspaceId,tx=>costOperations(tx))).find(r=>r.subjectId===op.subjectId)!;
+      assert.equal(pending.settledCredits,0);assert.equal(pending.heldCredits,30);
+      await client.query("UPDATE ai_cost_operation SET created_at=now()-interval '25 hours' WHERE id=$1",[op.quote.quoteId]);
+      await db.withWorkspace(workspaceId,expireCost);
+      assert.equal((await available()).aiCreditsAvailable,before.aiCreditsAvailable);
+    });
     await t.test("new quotes persist the 1.06 policy and settle the three Opus receipts to 27 credits", async () => {
       const op = await setup(60);
       assert.equal(op.quote.policyVersion, 'cost-106-v1');

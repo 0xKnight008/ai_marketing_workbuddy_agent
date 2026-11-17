@@ -1,3 +1,5 @@
+> GLM/Kimi proxy rollout: [migration and acceptance guide](../docs/GLM_KIMI_LITELLM_MIGRATION.md). Standard and Flagship use LiteLLM under the `kimi` profile; the direct profile remains available for rollback. Server environment cutover is required.
+
 # Piggybot AI-Runtime
 
 基于 Mastra 的 AI 执行面（架构文档 `platform-run-service-ai-runtime-architecture.md` §3.5 的实现）。

@@ -1,0 +1,45 @@
+# Render with scripts/prepare-kimi-proxy.mjs. Rate markers are intentionally
+# invalid until replaced with the operator-verified USD snapshot. Do not copy
+# this template directly over the live configuration.
+model_list:
+  - model_name: primary-eco
+    litellm_params:
+      model: deepseek/deepseek-flash
+      api_base: https://api.deepseek.com/v1
+      api_key: os.environ/DEEPSEEK_API_KEY
+      additional_drop_params: ["strictJsonSchema"]
+      num_retries: 0
+    model_info: __ECO_RATES__
+  - model_name: primary-standard
+    litellm_params:
+      model: openai/glm-5.3-flash
+      api_base: https://api.z.ai/api/paas/v4
+      api_key: os.environ/ZAI_API_KEY
+      additional_drop_params: ["strictJsonSchema"]
+      num_retries: 0
+    model_info: __STANDARD_RATES__
+  - model_name: primary-flagship
+    litellm_params:
+      model: os.environ/FLAGSHIP_UPSTREAM_MODEL
+      api_base: os.environ/FLAGSHIP_UPSTREAM_BASE_URL
+      api_key: os.environ/FLAGSHIP_UPSTREAM_API_KEY
+      additional_drop_params: ["temperature", "top_p", "n", "presence_penalty", "frequency_penalty", "strictJsonSchema"]
+      num_retries: 0
+      timeout: 900
+    model_info: __FLAGSHIP_RATES__
+router_settings:
+  num_retries: 0
+  timeout: 900
+  fallbacks: []
+  context_window_fallbacks: []
+  content_policy_fallbacks: []
+litellm_settings:
+  num_retries: 0
+  request_timeout: 900
+  drop_params: false
+  turn_off_message_logging: true
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+  store_model_in_db: false
+  background_health_checks: false

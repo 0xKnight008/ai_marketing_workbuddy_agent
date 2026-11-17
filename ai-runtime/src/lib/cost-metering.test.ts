@@ -383,7 +383,7 @@ test('strips K3 server-fixed parameters for the Moonshot flagship wire model', a
         assert.equal(body.model, 'kimi-k3.1-pro');
         return Response.json({
           model: 'kimi-k3.1-pro',
-          usage: { prompt_tokens: 10, completion_tokens: 5, prompt_tokens_details: { cached_tokens: 0 } },
+          usage: { prompt_tokens: 10, completion_tokens: 5, prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 } },
         });
       },
       'https://api.moonshot.ai/v1/chat/completions',
@@ -407,4 +407,23 @@ test('strips K3 server-fixed parameters for the Moonshot flagship wire model', a
   assert.ok(receipt);
   assert.equal(receipt.model, 'kimi-k3.1-pro');
   assert.equal(receipt.status, 'known');
+});
+
+test('Kimi proxy receipts reconcile both TTL headers and reject missing or conflicting counts',async()=>{
+ const previous=process.env.AI_PROXY_MODEL_PROFILE;process.env.AI_PROXY_MODEL_PROFILE='kimi';
+ try{
+  for(const [prefix,invalid] of [['',false],['llm_provider-',false],['llm_provider-',true],['missing',true]] as const){
+   const meta={...envelope(),maxCostNanos:'100000000',rate:{...rate,responseModels:['primary-flagship','kimi-k3.1-pro'],cacheWrite5mUsdPerMillion:'3',cacheWrite1hUsdPerMillion:'4'}};
+   const headers=prefix==='missing'?{}:{[prefix+'msh-usage-cache-write-tokens-5m']:'300',[prefix+'msh-usage-cache-write-tokens-1h']:invalid?'101':'100'};
+   await runtimeCostContext.run(meta,()=>boundedModelFetch(async(_url,init)=>{
+    const body=JSON.parse(String(init?.body));
+    for(const p of ['temperature','top_p','n','presence_penalty','frequency_penalty'])assert.equal(body[p],undefined);
+    return Response.json({model:'primary-flagship',usage:{prompt_tokens:1000,completion_tokens:100,prompt_tokens_details:{cached_tokens:200,cache_write_tokens:400},completion_tokens_details:{reasoning_tokens:80}}},{headers});
+   },'http://127.0.0.1:4400/v1/chat/completions',{method:'POST',body:JSON.stringify({model:'primary-flagship',messages:[{role:'user',content:'JSON'}],temperature:0,top_p:0.5,n:1,presence_penalty:0,frequency_penalty:0})}));
+   const [receipt]=await requestReceipts(meta.requestId);assert.ok(receipt);
+   assert.equal(receipt.status,invalid?'unknown':'known');
+   assert.equal(receipt.costNanos,invalid?null:'3140000'); // 400 input + 200 read + 300 5m + 100 1h + 100 output; reasoning is not added twice.
+   if(!invalid){assert.equal(receipt.cacheWrite5m,300);assert.equal(receipt.cacheWrite1h,100);}
+  }
+ }finally{if(previous===undefined)delete process.env.AI_PROXY_MODEL_PROFILE;else process.env.AI_PROXY_MODEL_PROFILE=previous;}
 });

@@ -219,13 +219,33 @@ export function inputBudgetRate(rate: Rate): Rate {
   return {...rate,inputUsdPerMillion:maximum};
 }
 /** OpenAI-compatible usage includes cache reads/writes in total prompt_tokens. */
-export function cacheWriteUsage(usage: any): {cacheWrite5m: number; cacheWrite1h: number} | null {
+export function cacheWriteUsage(usage: any, headers?: Pick<Headers, 'get'>, requireEvidence = false): {cacheWrite5m: number; cacheWrite1h: number} | null {
   const details = usage.prompt_tokens_details ?? {};
-  const split = details.cache_creation_token_details ?? usage.cache_creation;
   const totals = [details.cache_write_tokens, details.cache_creation_tokens, usage.cache_creation_input_tokens].filter(v => v !== undefined && v !== null);
   if (totals.some(v => !integer(v)) || totals.some(v => v !== totals[0])) return null;
-  if (!split) return totals.some(v => v > 0) ? null : {cacheWrite5m:0,cacheWrite1h:0};
-  const cacheWrite5m = split.ephemeral_5m_input_tokens ?? 0, cacheWrite1h = split.ephemeral_1h_input_tokens ?? 0;
-  if (![cacheWrite5m,cacheWrite1h].every(integer) || totals.some(v => v !== cacheWrite5m + cacheWrite1h)) return null;
-  return {cacheWrite5m,cacheWrite1h};
+  const splits: Array<{cacheWrite5m:number;cacheWrite1h:number}> = [];
+  for (const split of [details.cache_creation_token_details, usage.cache_creation]) {
+    if (split == null) continue;
+    if (typeof split !== 'object' || Array.isArray(split)) return null;
+    const cacheWrite5m = split.ephemeral_5m_input_tokens ?? 0, cacheWrite1h = split.ephemeral_1h_input_tokens ?? 0;
+    if (![cacheWrite5m,cacheWrite1h].every(integer)) return null;
+    splits.push({cacheWrite5m,cacheWrite1h});
+  }
+  // Moonshot Chat Completions reports TTL counts in headers. LiteLLM forwards
+  // original provider headers with llm_provider-. Never infer TTL from a request:
+  // existing cache entries can retain a different TTL than the current request.
+  for (const prefix of ['', 'llm_provider-']) {
+    const raw = ['5m','1h'].map(ttl => headers?.get(prefix+'msh-usage-cache-write-tokens-'+ttl) ?? null);
+    if (raw.every(v => v === null)) continue;
+    if (raw.some(v => v === null || !/^\d+$/.test(v))) return null;
+    const [cacheWrite5m,cacheWrite1h] = raw.map(Number) as [number,number];
+    if (![cacheWrite5m,cacheWrite1h].every(integer)) return null;
+    splits.push({cacheWrite5m,cacheWrite1h});
+  }
+  if (requireEvidence && !splits.length && !totals.length) return null;
+  if (!splits.length) return totals.some(v => v > 0) ? null : {cacheWrite5m:0,cacheWrite1h:0};
+  const result = splits[0]!;
+  const total = result.cacheWrite5m + result.cacheWrite1h;
+  if (!integer(total) || totals.some(v => v !== total) || splits.some(s => s.cacheWrite5m !== result.cacheWrite5m || s.cacheWrite1h !== result.cacheWrite1h)) return null;
+  return result;
 }

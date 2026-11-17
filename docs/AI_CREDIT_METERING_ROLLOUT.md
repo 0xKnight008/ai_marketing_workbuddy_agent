@@ -1,3 +1,5 @@
+> GLM/Kimi proxy rollout: [migration and acceptance guide](GLM_KIMI_LITELLM_MIGRATION.md). Standard and Flagship use LiteLLM under the `kimi` profile; the direct profile remains available for rollback. Server environment cutover is required.
+
 # AI cost metering rollout and rollback
 
 ## 2026-11-02 approved production cutover

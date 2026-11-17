@@ -28,10 +28,11 @@ const model=createServer(async(req,res)=>{
  if(replyMode==='invalid-schema')result.action='unsupported';
  if(replyMode==='missing-content')result.markdown='';
  const content=replyMode==='invalid'?'Here is the report, without JSON.':replyMode==='empty'?'':replyMode==='fenced'?'```json\n'+JSON.stringify(result)+'\n```':JSON.stringify(result);
- if(current.model!=='primary-flagship'||process.env.AI_PROXY_MODEL_PROFILE==='onetoken')assert.equal(current.response_format?.type,'json_object');
- if(current.model!=='primary-flagship'||process.env.AI_PROXY_MODEL_PROFILE==='onetoken')assert.equal(current.strictJsonSchema,undefined);
+ if(current.model!=='primary-flagship'||['onetoken','kimi'].includes(process.env.AI_PROXY_MODEL_PROFILE))assert.equal(current.response_format?.type,'json_object');
+ if(current.model!=='primary-flagship'||['onetoken','kimi'].includes(process.env.AI_PROXY_MODEL_PROFILE))assert.equal(current.strictJsonSchema,undefined);
  else assert.equal(current.response_format?.type,'json_schema');
  const base={id:'local-completion',created:1,model:current.model},usage={prompt_tokens:12,completion_tokens:4,total_tokens:16};
+ if(replyMode.startsWith('kimi-cache')){Object.assign(usage,{prompt_tokens:1000,completion_tokens:100,total_tokens:1100,prompt_tokens_details:{cached_tokens:200,cache_write_tokens:400}});res.setHeader('llm_provider-msh-usage-cache-write-tokens-5m','300');if(replyMode==='kimi-cache')res.setHeader('llm_provider-msh-usage-cache-write-tokens-1h','100');}
  if(requests.at(-1).body.stream){res.writeHead(200,{'content-type':'text/event-stream'});res.end(`data: ${JSON.stringify({...base,object:'chat.completion.chunk',choices:[{index:0,delta:{role:'assistant',content},finish_reason:null}]})}\n\ndata: ${JSON.stringify({...base,object:'chat.completion.chunk',choices:[{index:0,delta:{},finish_reason:replyMode==='truncated'?'length':'stop'}],usage})}\n\ndata: [DONE]\n\n`)}
  else{res.writeHead(200,{'content-type':'application/json','x-litellm-call-id':'bundle-call-'+requests.length});res.end(JSON.stringify({...base,object:'chat.completion',choices:[{index:0,message:{role:'assistant',content},finish_reason:replyMode==='truncated'?'length':'stop'}],usage}))}
 });
@@ -58,6 +59,15 @@ try{
  response=await execute();const paid=await response.json();assert.equal(response.status,200,JSON.stringify(paid));assert.equal(paid.action,'answer');assert.equal(paid._metering.length,1);assert.equal(paid._metering[0].status,'known');assert.equal(paid._metering[0].costNanos,'64000');
  assert.equal(requests.length,2);assert.ok(requests[1].body.max_tokens<=1500);
  response=await execute();const replay=await response.json();assert.equal(response.status,200);assert.equal(replay.markdown,paid.markdown);assert.deepEqual(replay._metering,paid._metering);assert.equal(requests.length,2);
+ if(process.env.AI_PROXY_MODEL_PROFILE==='kimi')for(const mode of ['kimi-cache','kimi-cache-missing']){
+  replyMode=mode;
+  const payload={...metered,modelBand:'flagship',_metering:{...metered._metering,operationId:randomUUID(),requestId:randomUUID(),band:'flagship',maxCostNanos:'100000000',rate:{...metered._metering.rate,model:'primary-flagship',responseModels:['primary-flagship','kimi-k3.1-pro'],cacheWrite5mUsdPerMillion:'3',cacheWrite1hUsdPerMillion:'4'}}};
+  const r=await fetch(`${base}/internal/task-step`,{method:'POST',headers,body:JSON.stringify(payload),signal:AbortSignal.timeout(20000)});
+  const result=await r.json();assert.equal(r.status,200,JSON.stringify(result));
+  assert.equal(result._metering[0].status,mode==='kimi-cache'?'known':'unknown');
+  assert.equal(result._metering[0].costNanos,mode==='kimi-cache'?'3140000':null);
+ }
+ replyMode='normal';
  for(const band of ['eco','standard','flagship'])for(const shadow of [true,false]){
   const operationId=randomUUID();
   // Same 48-item shape as the reported source: two chunks (25 + 23).
@@ -79,7 +89,7 @@ try{
   const r=await fetch(`${base}/internal/task-step`,{method:'POST',headers,body:JSON.stringify(payload)});
   const body=await r.json();assert.equal(r.status,200,JSON.stringify(body));assert.equal(body.action,'answer');assert.equal(body._metering.length,1);
  }
- for(const band of process.env.AI_PROXY_MODEL_PROFILE==='onetoken'?['eco','standard','flagship']:['eco','standard'])
+ for(const band of ['onetoken','kimi'].includes(process.env.AI_PROXY_MODEL_PROFILE)?['eco','standard','flagship']:['eco','standard'])
  for(const [mode,code] of [['rich',null],['fenced',null],['invalid','task_output_invalid_json'],['empty','task_output_empty'],['truncated','task_output_truncated'],['invalid-schema','task_output_invalid_schema'],['missing-content','task_output_missing_content']]){
   replyMode=mode;
   const requestId=randomUUID(),payload={...metered,modelBand:band,_metering:{...metered._metering,requestId,operationId:randomUUID(),band,rate:{...metered._metering.rate,model:'primary-'+band,responseModels:['primary-'+band]}}};

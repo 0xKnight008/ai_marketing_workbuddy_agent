@@ -2,7 +2,7 @@ import {fitInsightEvidence} from './insight-preflight';
 import { cacheWriteUsage, inputBudgetRate } from '../../../shared/ai-metering';
 import { Agent } from 'undici';
 import { tracedModelFetch, markTaskFailure } from './request-trace';
-import { FIXED_PARAM_MODELS } from './model-constants';
+import { FIXED_PARAM_MODELS, KIMI_WIRE_MODEL } from './model-constants';
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
 import { createClient } from "@libsql/client";
@@ -215,7 +215,7 @@ export async function boundedModelFetch(
   if (!meta.shadow && bytes > meta.maxInputTokens)
     throw new Error("ai_input_exceeds_confirmed_limit");
   // K3 series rejects any explicit value for its server-fixed parameters.
-  if (FIXED_PARAM_MODELS.has(body.model)) {
+  if (FIXED_PARAM_MODELS.has(body.model) || (body.model === 'primary-flagship' && process.env.AI_PROXY_MODEL_PROFILE === 'kimi')) {
     for (const fixed of ["temperature", "top_p", "n", "presence_penalty", "frequency_penalty"]) {
       delete body[fixed];
     }
@@ -326,7 +326,7 @@ export async function boundedModelFetch(
       usage.prompt_cache_hit_tokens ??
       0,
   );
-  const writes = cacheWriteUsage(usage);
+  const writes = cacheWriteUsage(usage, response.headers, meta.rate.responseModels.includes(KIMI_WIRE_MODEL));
   const model = typeof data.model === "string" ? data.model : body.model;
   const known =
     writes !== null &&

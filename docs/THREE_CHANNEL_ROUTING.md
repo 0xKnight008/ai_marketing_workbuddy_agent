@@ -1,3 +1,5 @@
+> GLM/Kimi proxy rollout: [migration and acceptance guide](GLM_KIMI_LITELLM_MIGRATION.md). Standard and Flagship use LiteLLM under the `kimi` profile; the direct profile remains available for rollback. Server environment cutover is required.
+
 # Three-channel model routing (opt-in)
 
 This profile preserves manual bands and existing billing exceptions. It does

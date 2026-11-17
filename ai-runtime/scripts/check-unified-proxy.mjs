@@ -1,7 +1,7 @@
 import {fileURLToPath} from 'node:url';
 export async function checkUnifiedProxy(env=process.env,{fetcher=fetch}={}){
  if(env.AI_MODEL_ROUTING_MODE!=='litellm')throw new Error('Expected AI_MODEL_ROUTING_MODE=litellm');
- const bands=(env.AI_PROXY_BANDS??'eco,standard,flagship').split(',').map(b=>b.trim());
+ const bands=(env.AI_PROXY_BANDS??(env.AI_PROXY_MODEL_PROFILE==='kimi'?'standard,flagship':'eco,standard,flagship')).split(',').map(b=>b.trim());
  if(!bands.includes('flagship')||bands.some(b=>!['eco','standard','flagship'].includes(b)))throw new Error('Invalid proxy bands');
  const base=new URL(env.OPENAI_BASE_URL??'');
  if(!env.OPENAI_API_KEY||base.username||base.password||base.search||base.hash||!base.pathname.replace(/\/$/,'').endsWith('/v1')||!['http:','https:'].includes(base.protocol)||(base.protocol==='http:'&&!['localhost','127.0.0.1','[::1]'].includes(base.hostname)))throw new Error('Invalid proxy root or key');
