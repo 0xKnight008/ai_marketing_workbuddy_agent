@@ -49,6 +49,10 @@ jobs:
       - name: Verify public npm registries
         run: npm run check:lockfile-registries
 
+      - name: Install platform dependencies
+        working-directory: platform
+        run: npm ci
+
       - name: Test proxy migration preflight and credential-safe probes
         run: node --test scripts/prepare-kimi-proxy.test.mjs scripts/litellm-preflight.test.mjs scripts/prepare-unified-proxy.test.mjs ai-runtime/scripts/check-flagship-direct.test.mjs ai-runtime/scripts/check-unified-proxy.test.mjs
 
@@ -76,10 +80,6 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           npx playwright test --project=chromium
-
-      - name: Install platform dependencies
-        working-directory: platform
-        run: npm ci
 
       - name: Install AI runtime dependencies
         working-directory: ai-runtime

@@ -36,20 +36,59 @@ ordinary input tokens; reasoning already included in completion tokens is not
 added again. Only unused budget is released; independently saved work remains
 billable under the existing policy.
 
-The generator requires verified GLM/Kimi snapshots; it deliberately refuses
-old GPT/Opus tariffs. It copies the numeric USD prices into both platform rates
-and proxy `model_info`; it does not scrape prices or invent production rates.
-For Kimi, both `cacheWrite5mUsdPerMillion` and `cacheWrite1hUsdPerMillion` are
-required. All rates are decimal strings in USD per million tokens. A CNY
-source requires an explicit FX snapshot and pre-converted USD numbers. Use the
-international account invoice for the configured `api.moonshot.ai` endpoint.
-If rates are not already correct in `platform.env`, supply a protected JSON
-file containing all three verified rate objects as the second CLI argument.
-Its Eco object must match the current snapshot exactly; this migration cannot
-change Eco pricing.
-The generator preserves optional context/output limits and provenance.
-Time-varying rates for a proxied band are rejected: static `model_info` cannot
-reproduce that calendar. A direct Eco calendar remains unchanged.
+The default migration now uses the operator-approved **2026-11-18 international
+USD snapshot** in `deploy/litellm/rates-glm-kimi-2026-11-18.json`. It replaces
+legacy GPT/Opus identities and prices for Standard/Flagship only:
+
+| USD per million tokens | GLM-5.3-Flash | Kimi-K3.1-Pro |
+| --- | ---: | ---: |
+| Input | 0.15 | 2.00 |
+| Cached input | 0.03 | 0.20 |
+| Output (including billable reasoning) | 0.50 | 10.00 |
+| Cache write, 5m | — | 2.00 |
+| Cache write, 1h | — | 4.00 |
+
+Sources verified on 2026-11-18: [Z.AI USD pricing](https://docs.z.ai/guides/overview/pricing)
+and [Kimi international pricing](https://platform.kimi.ai/docs/pricing/chat).
+The international page's embedded pricing-table data provides the Kimi USD
+values; its Markdown export omits that table. The CNY table on `platform.kimi.com`
+is **not** converted or substituted. The upstream remains `api.moonshot.ai`.
+These are saved public list-price snapshots, not a guarantee of an account's
+negotiated rate or future prices. Review a new version if the supplier changes
+its tariff. Legacy GPT/Opus context/output overrides are not copied to the new
+models. For a different verified contract, pass a full three-band JSON snapshot
+as the second CLI argument; it retains its provenance and optional provider
+limits. All numeric prices must already be USD decimal strings. A CNY source
+also requires an FX snapshot. Missing Kimi write prices or wrong model identities
+are rejected. Existing quotes/receipts are not rewritten.
+
+### Existing Eco time-of-day pricing
+
+Eco's platform snapshot is copied unchanged: model aliases, version, base and
+peak prices, all UTC `periods`, `validUntil`, currency and FX provenance. Expired
+or malformed calendars are rejected; past periods in a still-valid calendar are
+retained. A supplied full snapshot must contain an exactly matching Eco object.
+The reported production calendar expires at `2026-12-31T16:00:00Z` (2027-01-01
+00:00 Asia/Shanghai); renew it separately before expiry.
+
+If Eco already uses LiteLLM, the generator reads `LITELLM_CONFIG_FILE` from the
+protected proxy env (default: repository `deploy/litellm/config.yaml`) and copies
+the **complete existing `primary-eco` model entry**. It does not synthesize a
+static `model_info` from the base or peak price. The existing proxy DeepSeek key
+is required and preserved; a stale runtime key cannot replace it. Missing,
+duplicate or nonstandard Eco routes and custom global proxy settings fail for
+review rather than silently discarding configuration. YAML formatting/comments
+may change; parsed Eco settings remain equal. The YAML parser is a pinned
+production dependency of `platform`; deploy/install platform dependencies first.
+
+This is preservation of the existing Eco route and accounting behavior, **not
+new support for a LiteLLM pricing calendar**. Eco's LiteLLM `spend` stays its
+existing estimate; it must not be used as the authoritative time-of-day charge.
+Platform receipts still use the saved tariff at the recorded request time and
+should be reconciled with DeepSeek invoices. Standard/Flagship `model_info` is
+rendered from the approved USD prices. New time-varying Standard/Flagship tariffs
+remain blocked until a matching proxy calendar is implemented. Direct Eco stays
+direct and keeps its calendar too.
 
 Kimi Chat Completions supplies total writes in
 `usage.prompt_tokens_details.cache_write_tokens` and TTL splits in:
@@ -78,7 +117,11 @@ staging before treating LiteLLM spend logs as reconciled.
 
 First deploy this code release with the existing environment. No new SQL
 migration is needed. In the protected env files, ensure the GLM and Moonshot
-keys are present in runtime or proxy (`ZAI_API_KEY` / `MOONSHOT_API_KEY`). Keep
+keys are present in runtime or proxy (`ZAI_API_KEY` / `MOONSHOT_API_KEY`). When
+recovering from the 1Token profile, use `sudoedit /etc/piggybot/litellm.env` to
+add the official general-API `ZAI_API_KEY` and international `MOONSHOT_API_KEY`.
+Do not rename/reuse the old GPT/Opus keys. Explicit proxy keys take precedence
+over runtime copies. Do not paste keys into chat or command history. Keep
 existing LiteLLM image digests, database password, master key and salt stable.
 Configure runtime's proxy root and a dedicated virtual key with access to
 `primary-standard` and `primary-flagship` (also Eco if already proxied).
@@ -86,11 +129,25 @@ Configure runtime's proxy root and a dedicated virtual key with access to
 ```bash
 cd /opt/ai-marketing-agent
 PIGGY_NODE="$(command -v node)"
-sudo "$PIGGY_NODE" scripts/prepare-kimi-proxy.mjs /root/piggybot-glm-kimi-candidate
-# If a separately reviewed full rate snapshot is needed, use instead:
-# sudo "$PIGGY_NODE" scripts/prepare-kimi-proxy.mjs /root/piggybot-glm-kimi-candidate /etc/piggybot/verified-glm-kimi-rates.json
-sudo "$PIGGY_NODE" scripts/litellm-preflight.mjs /root/piggybot-glm-kimi-candidate/proxy.env
+CANDIDATE="/root/piggybot-glm-kimi-$(date -u +%Y%m%dT%H%M%SZ)"
+# Default: approved USD prices + unchanged existing Eco snapshot/configuration.
+# Only preflight a candidate if preparation succeeds.
+sudo "$PIGGY_NODE" scripts/prepare-kimi-proxy.mjs "$CANDIDATE" &&
+  sudo "$PIGGY_NODE" scripts/litellm-preflight.mjs "$CANDIDATE/proxy.env"
+printf 'Candidate path: %s\n' "$CANDIDATE"
+
+# Alternative ONLY for a separately verified contract; use a new directory:
+# sudo "$PIGGY_NODE" scripts/prepare-kimi-proxy.mjs "$CANDIDATE" /etc/piggybot/verified-glm-kimi-rates.json
 ```
+
+Save the printed candidate path. After SSH reconnect, re-run
+`PIGGY_NODE="$(command -v node)"` and set `CANDIDATE` to that exact path before
+continuing. A successful preparation prints `Protected GLM/Kimi proxy candidates
+prepared. Live files unchanged.` Errors now identify missing official keys,
+invalid Eco configuration/calendars, or the failing file-operation stage without
+printing secrets. A failed preparation is not followed by a misleading
+`proxy.env` check. A partial new candidate is removed on write failure; existing
+candidate directories are never overwritten.
 
 Use a new candidate directory; the generator will not overwrite files. Files
 are mode 0600 inside a 0700 directory. Do not print them into chat/logs. The
@@ -120,7 +177,7 @@ maintenance. Apply on staging first.
 4. Check readiness and the candidate virtual key without any paid call:
 
    ```bash
-   sudo "$PIGGY_NODE" --env-file=/root/piggybot-glm-kimi-candidate/runtime.env \
+   sudo "$PIGGY_NODE" --env-file="$CANDIDATE/runtime.env" \
      ai-runtime/scripts/check-unified-proxy.mjs
    ```
 
@@ -148,6 +205,12 @@ and restart both services. Reissue quotes after rollback. Never reset billing
 ledgers, manually rewrite old receipt costs, or automatically replay paid work.
 
 ## Validation
+
+Migration regression tests reproduce the legacy GPT/Opus profile with 98 Eco
+periods, preserve proxy options/key and every calendar field, and execute the
+real billing calculator at peak/off-peak boundaries and expiry. They also check
+USD/cache-write prices, candidate permissions, no-overwrite/partial-write cleanup,
+malformed YAML, duplicate Eco entries and missing official keys.
 
 Unit tests exercise routing/JSON mode, raw and prefixed TTL headers, conflicting
 counts, both TTL prices, and reasoning without double counting. Built-server
