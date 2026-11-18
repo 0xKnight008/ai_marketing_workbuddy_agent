@@ -1,0 +1,26 @@
+{
+  "standard": {
+    "version": "zai-glm53flash-usd-20261118",
+    "model": "glm-5.3-flash",
+    "responseModels": ["glm-5.3-flash"],
+    "inputUsdPerMillion": "0.15",
+    "cacheUsdPerMillion": "0.03",
+    "outputUsdPerMillion": "0.50",
+    "currency": "USD",
+    "source": "https://docs.z.ai/guides/overview/pricing",
+    "verifiedAt": "2026-11-18T00:00:00.000Z"
+  },
+  "flagship": {
+    "version": "moonshot-k31pro-usd-20261118",
+    "model": "kimi-k3.1-pro",
+    "responseModels": ["kimi-k3.1-pro"],
+    "inputUsdPerMillion": "2",
+    "cacheUsdPerMillion": "0.20",
+    "outputUsdPerMillion": "10",
+    "cacheWrite5mUsdPerMillion": "2",
+    "cacheWrite1hUsdPerMillion": "4",
+    "currency": "USD",
+    "source": "https://platform.kimi.ai/docs/pricing/chat",
+    "verifiedAt": "2026-11-18T00:00:00.000Z"
+  }
+}
