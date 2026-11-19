@@ -25,6 +25,8 @@ export function modelChoices(requested: ModelBand, usage: UsageSnapshot) {
         usage.supplierSpendLimitMicros,
   );
 }
+// A completed/failed publication must never be resumed by a stale budget prompt.
+const activeChoice = `AND (j.kind<>'prepare_ai_run' OR EXISTS(SELECT 1 FROM workflow_run wr WHERE wr.workspace_id=j.workspace_id AND wr.id=j.run_id AND wr.status IN ('pending','queued','running')))`;
 export class ModelChoiceService {
   constructor(
     private readonly database: Database,
@@ -36,13 +38,14 @@ export class ModelChoiceService {
       const rows = await tx.query<{
         id: string;
         kind: string;
+        runId: string|null;
         payload: {
           taskId?: string;
           modelChoice: { requestedBand: ModelBand; reason: string };
         };
         label?: string;
       }>(
-        `SELECT j.id,j.kind,j.payload,COALESCE((SELECT t.goal FROM workspace_task t WHERE t.workspace_id=j.workspace_id AND t.id::text=j.payload->>'taskId'),(SELECT b.label FROM import_batch b WHERE b.workspace_id=j.workspace_id AND b.id::text=j.payload->>'batchId'),(SELECT r.title FROM insight_report r WHERE r.workspace_id=j.workspace_id AND r.id::text=j.payload->>'reportId'),(SELECT w.name FROM workflow_run r JOIN workflow w ON w.id=r.workflow_id AND w.workspace_id=r.workspace_id WHERE r.workspace_id=j.workspace_id AND r.id=j.run_id),'') AS label FROM job j WHERE j.workspace_id=$1 AND j.status='queued' AND j.last_error='model_choice_required' ORDER BY j.created_at LIMIT 50`,
+        `SELECT j.id,j.kind,j.run_id AS "runId",j.payload,COALESCE((SELECT t.goal FROM workspace_task t WHERE t.workspace_id=j.workspace_id AND t.id::text=j.payload->>'taskId'),(SELECT b.label FROM import_batch b WHERE b.workspace_id=j.workspace_id AND b.id::text=j.payload->>'batchId'),(SELECT r.title FROM insight_report r WHERE r.workspace_id=j.workspace_id AND r.id::text=j.payload->>'reportId'),(SELECT w.name FROM workflow_run r JOIN workflow w ON w.id=r.workflow_id AND w.workspace_id=r.workspace_id WHERE r.workspace_id=j.workspace_id AND r.id=j.run_id),'') AS label FROM job j WHERE j.workspace_id=$1 AND j.status='queued' AND j.last_error='model_choice_required' ${activeChoice} ORDER BY j.created_at LIMIT 50`,
         [actor.workspaceId],
       );
       if (!rows.rows.length) return [];
@@ -57,6 +60,7 @@ export class ModelChoiceService {
         return {
           id: row.id,
           kind: row.kind,
+          runId: row.runId,
           label: row.label,
           taskId: row.payload.taskId ?? null,
           requestedBand: choice.requestedBand,
@@ -98,7 +102,7 @@ export class ModelChoiceService {
           };
         };
       }>(
-        "SELECT payload FROM job WHERE workspace_id=$1 AND id=$2 AND status='queued' AND last_error='model_choice_required' FOR UPDATE",
+        `SELECT j.payload FROM job j WHERE j.workspace_id=$1 AND j.id=$2 AND j.status='queued' AND j.last_error='model_choice_required' ${activeChoice} FOR UPDATE OF j`,
         [actor.workspaceId, jobId],
       );
       if (!result.rows[0])

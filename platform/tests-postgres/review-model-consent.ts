@@ -75,6 +75,20 @@ export async function reviewModelRegression(
     ).rows[0].id;
     return { runId, approvalId };
   };
+  await t.test('completed publishing runs cannot appear or resume through a stale model-choice job',async()=>{
+    const {runId}=await fixture();
+    const service=new ModelChoiceService(database);
+    const job=(await client.query("INSERT INTO job(workspace_id,run_id,kind,status,last_error,payload) VALUES($1,$2,'prepare_ai_run','queued','model_choice_required',$3) RETURNING id",[actor.workspaceId,runId,{modelChoice:{requestedBand:'standard',reason:'budget'}}])).rows[0].id;
+    for(const status of ['failed','succeeded','cancelled','waiting_approval']){
+      await client.query('UPDATE workflow_run SET status=$2 WHERE id=$1',[runId,status]);
+      assert.ok(!(await service.list(actor)).some(row=>row.id===job));
+      await assert.rejects(service.choose(actor,job,{modelBand:'standard',reason:'Retry test'}),/model_choice_no_longer_pending/);
+    }
+    await client.query("UPDATE workflow_run SET status='queued' WHERE id=$1",[runId]);
+    const live=(await service.list(actor)).find(row=>row.id===job);
+    assert.equal(live?.runId,runId);assert.equal(live?.reason,'budget');
+    await client.query('DELETE FROM job WHERE id=$1',[job]);
+  });
   for (const decision of ["approved", "rejected"] as const)
     await t.test(
       `real PostgreSQL ${decision} commits, replays once and rejects the opposite decision`,

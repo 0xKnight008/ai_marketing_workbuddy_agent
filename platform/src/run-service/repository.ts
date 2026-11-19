@@ -116,7 +116,13 @@ export async function ingestAiRuntimeEvent(tx: TenantTransaction, event: AiRunti
         "UPDATE workflow_run SET status = 'failed', finished_at = now() WHERE id = $1 AND workspace_id = $2 AND status IN ('pending', 'queued', 'running')",
         [event.platformRunId, event.workspaceId],
       );
-      if (['pending','queued','running','failed'].includes(run.rows[0].status)) await refundAiReservations(tx,{runId:event.platformRunId},'content_blocked');
+      if (['pending','queued','running','failed'].includes(run.rows[0].status)) {
+        // Generation completed and its output is durably recorded in this event.
+        // Publication validation must not erase known supplier usage. Settle from
+        // receipts, then release only the unused hold; unknown usage reconciles.
+        await settleAiReservations(tx,{runId:event.platformRunId});
+        await finishCost(tx,event.platformRunId);
+      }
       return;
     }
     const transitioned = await tx.query<{ id: string }>(

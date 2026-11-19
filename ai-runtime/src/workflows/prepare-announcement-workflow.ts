@@ -52,6 +52,7 @@ const pipelineContextSchema = z.object({
   platformRunId: z.string(),
   executionContext: executionContextSchema,
   targets: prepareAnnouncementInputSchema.shape.targets,
+  brief: prepareAnnouncementInputSchema.shape.brief,
   contentPlan: contentPlanSchema,
 });
 
@@ -96,6 +97,7 @@ const contentPlanningStep = createStep({
         platformRunId: inputData.platformRunId,
         executionContext,
         targets: input.targets,
+        brief: input.brief,
         contentPlan,
       };
     }),
@@ -116,6 +118,7 @@ const copyOptimizationStep = createStep({
         const copyOptimizationAgent = createCopyOptimizationAgent(modelForBand(config, inputData.executionContext.runPolicy.modelBand, inputData.executionContext.runPolicy.llmProvider),inputData.platformRunId);
         const generation = await copyOptimizationAgent.generate(
           [
+            `Original announcement brief (retain its explicit output-language instructions): ${inputData.brief}`,
             `Content plan: ${JSON.stringify(inputData.contentPlan)}`,
             `Brand profile: ${JSON.stringify(inputData.executionContext.brandProfile)}`,
           ].join('\n\n'),
@@ -168,6 +171,7 @@ const complianceCheckStep = createStep({
         // 2) 语义校验：语气漂移、夸大承诺、平台政策风险
         const generation = await complianceCheckerAgent.generate(
           [
+            `Original announcement brief: ${inputData.brief}`,
             `Drafts: ${JSON.stringify(inputData.drafts)}`,
             `Brand profile: ${JSON.stringify(brand)}`,
           ].join('\n\n'),

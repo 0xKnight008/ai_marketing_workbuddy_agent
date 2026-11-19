@@ -2,7 +2,7 @@ import {ApprovalEditor} from "./ApprovalEditor";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspaceLanguage } from "./useWorkspaceLanguage";
 import { t } from "./translate";
-import { ExecutionHistory } from "./ModelControls";
+import { ExecutionHistory, ModelChoiceQueue } from "./ModelControls";
 import { RunDiagnostics, type RunDetails } from "./WorkflowRunDetails";
 import type { WorkspaceApproval } from "./Overview";
 import { supportsAnnouncement } from "../../platform/src/zernio/social-platforms";
@@ -684,6 +684,7 @@ export function PipelineWorkspace({
                           <option value="es">Español</option>
                         </select>
                       </label>
+                      <small>{w('Used when the brief does not request a specific language.', 'Se usa cuando las instrucciones no especifican un idioma.', '需求未指定语言时使用此设置；明确的语言要求优先。')}</small>
                     </details>
                   </fieldset>
                   {brief.length > 4000 && (
@@ -927,6 +928,7 @@ export function PipelineWorkspace({
                             )}
                           </p>
                         )}
+                      {!terminal(run.status) && <ModelChoiceQueue key={run.id} runId={run.id} token={token} apiBase={apiBase} role={role} onChange={() => { void refreshRun(); void onChange(); }} />}
                       <ExecutionHistory
                         key={`${run.id}:${run.status}`}
                         token={token}

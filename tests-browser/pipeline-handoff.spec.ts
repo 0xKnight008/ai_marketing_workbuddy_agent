@@ -20,6 +20,7 @@ async function setup(
     activations: [] as Record<string, unknown>[],
     decisions: [] as Record<string, unknown>[],
     saves: 0,
+    budgetPaused: false,
   };
   let pipeline: Record<string, unknown> | null = null;
   const account = {
@@ -33,7 +34,7 @@ async function setup(
   const run = () => ({
     id: "run-1",
     workflowId: "pipeline-1",
-    status: state.published
+    status: state.budgetPaused ? "queued" : state.published
       ? "succeeded"
       : state.rejected
         ? "cancelled"
@@ -161,6 +162,10 @@ async function setup(
         json: { ...pipeline, run: { ...run(), status: "queued" } },
       });
     }
+    if (path === '/api/model-choices') return route.fulfill({json:[
+      {id:'unrelated-job',kind:'task.turn',taskId:'other-task',runId:null,requestedBand:'standard',reason:'credits',availableCredits:0,choices:[]},
+      ...(state.budgetPaused ? [{id:'pipeline-job',kind:'prepare_ai_run',runId:'run-1',taskId:null,requestedBand:'eco',reason:'budget',availableCredits:100,choices:['eco']}] : []),
+    ]});
     if (path === "/api/runs/run-1") return route.fulfill({ json: run() });
     if (path === "/api/approval-requests")
       return route.fulfill({
@@ -481,3 +486,18 @@ test('new Pipeline hides disconnected accounts while preserving a usable publish
  await expect(page.getByRole('checkbox',{name:/Disconnected X/})).toHaveCount(0);
  await expect(page.getByRole('checkbox',{name:/Test X/})).toBeChecked();
 });
+
+ test('publishing avoids unrelated model prompts but retains an inline guardrail for its paused run',async({page})=>{
+   const state=await setup(page);
+   await expect(page.locator('.model-choice-queue')).toHaveCount(0);
+   await start(page);
+   await expect(page.locator('.model-choice-queue')).toHaveCount(0);
+   state.budgetPaused=true;
+   const queue=page.locator('.model-choice-queue');
+   await expect(queue).toContainText('Publishing draft');
+   await expect(queue).not.toContainText('other-task');
+   await expect(queue.getByRole('button',{name:'Review task budget'})).toBeVisible();
+   state.budgetPaused=false;
+   await expect(queue).toHaveCount(0);
+   expect(state.activations).toHaveLength(1);
+ });
