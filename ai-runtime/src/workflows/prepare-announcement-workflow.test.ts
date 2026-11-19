@@ -6,6 +6,9 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 process.env.AI_MODEL_ROUTING_MODE = 'litellm';
 process.env.AI_PROXY_MODEL_PROFILE = 'kimi';
+// Exercise all bands through the stub proxy, independently of a developer's
+// staged Eco rollout or direct-provider credentials. CI has neither configured.
+process.env.AI_PROXY_BANDS = 'eco,standard,flagship';
 process.env.OPENAI_BASE_URL = 'https://proxy.invalid/v1';
 process.env.OPENAI_API_KEY = 'synthetic-test-key';
 const storage = mkdtempSync(join(tmpdir(), 'pipeline-reasoning-'));
