@@ -13,5 +13,8 @@ for (const browser of [chromium, firefox, webkit]) {
   } catch {
     throw new Error(`Missing ${browser.name()} executable for Playwright ${version}. Align the CI image with package-lock.json: ${executable}`);
   }
-  console.log(`PASS: Playwright ${version} ${browser.name()} executable is preinstalled`);
+  // Catch container ownership or shared-library failures before the full suite.
+  const instance = await browser.launch();
+  await instance.close();
+  console.log(`PASS: Playwright ${version} ${browser.name()} is preinstalled and launches`);
 }

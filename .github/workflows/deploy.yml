@@ -84,6 +84,8 @@ jobs:
         run: npm ci
 
       - name: Browser import regression (stubbed API, no external messages)
+        env:
+          HOME: /root
         run: |
           node scripts/check-playwright-browsers.mjs
           npx playwright test --project=chromium --global-timeout=1200000
