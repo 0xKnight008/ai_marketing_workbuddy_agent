@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test('manual execution feedback saves, persists on reopen, and keeps edits after failure', async ({ page }) => {
   const report = { id: 'report-1', title: 'Feedback regression', template: 'daily_ops', status: 'generated', modelBand: 'eco', itemCount: 500, droppedCitations: 0, createdAt: '2026-09-14', delivery: null,

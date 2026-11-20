@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 import axe from "axe-core";
 const workspace = "44444444-4444-4444-8444-444444444444",
   taskId = "11111111-1111-4111-8111-111111111111",

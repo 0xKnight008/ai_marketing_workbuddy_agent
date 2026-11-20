@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 const run = { id: 'run-1', status: 'completed', modelBand: 'eco', itemCount: 3, topicCount: 2, error: null, createdAt: '2026-09-14', completedAt: '2026-09-14' };
 const topics = [

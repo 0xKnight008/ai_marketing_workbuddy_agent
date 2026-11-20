@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 import axe from "axe-core";
 const text = "A product update for our X audience.";
 async function setup(

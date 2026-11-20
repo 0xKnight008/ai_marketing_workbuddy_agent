@@ -1,4 +1,4 @@
-import {test,expect} from '@playwright/test';
+import {test,expect} from './fixtures';
 import {reportEvidenceCsv,reportMarkdown} from '../src/workspace/report-export';
 test('report files retain real line breaks, quotes, multilingual evidence and neutralize formulas',()=>{
  const quote='=SUM(1,2) "中文"\nsegunda línea';const report={id:'report-1',title:'Title',template:'comment_insights',report:{summary:'Summary',demandRanking:[{demand:'Finding',citations:[{ref:'i1',snippet:quote}]}]}};

@@ -1,4 +1,4 @@
-import {test,expect,type Page} from '@playwright/test';
+import {test,expect,type Page} from './fixtures';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
 const {connectionSuccess}=require('../platform/src/zernio/success-page') as typeof import('../platform/src/zernio/success-page');

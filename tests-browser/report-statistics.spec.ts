@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test('content recap displays quoted script drafts and truthful historical topic counts', async ({ page }) => {
   const report = { id: 'recap-1', title: 'Content recap regression', template: 'content_recap', status: 'generated', modelBand: 'eco', itemCount: 500, droppedCitations: 0, createdAt: '2026-09-14', delivery: null,

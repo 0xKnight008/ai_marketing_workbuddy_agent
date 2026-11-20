@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test('weekly history attributes execution by feedback time, seals immutably, and compares consecutive weeks', async ({ page }) => {
   let sealed = false;

@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures';
 import axe from 'axe-core';
 const original='¿Podrías hacer un tutorial paso a paso?';
 const report={id:'report-1',batchIds:['batch-1'],title:'Audience requests',template:'community_digest',status:'generated',createdAt:'2026-09-18T10:00:00Z',modelBand:'eco',itemCount:2,droppedCitations:0,delivery:null,report:{_language:'es',summary:'Requests for clearer tutorials.',hotTopics:[{topic:'Step-by-step',citations:[{ref:'i1',snippet:original}]}],unresolvedQuestions:[],highValueMembers:[],conflictRisks:[],activityIdeas:[],announcementDraft:original}};
