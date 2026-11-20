@@ -8,8 +8,15 @@ permissions:
 jobs:
   browser:
     name: V6 ${{ matrix.browser }}
-    # Playwright 1.58.2 supports Ubuntu 24.04; ubuntu-latest may select 26.04.
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Match package-lock.json; browsers and apt dependencies are already installed.
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble
+      options: --ipc=host --init
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -21,8 +28,8 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps ${{ matrix.browser }}
-      - run: npx playwright test --project=${{ matrix.browser }}
+      - run: node scripts/check-playwright-browsers.mjs
+      - run: npx playwright test --project=${{ matrix.browser }} --global-timeout=1200000
       - uses: actions/upload-artifact@v4
         if: always()
         with:
