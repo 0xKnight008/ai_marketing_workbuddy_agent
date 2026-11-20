@@ -16,6 +16,7 @@ type Choice = {
   id: string;
   kind: string;
   taskId: string | null;
+  runId?: string | null;
   requestedBand: Band;
   reason: string;
   availableCredits: number;
@@ -123,9 +124,11 @@ export function ModelChoiceQueue({
   apiBase,
   role,
   onChange,
+  runId,
 }: {
   token: string;
   apiBase: string;
+  runId?: string;
   role: string;
   onChange: () => void;
 }) {
@@ -144,7 +147,7 @@ export function ModelChoiceQueue({
     });
     if (!r.ok) throw new Error();
     const data = await r.json();
-    if (mounted.current && Array.isArray(data)) setRows(data);
+    if (mounted.current && Array.isArray(data)) setRows(runId ? data.filter(row => row.runId === runId) : data);
   }
   useEffect(() => {
     mounted.current = true;
@@ -154,14 +157,14 @@ export function ModelChoiceQueue({
       mounted.current = false;
       clearInterval(timer);
     };
-  }, [token, apiBase]);
+  }, [token, apiBase, runId]);
   useEffect(() => {
     if (!choice) return;
     const current = rows.find((row) => row.id === choice.id);
     if (current) {
       setChoice(current);
       if (!current.choices.includes(band)) setBand(current.choices[0] ?? band);
-    }
+    } else setChoice(null);
   }, [rows]);
   const kind = (k: string) =>
     ({
@@ -190,7 +193,7 @@ export function ModelChoiceQueue({
       )}
     >
       <h2>
-        {w(
+        {runId ? w('Generation is paused', 'La generación está pausada', '生成已暂停') : w(
           "Your model choice is needed",
           "Confirma el modelo",
           "请确认模型选择",
@@ -233,7 +236,7 @@ export function ModelChoiceQueue({
               setError("");
             }}
           >
-            {row.reason==='trial_payment' ? w('Review subscription payment','Revisar pago de suscripción','确认订阅付款') : w("Review model choice", "Revisar modelo", "确认使用模型")}
+            {row.reason==='trial_payment' ? w('Review subscription payment','Revisar pago de suscripción','确认订阅付款') : row.reason==='budget' ? w('Review task budget','Revisar presupuesto','确认任务预算') : w("Review model choice", "Revisar modelo", "确认使用模型")}
           </button>
         </div>
       ))}

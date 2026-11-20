@@ -1,3 +1,4 @@
+import { billingActivity } from '../src/billing/activity';
 import { ingestAiRuntimeEvent } from "../src/run-service/repository";
 import { TaskService } from "../src/task-service/service";
 import { RunWorker, type ClaimedJob } from "../src/run-service/worker-runner";
@@ -139,6 +140,50 @@ export async function costMeteringRegression(
     );
   });
   try {
+    for (const unknown of [false, true]) await t.test(`generated but X-blocked output settles supplier usage; unknown=${unknown}`, async () => {
+      const workflow = randomUUID(), subject = randomUUID();
+      await client.query("INSERT INTO workflow(id,workspace_id,name,created_by) VALUES($1,$2,'Blocked draft',$3)", [workflow,workspaceId,actorId]);
+      await client.query("INSERT INTO workflow_version(workflow_id,version,definition,created_by) VALUES($1,1,'{}',$2)",[workflow,actorId]);
+      await client.query("INSERT INTO workflow_run(id,workspace_id,workflow_id,workflow_version,status,idempotency_key,input,context_snapshot,requested_by) VALUES($1,$2,$3,1,'running',$1::uuid::text,'{}','{}',$4)",[subject,workspaceId,workflow,actorId]);
+      const quote = await quoteCost(db,actor,{kind:'prepare_ai_run',modelBand:'standard',maxCredits:6});
+      if (!('quoteId' in quote)) throw new Error('missing quote');
+      await db.withWorkspace(workspaceId,tx=>bindCostQuote(tx,actor,{aiQuoteId:quote.quoteId},subject,'standard','prepare_ai_run'));
+      const before = await available();
+      const envelope = await costContext.run({workspaceId,database:db},async()=>{
+        await db.withWorkspace(workspaceId,tx=>reserveAiRun(tx,['standard'],{runId:subject},'standard'));
+        return costContext.getStore()!.envelope!;
+      });
+      const receipt={id:randomUUID(),requestId:envelope.requestId,operationId:envelope.operationId,workspaceId,model:'fixture-model',input:1000,output:800,cached:0,status:unknown?'unknown':'known',costNanos:null};
+      const event={eventId:randomUUID(),platformRunId:subject,workspaceId,aiRunId:randomUUID(),type:'action_plan.created' as const,createdAt:new Date().toISOString(),payload:{_meteringOperationId:quote.quoteId,_metering:[receipt],actionPlan:{summary:'Generated copy exceeds X limit',requiresApproval:true,blockedByCompliance:true,actions:[{stepOrder:1,type:'social.create_post',platform:'x',accountId:'synthetic',content:'x'.repeat(565),hashtags:[],mode:'publish_now',idempotencyKey:subject,requiresApproval:true}]}}};
+      for(let i=0;i<2;i++) await db.withWorkspace(workspaceId,tx=>ingestAiRuntimeEvent(tx,event));
+      const op=(await db.withWorkspace(workspaceId,tx=>costOperations(tx))).find(row=>row.id===quote.quoteId)!;
+      assert.equal(op.settledCredits,unknown?0:2); // ceil($0.010 * 1.06 / $0.01)
+      assert.equal(op.heldCredits,unknown?6:0);
+      assert.equal(op.releasedCredits,unknown?0:4);
+      assert.equal((await available()).aiCreditsAvailable,before.aiCreditsAvailable-(unknown?6:2));
+      assert.equal((await client.query('SELECT status FROM workflow_run WHERE id=$1',[subject])).rows[0].status,'failed');
+      assert.equal((await client.query('SELECT count(*)::int AS n FROM approval_request WHERE run_id=$1',[subject])).rows[0].n,0);
+      assert.equal((await client.query("SELECT count(*)::int AS n FROM job WHERE run_id=$1 AND kind='execute_approved_actions'",[subject])).rows[0].n,0);
+      const feed=await db.withWorkspace(workspaceId,tx=>billingActivity(tx,workspaceId));
+      assert.deepEqual(feed.filter(row=>row.operationId===quote.quoteId).map(row=>row.journalKind).sort(),unknown?['reserve']:['release','reserve','settle']);
+      assert.ok(feed.every(row=>row.runId===subject));
+      const role='activity_rls_'+randomUUID().replaceAll('-','');
+      await client.query(`CREATE ROLE ${role} NOLOGIN`);
+      await client.query(`GRANT USAGE ON SCHEMA public TO ${role}`);
+      await client.query(`GRANT SELECT ON ai_cost_journal,ai_cost_operation,workflow_run,task_event TO ${role}`);
+      try {
+        const foreign=await db.withWorkspace(randomUUID(),async tx=>{
+          await tx.query(`SET LOCAL ROLE ${role}`);
+          return billingActivity(tx,workspaceId);
+        });
+        assert.equal(foreign.length,0,'RLS must protect both ledger branches');
+      } finally { await client.query(`DROP OWNED BY ${role}`); await client.query(`DROP ROLE ${role}`); }
+      await client.query("UPDATE ai_cost_operation SET mode='shadow' WHERE id=$1",[quote.quoteId]);
+      assert.equal((await db.withWorkspace(workspaceId,tx=>billingActivity(tx,workspaceId))).length,0,'shadow estimates are not billed actions');
+      await client.query("INSERT INTO task_event(workspace_id,subject_id,action_type,billable_units,ai_credits,status) VALUES($1,$2,'ai.legacy',0,1,'succeeded')",[workspaceId,subject]);
+      const legacy=await db.withWorkspace(workspaceId,tx=>billingActivity(tx,workspaceId));
+      assert.equal(legacy.length,1); assert.equal(legacy[0]!.ledgerSource,'legacy');
+    });
     await t.test("Kimi TTL receipts settle once using the saved tariff and release unused credits", async () => {
       // Synthetic tariff, not a production price. Test header parsing through
       // runtime separately; the platform independently recalculates receipts.

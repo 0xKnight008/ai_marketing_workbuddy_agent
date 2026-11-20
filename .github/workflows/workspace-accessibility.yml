@@ -8,7 +8,15 @@ permissions:
 jobs:
   browser:
     name: V6 ${{ matrix.browser }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Match package-lock.json; browsers and apt dependencies are already installed.
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble
+      options: --ipc=host --init
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -20,8 +28,14 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps ${{ matrix.browser }}
-      - run: npx playwright test --project=${{ matrix.browser }}
+      - name: Verify preinstalled browsers
+        # Firefox requires the home directory to belong to the container user.
+        env:
+          HOME: /root
+        run: node scripts/check-playwright-browsers.mjs
+      - run: npx playwright test --project=${{ matrix.browser }} --global-timeout=1200000
+        env:
+          HOME: /root
       - uses: actions/upload-artifact@v4
         if: always()
         with:

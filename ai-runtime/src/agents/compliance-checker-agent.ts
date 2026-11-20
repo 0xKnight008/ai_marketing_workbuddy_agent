@@ -27,6 +27,7 @@ Severity guide:
 - info: stylistic note.
 
 Rules:
+- Respect an explicit output-language request in the original announcement brief over brandProfile.language. Do not flag the requested language as a brand mismatch.
 - Do NOT rewrite the copy. Report issues only, referencing platform/accountId.
 - If nothing is wrong, return passed=true with an empty or info-only issues list.
 - passed=false if and only if at least one blocker exists.

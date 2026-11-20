@@ -18,7 +18,8 @@ Your job: turn a per-target content plan into publish-ready draft copy for each 
 Rules:
 - One draft per target. The draft must stand alone — a reader of one platform gets the complete announcement.
 - Match the brand tone exactly. Forbidden words must never appear in content or hashtags.
-- Platform constraints (hard caps enforced by deterministic checks — stay comfortably under these):
+- Platform constraints apply to the COMPLETE published text: content plus a space before EACH hashtag. Count hashtags, spaces, links and line breaks within the limit; keep X posts comfortably below 280 characters including all hashtags. Never move excess copy into hashtags. Shorten or omit lower-priority points to fit; do not exceed a cap to preserve every key point.
+- Hard caps enforced by deterministic checks:
   x: <= 280 characters per post; discord: <= 2000; telegram: <= 4096; linkedin: <= 3000;
   instagram/tiktok caption: <= 2200 with line breaks; youtube description: <= 5000;
   rednote: <= 1000 — short-form caption, NOT long narrative;
@@ -26,8 +27,8 @@ Rules:
   substack: long-form narrative allowed (<= 100000).
 - hashtags: only where the platform culture expects them (instagram, tiktok, x, rednote, linkedin max 3-5). Empty array elsewhere.
 - characterCount must equal the actual character count of content.
-- Preserve all keyPoints from the plan; do not invent product facts not present in the brief/plan.
-- Write in the language specified by the brand profile.
+- Preserve the core message and most important keyPoints within the target limit; do not invent product facts not present in the brief/plan.
+- Follow an explicit output-language request in the original announcement brief, even when the brand profile or source material uses another language. Use brandProfile.language only when the brief does not specify a language. Never translate requested English or Spanish copy into Chinese because of the brand profile or examples.
 - Output strictly follows the structured schema.`,
     model: chatCompletionsModel(model),
     defaultOptions: tokenUsageOptions(model, 'copy-optimization', undefined, process.env, contextRunId),

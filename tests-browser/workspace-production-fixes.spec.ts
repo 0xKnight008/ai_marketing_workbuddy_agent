@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 import axe from "axe-core";
 const workspace = "44444444-4444-4444-8444-444444444444",
   taskId = "11111111-1111-4111-8111-111111111111",
@@ -746,3 +746,24 @@ for(const [language,label,title] of [['en','Credits refunded','AI credit refund'
   await expect(page.getByText(label+' ·',{exact:false})).toBeVisible();expect(s.requests).toEqual([]);
  });
 }
+
+for(const [locale,reserved,settled,released] of [
+ ['en','Reserved (not a final charge)','Settled from reservation','Unused credits released'],
+ ['zh','已预留（非最终扣费）','从预留中结算','未用额度已释放'],
+ ['es','Reservado (no es un cargo definitivo)','Liquidado de la reserva','Créditos no utilizados liberados'],
+] as const) test(`Activity refreshes cost journal without representing settlement as a second debit: ${locale}`,async({page})=>{
+ const s=initial();s.awaitingModel=false;await setup(page,s);
+ let finished=false,fail=false;
+ const row=(kind:string,credits:string)=>({id:'cost:'+kind,ledgerSource:'cost-v1',journalKind:kind,runId:taskId,actionType:'ai.prepare_ai_run',aiCredits:credits,createdAt:'2026-11-19T01:00:00Z'});
+ await page.route('**/api/billing/task-events',route=>fail?route.fulfill({status:503,json:{error:'unavailable'}}):route.fulfill({json:finished?[row('settle','2'),row('release','4'),row('reserve','6')]:[row('reserve','6')]}));
+ await page.goto(`/app?locale=${locale}#activity`);
+ await expect(page.getByText(`${reserved}: 6 credits`,{exact:true})).toBeVisible();
+ finished=true;
+ await expect(page.getByText(`${settled}: 2 credits`,{exact:true})).toBeVisible({timeout:12000});
+ await expect(page.getByText(`${released}: 4 credits`,{exact:true})).toBeVisible();
+ await expect(page.getByText('−2 credit(s)',{exact:false})).toHaveCount(0);
+ fail=true;
+ await expect(page.getByRole('alert').filter({hasText:/Credit activity|额度记录|actividad de créditos/})).toBeVisible({timeout:12000});
+ await expect(page.getByText(`${settled}: 2 credits`,{exact:true})).toBeVisible();
+ expect(s.requests).toEqual([]);
+});

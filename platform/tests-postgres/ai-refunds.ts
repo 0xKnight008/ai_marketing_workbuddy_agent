@@ -90,16 +90,16 @@ export async function aiRefundRegression(t:TestContext,client:Client,db:Database
   await client.query("UPDATE job SET status='dead_lettered' WHERE id=$1",[jobId]);assert.equal((await available()).aiCreditsAvailable,500);assert.equal((await available()).aiCreditsAvailable,500);
  });
 
- for(const blocked of [true,false])await t.test(`workflow output blocked=${blocked} settles or refunds before approval without bypassing review`,async()=>{
+ for(const blocked of [true,false])await t.test(`workflow output blocked=${blocked} settles generation before approval without bypassing review`,async()=>{
   await reset();const runId=randomUUID(),aiRunId=randomUUID();await client.query("INSERT INTO workflow_run(id,workspace_id,workflow_id,workflow_version,idempotency_key,input,context_snapshot,requested_by,status) VALUES($1,$2,$3,1,$1::uuid::text,'{}','{}',$4,'running')",[runId,workspaceId,workflowId,actorId]);
   await db.withWorkspace(workspaceId,tx=>reserveAiRun(tx,['flagship'],runId,'flagship'));
   const event={eventId:randomUUID(),platformRunId:runId,workspaceId,aiRunId,type:'action_plan.created' as const,createdAt:new Date().toISOString(),payload:{actionPlan:{summary:'Draft',requiresApproval:true,blockedByCompliance:blocked,actions:[{stepOrder:1,type:'social.create_post',platform:'x',accountId:'synthetic-account',content:'A synthetic draft',hashtags:[],mode:'publish_now',idempotencyKey:runId,requiresApproval:true}]}}};
   await db.withWorkspace(workspaceId,tx=>ingestAiRuntimeEvent(tx,event));
-  const ledger=await client.query('SELECT ai_reservation_state FROM task_event WHERE run_id=$1 AND reversal_of IS NULL',[runId]);assert.equal(ledger.rows[0].ai_reservation_state,blocked?'refunded':'settled');
+  const ledger=await client.query('SELECT ai_reservation_state FROM task_event WHERE run_id=$1 AND reversal_of IS NULL',[runId]);assert.equal(ledger.rows[0].ai_reservation_state,'settled');
   const approvals=await client.query('SELECT count(*)::int AS n FROM approval_request WHERE run_id=$1',[runId]);assert.equal(approvals.rows[0].n,blocked?0:1);
   // A delayed failure must not refund a valid plan already waiting for approval.
   await db.withWorkspace(workspaceId,tx=>ingestAiRuntimeEvent(tx,{...event,eventId:randomUUID(),type:'ai_run.failed',payload:{error:'late error'}}));
-  assert.equal((await available()).aiCreditsAvailable,blocked?500:480);
+  assert.equal((await available()).aiCreditsAvailable,480);
  });
  await t.test('a purchased-credit refund clears topup chargeback debt before creating spendable credits',async()=>{
   await reset();const subjectId=randomUUID();await client.query("INSERT INTO task_event(workspace_id,subject_id,action_type,billable_units,ai_credits,status,ai_reservation_state,purchased_ai_credits) VALUES($1,$2,'ai',0,20,'succeeded','reserved',20)",[workspaceId,subjectId]);

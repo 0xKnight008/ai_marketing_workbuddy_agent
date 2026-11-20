@@ -1,5 +1,5 @@
 import axe from "axe-core";
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 const personas = {
   creators: ["comment_insights", "demandRanking", "demand"],
   sellers: ["review_attribution", "issueClusters", "theme"],

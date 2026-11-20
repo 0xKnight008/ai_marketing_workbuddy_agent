@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test('scheduled delivery: rule save is standing approval; weekly digest needs a click; urgent alerts close the loop', async ({ page }) => {
   const rules: unknown[] = [];

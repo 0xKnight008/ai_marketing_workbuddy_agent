@@ -1,3 +1,4 @@
+import {billingActivity} from '../billing/activity';
 import {deleteImport} from '../import-service/delete';
 import {FeedbackService} from '../feedback-service/service';
 import {editApproval} from '../run-service/approval-edit';
@@ -675,11 +676,7 @@ export class PlatformService {
 
   async taskEvents(actor: ActorContext): Promise<unknown[]> {
     requirePermission(actor.role, 'billing:view');
-    const events = await this.database.withWorkspace(actor.workspaceId, (tx) => tx.query(
-      'SELECT id, run_id AS "runId", action_type AS "actionType", billable_units AS "billableUnits", ai_credits::text AS "aiCredits", ai_reservation_state AS "reservationState", reversal_of AS "reversalOf", status, created_at AS "createdAt" FROM task_event WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT 100',
-      [actor.workspaceId],
-    ));
-    return events.rows;
+    return this.database.withWorkspace(actor.workspaceId,tx=>billingActivity(tx,actor.workspaceId));
   }
 
   async auditEvents(actor: ActorContext): Promise<unknown[]> {

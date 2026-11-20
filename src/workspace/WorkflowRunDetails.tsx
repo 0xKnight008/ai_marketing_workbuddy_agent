@@ -72,6 +72,11 @@ export function RunDiagnostics({ run }: { run: RunDetails }) {
                     "尚未创建审核记录，请先查看执行详情再新建任务。",
                   )}
           </p>
+          {run.failure.kind === 'content_blocked' && <p>{w(
+            'Check the AI receipt for settled generation costs and unused credits returned. A publication block does not by itself mean generation was free.',
+            'Consulta el recibo de IA para ver el coste de generación liquidado y los créditos no utilizados devueltos. Un bloqueo de publicación no implica generación gratuita.',
+            '请查看 AI 收据中的生成费用结算与未用额度退回记录。发布校验未通过不代表已完成的生成免费。',
+          )}</p>}
           {run.failure.issues.length > 0 && (
             <ul>
               {run.failure.issues.map((issue, i) => (

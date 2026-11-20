@@ -21,9 +21,10 @@ Rules:
   telegram/discord: direct community update; x: concise hook; linkedin: professional framing;
   instagram/tiktok/rednote: visual-first caption plan; youtube: description/community post;
   reddit: non-promotional, value-first; substack: longer-form narrative.
+- For X, plan a single short post whose content, spaces, links and hashtags together fit 280 characters. Limit keyPoints to what fits that post.
 - keyPoints must be concrete and derived from the brief — no generic filler.
 - Use prior approved examples (when provided) as style reference, not as content to copy.
-- Write in the language specified by the brand profile.
+- Follow an explicit output-language request in the original announcement brief, even when the brand profile or source material uses another language. Use brandProfile.language only when the brief does not specify a language. Never translate requested English or Spanish copy into Chinese because of the brand profile or examples.
 - Output strictly follows the structured schema. No commentary outside the schema.`,
     model: chatCompletionsModel(model),
     defaultOptions: tokenUsageOptions(model, 'announcement-planner', undefined, process.env, contextRunId),

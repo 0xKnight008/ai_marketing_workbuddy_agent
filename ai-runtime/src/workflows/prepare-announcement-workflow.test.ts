@@ -5,7 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 process.env.AI_MODEL_ROUTING_MODE = 'litellm';
-process.env.AI_PROXY_MODEL_PROFILE = 'onetoken';
+process.env.AI_PROXY_MODEL_PROFILE = 'kimi';
+// Exercise all bands through the stub proxy, independently of a developer's
+// staged Eco rollout or direct-provider credentials. CI has neither configured.
+process.env.AI_PROXY_BANDS = 'eco,standard,flagship';
 process.env.OPENAI_BASE_URL = 'https://proxy.invalid/v1';
 process.env.OPENAI_API_KEY = 'synthetic-test-key';
 const storage = mkdtempSync(join(tmpdir(), 'pipeline-reasoning-'));
@@ -18,8 +21,8 @@ const { requestTraceContext, requestTraceMiddleware } = await import('../lib/req
 const { prepareAnnouncementRequestSchema } = await import('../schemas/announcement');
 const input = prepareAnnouncementRequestSchema.parse({
   platformRunId: randomUUID(), workspaceId: randomUUID(), actorId: randomUUID(),
-  input: { brief: 'Announce our new evidence links on X.', targets: [{ platform: 'x', accountId: 'synthetic-x' }] },
-  executionContext: { brandProfile: { language: 'en' }, runPolicy: { modelBand: 'eco', maxOutputTokens: 1500 } },
+  input: { brief: 'Write the entire post in English. Announce our new evidence links on X.', targets: [{ platform: 'x', accountId: 'synthetic-x' }] },
+  executionContext: { brandProfile: { language: 'zh' }, runPolicy: { modelBand: 'eco', maxOutputTokens: 1500 } },
 });
 const draft = { platform: 'x', accountId: 'synthetic-x', content: 'New evidence links are here.', hashtags: [], characterCount: 27 };
 const outputs = [
@@ -27,31 +30,40 @@ const outputs = [
   { drafts: [draft] }, { passed: true, issues: [] },
 ];
 test('real announcement workflow respects the reasoning budget and keeps approval closed on truncation', async t => {
-  for (const truncated of [false, true]) await t.test(truncated ? 'reasoning-only length failure' : 'three model steps reach approval-ready plan', async t => {
+  for (const [band, truncated, language] of [['eco',false,'English'],['standard',false,'English'],['flagship',false,'English'],['standard',false,'Spanish'],['eco',true,'English']] as const) await t.test(`${band}/${language}: ${truncated ? 'reasoning-only length failure' : 'explicit brief language survives a Chinese brand default'}`, async t => {
+    const request = structuredClone(input);
+    request.executionContext.runPolicy.modelBand = band;
+    request.input.brief = `Write the entire post in ${language}. Announce our new evidence links on X.`;
+    const alias = `primary-${band}`;
     const run = await prepareAnnouncementWorkflow.createRun();
     const emitter = new RunServiceEventEmitter(input.platformRunId, input.workspaceId, run.runId);
     const events: Array<{ type: string; payload?: Record<string, unknown> }> = [];
     t.mock.method(emitter, 'emit', async (type: string, payload?: Record<string, unknown>) => { events.push({ type, payload }); });
     registerEmitter(run.runId, emitter);
     let calls = 0, persisted = 0;
-    const trace = { requestId: randomUUID(), taskId: input.platformRunId, workspaceId: input.workspaceId, operationId: randomUUID(), band: 'eco', attempts: [], failureCode: undefined as string | undefined, persist: async () => { persisted++; } };
+    const trace = { requestId: randomUUID(), taskId: input.platformRunId, workspaceId: input.workspaceId, operationId: randomUUID(), band, attempts: [], failureCode: undefined as string | undefined, persist: async () => { persisted++; } };
     const upstream = async (url: string | URL | Request, init?: RequestInit) => {
       assert.equal(String(url), 'https://proxy.invalid/v1/chat/completions');
       const body = JSON.parse(String(init?.body));
-      assert.equal(body.model, 'primary-eco');
+      assert.equal(body.model, alias);
+      if (calls < 3) {
+        const messages = JSON.stringify(body.messages);
+        assert.ok(messages.includes(request.input.brief), 'every step must receive the explicit output-language request');
+        assert.match(messages, /explicit.*language/i, 'system instructions prioritize the requested language over the Chinese brand default');
+      }
       assert.ok(body.max_tokens > 1500, "credit-derived budget must override the former tier cap");
       const stopped = truncated && calls === 1;
       const content = stopped ? '' : JSON.stringify(outputs[calls]);
       calls++;
       assert.ok(calls <= 3, 'no hidden paid repair retries');
-      return Response.json({ id: 'synthetic-' + calls, object: 'chat.completion', created: 1, model: 'primary-eco',
+      return Response.json({ id: 'synthetic-' + calls, object: 'chat.completion', created: 1, model: alias,
         choices: [{ index: 0, message: { role: 'assistant', content, reasoning_content: 'synthetic reasoning' }, finish_reason: stopped ? 'length' : 'stop' }],
         usage: { prompt_tokens: 100, completion_tokens: stopped ? body.max_tokens : 200, total_tokens: stopped ? body.max_tokens + 100 : 300 },
       });
     };
     t.mock.method(globalThis, 'fetch', (url: string | URL | Request, init?: RequestInit) => boundedModelFetch(upstream, url, init));
     try {
-      const outcome = await requestTraceContext.run(trace, () => runtimeCostContext.run({ workspaceId: input.workspaceId, operationId: trace.operationId, requestId: trace.requestId, maxCostNanos: '100000000', maxInputTokens: 8000, maxOutputTokens: 1500, creditBoundOutput: true, rate: { version: 'test', model: 'primary-eco', responseModels: ['primary-eco'], inputUsdPerMillion: '1', outputUsdPerMillion: '1', cacheUsdPerMillion: '0.1', source: 'synthetic', verifiedAt: '2026-11-04T00:00:00Z' } }, () => run.start({ inputData: input })));
+      const outcome = await requestTraceContext.run(trace, () => runtimeCostContext.run({ workspaceId: input.workspaceId, operationId: trace.operationId, requestId: trace.requestId, maxCostNanos: '100000000', maxInputTokens: 8000, maxOutputTokens: 1500, creditBoundOutput: true, rate: { version: 'test', model: alias, responseModels: [alias], inputUsdPerMillion: '1', outputUsdPerMillion: '1', cacheUsdPerMillion: '0.1', source: 'synthetic', verifiedAt: '2026-11-04T00:00:00Z' } }, () => run.start({ inputData: request })));
       assert.equal(outcome.status, truncated ? 'failed' : 'success');
       assert.equal(calls, truncated ? 2 : 3);
       const plan = events.find(e => e.type === 'action_plan.created');

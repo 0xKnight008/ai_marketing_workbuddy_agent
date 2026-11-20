@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test('weekly review shows denominators, unknown effects and report navigation; refresh failure clears stale totals', async ({ page }) => {
   let failNext = false;

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test('selects a full presale draft and displays exact text in the approval queue', async ({ page }) => {
   const poll = 'Which design should we make?\nA: cat badge\nB: fox standee\nPlease vote before Friday.';
