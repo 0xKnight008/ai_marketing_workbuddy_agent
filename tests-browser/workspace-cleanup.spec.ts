@@ -84,6 +84,7 @@ for(const locale of ['en','zh','es'] as const)test(`${locale}: activity keeps AI
  await page.goto(`/login?locale=${locale}#activity`,{waitUntil:'domcontentloaded'});
  // Hash-only navigation reuses already-loaded workspace data; reload after installing activity responses.
  await page.reload({waitUntil:'domcontentloaded'});
+ await expect(page.locator('main a[href="#review"]')).toHaveCount(0);
  await expect(page.getByText(/ai.insight: .*2 credit/)).toBeVisible();
  await expect(page.getByText({en:'Scheduled task authorized',zh:'定时任务已授权',es:'Tarea programada autorizada'}[locale],{exact:true})).toBeVisible();
  await expect(page.getByText('Daily feedback',{exact:true})).toBeVisible();await expect(page.getByText('Published story',{exact:true})).toBeVisible();

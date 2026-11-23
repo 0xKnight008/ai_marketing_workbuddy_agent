@@ -26,7 +26,7 @@ export function modelChoices(requested: ModelBand, usage: UsageSnapshot) {
   );
 }
 // A completed/failed publication must never be resumed by a stale budget prompt.
-const activeChoice = `AND (j.kind<>'prepare_ai_run' OR EXISTS(SELECT 1 FROM workflow_run wr WHERE wr.workspace_id=j.workspace_id AND wr.id=j.run_id AND wr.status IN ('pending','queued','running')))`;
+const activeChoice = `AND (j.kind NOT IN ('prepare_ai_run','reconcile_ai_run') OR EXISTS(SELECT 1 FROM workflow_run wr WHERE wr.workspace_id=j.workspace_id AND wr.id=j.run_id AND wr.status IN ('pending','queued','running')))`;
 export class ModelChoiceService {
   constructor(
     private readonly database: Database,

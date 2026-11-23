@@ -45,6 +45,7 @@ type Schedule = {
   version?: number;
   nextRunAt?: string;
   lastError?: string;
+  latestRun?: Pick<Scan, "id" | "status" | "itemCount" | "createdAt" | "reportStatus"> | null;
 };
 type Props = { token: string; apiBase: string };
 function useFeedbackApi({ token, apiBase }: Props) {
@@ -165,6 +166,16 @@ function ScopeNote() {
     </p>
   );
 }
+function scanStatus(status: string, w: (en: string, es: string, zh: string) => string) {
+  const labels: Record<string, [string, string, string]> = {
+    queued: ['Queued', 'En cola', '排队中'], running: ['Running', 'En ejecución', '运行中'],
+    completed: ['Completed', 'Completada', '已完成'], succeeded: ['Completed', 'Completada', '已完成'],
+    failed: ['Failed', 'Fallida', '失败'], partial: ['Partial', 'Parcial', '部分完成'],
+    generated: ['Generated', 'Generado', '已生成'],
+    pending: ['Pending', 'Pendiente', '待处理'], generating: ['Generating', 'Generando', '生成中'],
+  };
+  return labels[status] ? w(...labels[status]) : status;
+}
 function ScanResult({ scan }: { scan: Scan }) {
   const { w, locale } = useWorkspaceLanguage();
   return (
@@ -183,7 +194,7 @@ function ScanResult({ scan }: { scan: Scan }) {
             )
           : scan.status === "failed"
             ? w("Collection failed", "Recopilación fallida", "采集失败")
-            : w("Collection finished", "Recopilación terminada", "采集完成")}
+            : scan.status === "completed" ? w("Collection finished", "Recopilación terminada", "采集完成") : scanStatus(scan.status, w)}
       </p>
       <p className="feedback-scope">{w('Analysis starts with representative evidence, not an exhaustive reading of every comment. All collected originals remain available for follow-up and citation checks.','El análisis comienza con evidencia representativa, no con una lectura exhaustiva. Los originales recopilados se conservan para consultas y citas.','分析先使用代表性证据，并非逐条穷尽所有留言。已采集原文会保留，供后续检索和引用核对。')}</p>
       {scan.coverage.map((c) => (
@@ -438,17 +449,32 @@ export function ScheduledTasks(
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [history, setHistory] = useState<Scan[] | null>(null),
-    [historyName, setHistoryName] = useState("");
+    [historyName, setHistoryName] = useState(""),
+    [historyId, setHistoryId] = useState<string | null>(null),
+    [refreshing, setRefreshing] = useState(false);
+  const requestVersion = useRef(0);
   const load = useCallback(async () => {
-    const [s, a] = await Promise.all([
-      api<Schedule[]>("/schedules"),
-      api<Connection[]>("/accounts"),
-    ]);
-    setRows(s);
-    setAccounts(a);
-  }, [api]);
+    const version = ++requestVersion.current;
+    setRefreshing(true);
+    try {
+      const [s, a, h] = await Promise.all([
+        api<Schedule[]>("/schedules"), api<Connection[]>("/accounts"),
+        historyId ? api<Scan[]>("/schedules/" + historyId + "/history") : Promise.resolve(null),
+      ]);
+      if (version !== requestVersion.current) return;
+      setRows(s); setAccounts(a); setHistory(h); setError("");
+    } catch (e) {
+      if (version === requestVersion.current) setError((e as Error).message);
+    } finally {
+      if (version === requestVersion.current) setRefreshing(false);
+    }
+  }, [api, historyId]);
   useEffect(() => {
-    void load().catch((e) => setError(e.message));
+    void load();
+    const refresh = () => { if (!document.hidden) void load(); };
+    const timer = setInterval(refresh, 5000);
+    window.addEventListener("focus", refresh);
+    return () => { ++requestVersion.current; clearInterval(timer); window.removeEventListener("focus", refresh); };
   }, [load]);
   function edit(s?: Schedule) {
     setError("");
@@ -487,8 +513,8 @@ export function ScheduledTasks(
         <button className="workspace-primary" onClick={() => edit()}>
           {w("New scheduled task", "Nueva tarea programada", "新建定时任务")}
         </button>
-        <button onClick={() => void load().catch((e) => setError(e.message))}>
-          {w("Refresh", "Actualizar", "刷新")}
+        <button disabled={refreshing} onClick={() => void load()}>
+          {refreshing ? w("Refreshing…", "Actualizando…", "刷新中…") : w("Refresh", "Actualizar", "刷新")}
         </button>
       </div>
       {error && <p role="alert">{error}</p>}
@@ -516,7 +542,7 @@ export function ScheduledTasks(
           <p>{s.goal}</p>
           <p>
             {s.enabled
-              ? w("Active", "Activa", "运行中")
+              ? w("Schedule enabled", "Programación habilitada", "计划已启用")
               : s.lastError
                 ? w("Needs attention", "Requiere atención", "需要处理")
                 : w("Paused", "Pausada", "已暂停")}{" "}
@@ -535,6 +561,7 @@ export function ScheduledTasks(
               })}
             </p>
           )}
+          {s.latestRun && <p>{w("Latest collection", "Última recopilación", "最近采集")} · {scanStatus(s.latestRun.status, w)} · {s.latestRun.itemCount} {w("items", "elementos", "条")} · {new Date(s.latestRun.createdAt).toLocaleString(locale)}{s.latestRun.reportStatus && <> · {w("Analysis", "Análisis", "分析")} · {scanStatus(s.latestRun.reportStatus, w)}</>}</p>}
           {s.lastError && <p role="alert">{s.lastError}</p>}
           <div className="workspace-button-row">
             <button onClick={() => edit(s)}>
@@ -563,16 +590,7 @@ export function ScheduledTasks(
               </button>
             )}
             <button
-              onClick={async () => {
-                try {
-                  setHistory(
-                    await api<Scan[]>("/schedules/" + s.id + "/history"),
-                  );
-                  setHistoryName(s.name);
-                } catch (e) {
-                  setError((e as Error).message);
-                }
-              }}
+              onClick={() => { setHistoryName(s.name); setHistoryId(s.id!); }}
             >
               {w("Run history", "Historial de ejecuciones", "运行记录")}
             </button>
@@ -761,7 +779,9 @@ export function ScheduledTasks(
         </WorkspaceDialog>
       )}
       {history && (
-        <WorkspaceDialog title={historyName} onClose={() => setHistory(null)}>
+        <WorkspaceDialog title={historyName} onClose={() => { setHistoryId(null); setHistory(null); }}>
+          <button disabled={refreshing} onClick={() => void load()}>{refreshing ? w("Refreshing…", "Actualizando…", "刷新中…") : w("Refresh", "Actualizar", "刷新")}</button>
+          {error && <p role="alert">{error}</p>}
           {!history.length && (
             <p>{w("No runs yet.", "Sin ejecuciones.", "暂无运行记录。")}</p>
           )}
@@ -778,12 +798,12 @@ export function ScheduledTasks(
               {s.reportId && (
                 <button
                   onClick={() => {
-                    setHistory(null);
+                    setHistoryId(null); setHistory(null);
                     props.onReport(s.reportId!);
                   }}
                 >
                   {w("Open report", "Abrir informe", "打开报告")} ·{" "}
-                  {s.reportStatus}
+                  {s.reportStatus ? scanStatus(s.reportStatus, w) : ""}
                 </button>
               )}
             </article>
