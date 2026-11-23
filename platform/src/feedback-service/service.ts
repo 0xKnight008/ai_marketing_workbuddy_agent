@@ -238,7 +238,7 @@ export class FeedbackService {
       async (tx) =>
         (
           await tx.query(
-            `SELECT ${scheduleColumns} FROM feedback_schedule WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT 100`,
+            `SELECT ${scheduleColumns}, (SELECT json_build_object('id',s.id,'status',s.status,'itemCount',s.item_count,'createdAt',s.created_at,'reportStatus',r.status) FROM feedback_scan s LEFT JOIN insight_report r ON r.id=s.report_id AND r.workspace_id=s.workspace_id WHERE s.workspace_id=feedback_schedule.workspace_id AND s.schedule_id=feedback_schedule.id ORDER BY s.created_at DESC,s.id DESC LIMIT 1) AS "latestRun" FROM feedback_schedule WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT 100`,
             [actor.workspaceId],
           )
         ).rows,

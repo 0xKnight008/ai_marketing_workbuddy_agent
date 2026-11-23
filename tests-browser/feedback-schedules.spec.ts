@@ -346,3 +346,27 @@ test('account sync hides disconnected history, keeps expired connections and pre
   await page.reload({ waitUntil: "domcontentloaded" });await expect(page.getByRole('heading',{name:'Active Dora',exact:true})).toBeVisible();await expect(page.getByRole('heading',{name:'Removed Dora',exact:true})).toHaveCount(0);
   fail=true;await page.getByRole('button',{name:'Sync account health',exact:true}).click();await expect(page.getByRole('alert')).toContainText('Sync failed.');await expect(page.getByRole('heading',{name:'Active Dora',exact:true})).toBeVisible();
 });
+
+for (const locale of ['en', 'zh', 'es'] as const) test(`${locale}: schedule state and history refresh independently of enabled state`, async ({page}) => {
+  await fixture(page, locale);
+  let status = 'running', fail = false;
+  const run = () => ({id:'scan-live',status,itemCount:0,coverage:[],createdAt:'2026-11-23T08:30:00Z'});
+  await page.route('**/api/feedback/schedules', route => fail ? route.fulfill({status:503,json:{error:'fixture_refresh_failed'}}) : route.fulfill({json:[{id:'schedule-live',name:'Daily collection',goal:'Summarize feedback',enabled:true,accountIds:[accountId],localTime:'09:00',timezone:'UTC',modelBand:'standard',dailyCredits:20,maxItems:100,latestRun:run()}]}));
+  await page.route('**/api/feedback/schedules/schedule-live/history', route => route.fulfill({json:[run()]}));
+  await page.locator('[data-nav=schedules]').click();
+  const enabled={en:'Schedule enabled',zh:'计划已启用',es:'Programación habilitada'}[locale];
+  await expect(page.getByText(enabled,{exact:false})).toBeVisible();
+  await page.getByRole('button',{name:{en:'Run history',zh:'运行记录',es:'Historial de ejecuciones'}[locale],exact:true}).click();
+  const dialog=page.getByRole('dialog');
+  status='completed';
+  await dialog.getByRole('button',{name:{en:'Refresh',zh:'刷新',es:'Actualizar'}[locale],exact:true}).click();
+  await expect(dialog).toContainText({en:'Collection finished',zh:'采集完成',es:'Recopilación terminada'}[locale]);
+  fail=true;
+  await dialog.getByRole('button',{name:{en:'Refresh',zh:'刷新',es:'Actualizar'}[locale],exact:true}).click();
+  await expect(dialog.getByRole('alert')).toBeVisible();
+  await expect(dialog).toContainText({en:'Collection finished',zh:'采集完成',es:'Recopilación terminada'}[locale]);
+  fail=false;status='running';
+  // Polling also updates an open history, without a navigation or manual refresh.
+  await expect(dialog).toContainText({en:'Running',zh:'运行中',es:'En ejecución'}[locale],{timeout:12000});
+  await expect(dialog.getByRole('alert')).toHaveCount(0);
+});

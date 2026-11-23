@@ -265,6 +265,7 @@ export async function feedbackScheduleRegression(
       const emptyId=(await empty.saveSchedule(actor,undefined,{...schedule,name:'Empty',dailyCredits:10000})).id;
       await client.query("UPDATE feedback_schedule SET next_run_at=now()-interval '1 minute' WHERE id=$1",[emptyId]);await empty.enqueueDue(actor.workspaceId);const emptyScan=(await empty.history(actor,emptyId))[0]!;await empty.executeScan(actor.workspaceId,String(emptyScan.id));
       const done=await empty.scan(actor,String(emptyScan.id));assert.equal(done.itemCount,0);assert.equal(done.analysisError,null);assert.equal(done.reportId,null);assert.equal((await client.query('SELECT enabled FROM feedback_schedule WHERE id=$1',[emptyId])).rows[0].enabled,true);
+      const listed=(await empty.schedules(actor)).find((row:any)=>row.id===emptyId) as any;assert.equal(listed.latestRun.status,'completed');assert.equal(listed.latestRun.itemCount,0);assert.equal(listed.latestRun.reportStatus,null);assert.equal(listed.enabled,true);
     });
     await t.test(
       "saved edits require the new version and delivery uses exactly that snapshot",
